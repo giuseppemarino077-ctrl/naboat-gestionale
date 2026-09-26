@@ -37,7 +37,7 @@ docker compose up -d db redis
 
 echo Attendo che il database sia pronto...
 :wait_db
-docker exec progetto-db-1 pg_isready -U naboat >nul 2>&1
+docker compose exec -T db pg_isready -U naboat >nul 2>&1
 if errorlevel 1 (
   timeout /t 2 >nul
   goto wait_db
