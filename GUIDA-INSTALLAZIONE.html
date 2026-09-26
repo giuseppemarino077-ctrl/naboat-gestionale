@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NaBoat Gestionale — Guida installazione su PC e modifica con OpenCode</title>
+<style>
+  :root{ --deep:#052f3f; --ocean:#087f8c; --sea:#23a6a6; --ink:#082936; --muted:#60737a; --line:#dbe5e5; --foam:#e8f5f2; --sand:#f7f4ee; --gold:#e6a73c; --coral:#e8755b; }
+  *{box-sizing:border-box}
+  body{margin:0;color:var(--ink);font-family:"Segoe UI",Arial,sans-serif;line-height:1.65;background:#fff;font-size:15px}
+  code,pre{font-family:Consolas,monospace}
+  header{background:linear-gradient(120deg,#03212d,var(--deep));color:#fff;padding:52px 24px}
+  header .wrap,main,footer .wrap{max-width:1020px;margin:0 auto}
+  .eyebrow{color:#8fddd5;font-size:12px;letter-spacing:2px;text-transform:uppercase;font-weight:700}
+  h1{font-size:clamp(27px,4.4vw,42px);margin:10px 0;line-height:1.1}
+  h2{font-size:23px;color:var(--deep);border-bottom:2px solid var(--line);padding-bottom:6px;margin-top:44px}
+  h3{font-size:17px;color:var(--deep);margin:24px 0 6px}
+  main{padding:24px}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
+  th{background:var(--deep);color:#fff}
+  code{background:#eef4f3;padding:1px 5px;border-radius:5px;font-size:.92em}
+  pre{background:#0b2b36;color:#cfe8e4;border-radius:10px;padding:14px;overflow-x:auto;font-size:13px;line-height:1.55}
+  pre code{background:none;padding:0}
+  .box{background:var(--foam);border-radius:12px;padding:14px 18px;margin:14px 0}
+  .box.warn{background:#fff8e6;border:1px solid var(--gold)}
+  .box.danger{background:#fdece7;border:1px solid var(--coral)}
+  .tag{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:700}
+  .ok{background:#e1f5f1;color:#177469}.warn2{background:#fff0cc;color:#9a6406}
+  nav.toc a{color:#8fddd5;font-weight:700;text-decoration:none}
+  ol.steps{padding-left:22px} ol.steps li{margin:11px 0}
+  .step-title{font-weight:700;color:var(--deep)}
+  footer{background:#031f2a;color:#a8c2c5;padding:24px;font-size:13px}
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <p class="eyebrow">NaBoat · Guida installazione · rev 2026-09-14</p>
+  <h1>Installare il portale sul tuo PC e modificarlo con OpenCode</h1>
+  <p>Tutto quello che serve: cosa contiene il pacchetto, cosa installare, come avviarlo, come ripristinare il database e come lavorarci con OpenCode + DeepSeek V4.1 Flash.</p>
+  <nav class="toc">
+    <a href="#pkg">1 · Cosa contiene</a> ·
+    <a href="#installa">2 · Cosa installare</a> ·
+    <a href="#avvio">3 · Installazione e avvio</a> ·
+    <a href="#db">4 · Database demo</a> ·
+    <a href="#opencode">5 · Modificare con OpenCode</a> ·
+    <a href="#go">6 · OpenCode Go + DeepSeek</a> ·
+    <a href="#problemi">7 · Problemi comuni</a>
+  </nav>
+</div></header>
+
+<main>
+
+<h2 id="pkg">1 · Cosa contiene il pacchetto</h2>
+<pre><code>NABOAT-portale/
+├── naboat-gestionale/      → l'applicazione completa (codice sorgente)
+│   ├── src/                → pagine e API
+│   ├── prisma/             → struttura del database + migrazioni + dati demo
+│   ├── public/uploads/     → foto demo delle barche
+│   ├── scripts/            → test, backup, ripristino
+│   ├── AGENTS.md           → istruzioni per l'assistente OpenCode
+│   ├── README.md           → panoramica e comandi
+│   ├── DEPLOY.md           → guida per metterlo online
+│   └── GUIDA-INSTALLAZIONE.html → questo documento
+├── database/
+│   └── naboat-demo.sql     → copia del database con i dati demo
+├── guide/                  → le guide HTML (presentazione, tecnica, go-live, completa)
+├── RFQ_NaBoat.pdf          → documento dei requisiti originale
+└── INSTALLAZIONE.html      → questa guida</code></pre>
+<p>Non serve alcuna conoscenza di programmazione per <strong>avviarlo</strong>: bastano i comandi indicati sotto, da copiare e incollare.</p>
+
+<h2 id="installa">2 · Cosa installare sul PC</h2>
+<table>
+  <tr><th>Cosa</th><th>A cosa serve</th><th>Dove</th></tr>
+  <tr><td><b>Docker Desktop</b></td><td>Fa girare il database (PostgreSQL) e la memoria veloce (Redis) senza doverli configurare a mano.</td><td>docker.com/products/docker-desktop</td></tr>
+  <tr><td><b>Node.js 20 o superiore</b></td><td>Esegue l'applicazione. Include <code>npm</code>.</td><td>nodejs.org (versione LTS)</td></tr>
+  <tr><td><b>OpenCode</b></td><td>L'assistente AI che legge e modifica il codice.</td><td>opencode.ai</td></tr>
+  <tr><td><b>Un editor di testo</b> (opzionale)</td><td>Per guardare o modificare i file a mano.</td><td>VS Code</td></tr>
+</table>
+<div class="box warn"><b>Windows:</b> OpenCode funziona, ma la documentazione ufficiale consiglia di usarlo dentro <b>WSL</b> (Windows Subsystem for Linux) per prestazioni migliori. PowerShell va comunque bene per i comandi di avvio dell'app.</div>
+
+<h3>Installare OpenCode</h3>
+<pre><code># Modo più semplice (macOS/Linux/WSL)
+curl -fsSL https://opencode.ai/install | bash
+
+# Oppure con Node.js (funziona anche su Windows)
+npm install -g opencode-ai
+
+# Alternative Windows
+choco install opencode
+scoop install opencode</code></pre>
+
+<h2 id="avvio">3 · Installazione e avvio passo passo</h2>
+<ol class="steps">
+  <li><span class="step-title">Estrai lo ZIP</span> in una cartella, ad esempio <code>C:\progetti\NABOAT-portale</code> (oppure <code>~/progetti</code> su Mac/Linux).</li>
+  <li><span class="step-title">Apri il terminale nella cartella dell'app</span><br><code>cd NABOAT-portale/naboat-gestionale</code></li>
+  <li><span class="step-title">Crea il file dei segreti locali</span><br>copia <code>.env.local.example</code> in <code>.env.local</code>:<br>
+    <pre><code># Windows (PowerShell)
+Copy-Item .env.local.example .env.local
+# Mac/Linux
+cp .env.local.example .env.local</code></pre>
+    Anche <code>.env.example</code> → <code>.env</code> serve per i container:<br>
+    <pre><code>Copy-Item .env.example .env   # Mac/Linux: cp .env.example .env</code></pre></li>
+  <li><span class="step-title">Avvia Docker Desktop</span> e attendi che sia "running" (icona della balena).</li>
+  <li><span class="step-title">Avvia database e cache</span><br><pre><code>docker compose up -d db redis</code></pre>Attendi ~10 secondi. Le porte usate sono <b>5434</b> e <b>6380</b> per evitare conflitti con altri programmi.</li>
+  <li><span class="step-title">Installa le librerie</span><br><pre><code>npm install</code></pre></li>
+  <li><span class="step-title">Prepara il database</span><br><pre><code>npx prisma migrate deploy</code></pre></li>
+  <li><span class="step-title">Crea l'amministratore e i dati demo</span><br><pre><code>npm run db:seed        # crea il superadmin
+npm run db:seed:test   # crea i dati dimostrativi (barche, prenotazioni, clienti)</code></pre></li>
+  <li><span class="step-title">Avvia l'applicazione</span><br><pre><code>npm run dev</code></pre>Apri il browser su <b>http://localhost:3000</b>. Per fermarla: <code>Ctrl + C</code>.</li>
+</ol>
+
+<div class="box"><b>Accessi di prova</b><br>
+Proprietario: <code>marco@golfo.test</code> / <code>password-lunga-123</code><br>
+Operatore: <code>op@golfo.test</code> / <code>operatore-12345</code><br>
+Amministratore NaBoat: <code>admin@naboat.it</code> / <code>NaBoat-Admin-12345</code></div>
+
+<h2 id="db">4 · Usare il database del pacchetto</h2>
+<p>Il file <code>database/naboat-demo.sql</code> è una copia completa del database con dentro i dati demo. Per ripristinarlo (attenzione: <strong>sovrascrive</strong> i dati attuali):</p>
+<pre><code># Windows (PowerShell) — dalla cartella naboat-gestionale
+Get-Content ..\database\naboat-demo.sql | docker compose exec -T db psql -U naboat -d naboat
+
+# Mac/Linux
+cat ../database/naboat-demo.sql | docker compose exec -T db psql -U naboat -d naboat</code></pre>
+<p>In alternativa, se preferisci partire da un database vuoto, salta questo passaggio: <code>npm run db:seed</code> e <code>npm run db:seed:test</code> bastano a popolare tutto.</p>
+<div class="box warn">Se hai cambiato la password nel file <code>.env</code>, sostituisci <code>-U naboat</code> con il tuo utente e aggiungi la password quando richiesta.</div>
+
+<h2 id="opencode">5 · Modificare il portale con OpenCode</h2>
+<p>OpenCode è un assistente che lavora <strong>direttamente sui file del progetto</strong>: gli si parla in italiano e lui legge, propone e applica le modifiche.</p>
+<ol class="steps">
+  <li><span class="step-title">Apri il terminale nella cartella dell'app</span><br><code>cd naboat-gestionale</code></li>
+  <li><span class="step-title">Lancia OpenCode</span><br><pre><code>opencode</code></pre></li>
+  <li><span class="step-title">Fai analizzare il progetto</span><br>Scrivi <code>/init</code>: OpenCode legge la struttura. Nel pacchetto c'è già un file <code>AGENTS.md</code> pronto con le regole del progetto, quindi conosce già le convenzioni.</li>
+  <li><span class="step-title">Chiedi quello che ti serve</span><br>Esempi che funzionano bene:
+    <ul>
+      <li>«Spiegami come funziona la gestione delle prenotazioni in <code>src/app/api/v1/bookings/route.ts</code>»</li>
+      <li>«Aggiungi un campo "caparra" alle prenotazioni, con campo nel modulo e nel database»</li>
+      <li>«Rendi la pagina Oggi più leggibile su telefono»</li>
+      <li>«Aggiungi una nuova pagina Statistiche con il numero di uscite per barca»</li>
+    </ul></li>
+  <li><span class="step-title">Modalità Pianificazione</span><br>Premi <b>Tab</b> per passare in modalità "plan": OpenCode propone <em>come</em> farebbe la modifica senza toccare nulla. Rileggi, correggi, poi torna in modalità normale e digli di procedere.</li>
+  <li><span class="step-title">Se qualcosa non va</span><br><code>/undo</code> annulla l'ultima modifica, <code>/redo</code> la ripristina.</li>
+  <li><span class="step-title">Verifica sempre</span><br>Dopo una modifica chiedi: «esegui <code>npm run build</code> e correggi eventuali errori».</li>
+</ol>
+<div class="box danger"><b>Importante:</b> chiedi a OpenCode di lavorare sempre con criterio e di non rimuovere i controlli di sicurezza. Nel file <code>AGENTS.md</code> sono elencate le regole da rispettare (es. ogni API deve controllare l'azienda di appartenenza).</div>
+
+<h2 id="go">6 · Abbonarsi a OpenCode Go e usare DeepSeek V4.1 Flash</h2>
+<p>Per usare modelli AI potenti senza gestire chiavi di più fornitori, OpenCode offre <strong>OpenCode Go</strong>: un abbonamento da <strong>10 $/mese</strong> che dà accesso a un elenco curato di modelli open per il coding. Tra questi c'è <strong>DeepSeek V4.1 Flash</strong>.</p>
+
+<h3>Come attivarlo</h3>
+<ol class="steps">
+  <li>Apri OpenCode nel terminale (comando <code>opencode</code>).</li>
+  <li>Scrivi <code>/connect</code> e seleziona <b>OpenCode Go</b>.</li>
+  <li>Ti apre la pagina <code>opencode.ai/auth</code>: fai l'accesso, aggiungi i dati di pagamento e <b>abbonati a Go</b>.</li>
+  <li>Copia la <b>chiave API</b> che ti viene mostrata e incollala nel terminale quando richiesto.</li>
+  <li>Scrivi <code>/models</code> e scegli <b>DeepSeek V4.1 Flash</b>.</li>
+</ol>
+<div class="box"><b>Quanto si usa con 10 $/mese?</b> Il piano Go include un budget di utilizzo mensile per modello. Con DeepSeek V4.1 Flash si parla di decine di migliaia di richieste stimate al mese — più che sufficiente per lavorare su un progetto come questo. Puoi controllare il consumo dalla console su <code>opencode.ai/auth</code>.</div>
+
+<h3>Impostarlo come modello predefinito (opzionale)</h3>
+<p>Per non doverlo scegliere ogni volta, crea nella cartella del progetto il file <code>opencode.json</code>:</p>
+<pre><code>{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "opencode-go/deepseek-v4.1-flash"
+}</code></pre>
+<p>Il formato dell'identificativo è <code>opencode-go/&lt;nome-modello&gt;</code>. Se non sei sicuro del nome esatto, usa <code>/models</code>: OpenCode scrive da solo la configurazione corretta.</p>
+
+<h3>Note utili</h3>
+<ul>
+  <li>L'abbonamento Go è <b>opzionale</b>: OpenCode funziona anche con altri fornitori, senza vincoli.</li>
+  <li>Serve una connessione internet: l'assistente lavora tramite il servizio online.</li>
+  <li>Il codice del portale resta <b>sul tuo PC</b>: viene inviato al modello solo ciò che serve per rispondere alle tue richieste.</li>
+  <li>Con Go puoi anche usare modelli gratuiti quando raggiungi il limite mensile.</li>
+</ul>
+
+<h2 id="problemi">7 · Problemi comuni</h2>
+<table>
+  <tr><th>Messaggio / sintomo</th><th>Causa e soluzione</th></tr>
+  <tr><td><code>failed to connect to the docker API</code></td><td>Docker Desktop non è avviato. Apri l'app e attendi l'icona "running".</td></tr>
+  <tr><td><code>P1001: Can't reach database server</code></td><td>Il database non è pronto: esegui <code>docker compose up -d db redis</code> e attendi 10 secondi.</td></tr>
+  <tr><td><code>AUTH_SECRET mancante o troppo corto</code></td><td>Manca <code>.env.local</code>: copialo da <code>.env.local.example</code>.</td></tr>
+  <tr><td>Porta 5434 già occupata</td><td>Un altro progetto usa quella porta: modifica <code>docker-compose.override.yml</code> (es. 5435) e aggiorna di conseguenza <code>DATABASE_URL</code> in <code>.env.local</code>.</td></tr>
+  <tr><td>Non entro: "Non autenticato"</td><td>La sessione è scaduta o hai riavviato il server: rifai il login.</td></tr>
+  <tr><td><code>npm run dev</code> non parte</td><td>Esegui <code>npm install</code> e controlla di avere Node.js 20+ (<code>node -v</code>).</td></tr>
+  <tr><td>Voglio ripartire da zero</td><td><code>docker compose down -v</code> poi <code>docker compose up -d db redis</code>, <code>npx prisma migrate deploy</code>, <code>npm run db:seed</code>.</td></tr>
+</table>
+
+<div class="box"><b>Comandi che tornano sempre utili</b>
+<pre><code>docker compose up -d db redis   # avvia database e cache
+npm run dev                     # avvia il portale (http://localhost:3000)
+npm run build                   # verifica che tutto compili
+node scripts/smoke-test.mjs http://localhost:3000   # 27 test automatici
+docker compose down             # spegne i container (i dati restano)
+npm run db:seed:test            # ricrea i dati demo</code></pre></div>
+
+</main>
+<footer><div class="wrap">
+  NaBoat · Guida installazione locale · Dettagli tecnici in <code>scheda-tecnica.html</code> e <code>DEPLOY.md</code>.
+  <p style="margin:14px 0 0;color:#8fddd5;font-weight:700;letter-spacing:.5px">by AppOfficina.it</p>
+</div></footer>
+</body>
+</html>

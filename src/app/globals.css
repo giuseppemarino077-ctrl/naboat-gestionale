@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --ink: #33241c;
+  --deep: #9a3412;
+  --ocean: #c2410c;
+  --sea: #f97316;
+  --foam: #fff1e6;
+  --sand: #f7f4ee;
+  --gold: #e6a73c;
+  --coral: #e8755b;
+  --line: #ecdfd5;
+  --muted: #8a7568;
+}
+
+body { @apply bg-[#faf6f2] text-ink font-sans antialiased; }
+h1,h2,h3,h4 { @apply font-display; }
+.btn-primary { @apply inline-flex items-center justify-center rounded-[7px] bg-ocean px-4 py-2.5 text-sm font-bold text-white hover:brightness-110; }
+.card { @apply rounded-[10px] border border-line bg-white; }
+.badge-ready { @apply rounded-full bg-[#e1f5f1] px-2 py-1 text-xs font-semibold text-[#177469]; }
+.badge-pending { @apply rounded-full bg-[#fff0cc] px-2 py-1 text-xs font-semibold text-[#9a6406]; }
+.badge-block { @apply rounded-full bg-[#e8ecec] px-2 py-1 text-xs font-semibold text-[#5d696b]; }

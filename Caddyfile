@@ -1,0 +1,21 @@
+# Singolo VPS: Caddy termina TLS e proxya tutto all'app Next (frontend + /api).
+
+# app.naboat.it: solo reindirizzamento. Il portale vive su naboat.it (stesso dominio del sito).
+app.naboat.it {
+  redir https://naboat.it{uri} permanent
+}
+
+# www: reindirizza al dominio principale
+www.naboat.it {
+  redir https://naboat.it{uri} permanent
+}
+
+# Sito pubblico + portale: la stessa applicazione
+naboat.it {
+  reverse_proxy app:3000
+}
+
+# api.naboat.it: si attiva solo se si crea anche il relativo record DNS.
+# api.naboat.it {
+#   reverse_proxy app:3000
+# }

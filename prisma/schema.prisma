@@ -1,0 +1,825 @@
+generator client {
+  provider      = "prisma-client-js"
+  // "native" = piattaforma di compilazione; il secondo serve per Alpine (OpenSSL 3).
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Multi-tenant: ogni tabella operativa ha tenantId.
+// Isolamento applicativo + RLS Postgres (vedi prisma/migrations RLS).
+
+enum TenantStatus {
+  pending
+  active
+  suspended
+}
+
+enum UserRole {
+  superadmin
+  owner
+  operatore
+  skipper
+}
+
+enum BoatStatus {
+  disponibile
+  non_disponibile
+  manutenzione
+}
+
+enum BookingStatus {
+  prenotata
+  in_mare
+  rientrata
+  cancellata
+}
+
+model Tenant {
+  id        String       @id @default(uuid())
+  nome      String
+  logoUrl   String?
+  indirizzoPartenza String?
+  telefonoContatto  String?
+  status    TenantStatus @default(pending)
+  createdAt DateTime     @default(now())
+  users     User[]
+  boats     Boat[]
+  customers Customer[]
+  bookings  Booking[]
+  blocks    Block[]
+  skippers  Skipper[]
+  proprietari Proprietario[]
+  extras    Extra[]
+  payments  Payment[]
+  expenses  Expense[]
+  subscriptions Subscription[]
+  maintenance       Maintenance[]
+  tariffe           Tariffa[]
+
+  // --- Modulo Ormeggio (ormeggiatori e rimessaggi) ---
+  aree              Area[]
+  posti             Posto[]
+  permanenze        Permanenza[]
+  movimenti         Movimento[]
+  attivita          Attivita[]
+  serviziCatalogo   ServizioCatalogo[]
+  addebiti          Addebito[]
+  contrattiOrmeggio ContrattoOrmeggio[]
+
+  // --- Pagamenti online (RFQ Fase 2). Tutto spento di default. ---
+  pagamentiAttivi        Boolean @default(false) // interruttore generale deciso dall'azienda
+  pagamentiBloccatiNaBoat Boolean @default(false) // NaBoat può disattivare l'azienda
+  stripeAttivo           Boolean @default(false)
+  stripeSecretEnc        String? // chiave segreta Stripe, cifrata a riposo
+  stripeWebhookEnc       String? // segreto di firma del webhook, cifrato a riposo
+  stripePublicKey        String? // chiave pubblica (non segreta)
+  paypalAttivo           Boolean @default(false) // predisposizione: PayPal aggiunto dopo Stripe
+  feeNaboatPct           Float   @default(0) // commissione NaBoat sulle prenotazioni dal canale NaBoat (modificabile solo da NaBoat)
+  feeProviderPct         Float   @default(1.5) // commissione indicativa del fornitore (Stripe/PayPal)
+  feeProviderFixedCent   Int     @default(25) // quota fissa per transazione, in centesimi
+  accontoPct             Float   @default(30) // percentuale di acconto proposta
+  rimborsoPct            Float   @default(50) // rimborso ammesso, in percentuale
+  rimborsoOreMinime      Int     @default(24) // rimborso solo fino a N ore prima dell'uscita
+
+  // --- Moduli e condizioni commerciali (modificabili da NaBoat) ---
+  moduloMarketplace     Boolean @default(true) // se spento: nessuna pubblicazione su NaBoat e fee non applicata
+  moduloOrmeggio        Boolean @default(false) // modulo ormeggio attivo per questa azienda
+  tipoModulo            TipoModulo @default(noleggio) // scelto in registrazione: noleggio, ormeggio o entrambi
+  prezzoAttivazioneCent Int? // override del listino per questa azienda (null = listino di piattaforma)
+  canoneMensileCent     Int? // override del canone mensile
+  canoneStagionaleCent  Int? // override del canone stagionale
+}
+
+enum PaymentStato {
+  in_attesa
+  pagato
+  fallito
+  rimborsato
+  rimborsato_parziale
+}
+
+enum PaymentTipo {
+  acconto
+  saldo
+  totale
+}
+
+// Incasso collegato a una prenotazione. Provider "stripe" oppure "manuale" (POS/contanti/bonifico).
+model Payment {
+  id              String       @id @default(uuid())
+  tenantId        String
+  tenant          Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  bookingId       String?
+  booking         Booking?     @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  permanenzaId    String? // incasso collegato a una permanenza di ormeggio
+  permanenza      Permanenza?  @relation(fields: [permanenzaId], references: [id], onDelete: SetNull)
+  provider        String       @default("stripe")
+  tipo            PaymentTipo  @default(acconto)
+  importoCent     Int // importo del noleggio, in centesimi
+  feeNaboatCent   Int          @default(0)
+  feeProviderCent Int          @default(0)
+  totaleCent      Int // quello che paga il cliente: importo + fee NaBoat + commissione fornitore
+  valuta          String       @default("eur")
+  stato           PaymentStato @default(in_attesa)
+  metodo          String? // carta, paypal, contanti, pos, bonifico
+  sessionId       String?      @unique
+  paymentIntentId String?
+  rimborsoCent    Int          @default(0)
+  descrizione     String?
+  createdAt       DateTime     @default(now())
+  paidAt          DateTime?
+
+  @@index([tenantId, createdAt])
+  @@index([bookingId])
+}
+
+model User {
+  id           String   @id @default(uuid())
+  tenantId     String?
+  tenant       Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  email        String   @unique
+  passwordHash String?
+  role         UserRole @default(operatore)
+  nome         String?
+  vedeImporti  Boolean  @default(true) // il titolare può nascondere gli importi a un collaboratore
+  totpSecret   String?
+  totpEnabled  Boolean  @default(false)
+  emailVerified Boolean @default(false)
+  verifyToken   String?
+  verifyExpires DateTime?
+  createdAt    DateTime @default(now())
+
+  // Se questo utente è anche uno skipper in anagrafica, da qui si sa quale.
+  skipper      Skipper?
+  attivita     Attivita[] // attività di ormeggio assegnate a questo utente
+
+  @@index([tenantId])
+}
+
+model Boat {
+  id               String     @id @default(uuid())
+  tenantId         String
+  tenant           Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  nome             String
+  tipo             String?
+  capienza         Int        @default(2)
+  potenzaCv        Int?
+  patenteRichiesta Boolean    @default(false)
+  stato            BoatStatus @default(disponibile)
+  uso              UsoBarca   @default(noleggio) // noleggio oppure custodia (ormeggio/rimessaggio)
+  proprietarioId   String?
+  proprietario     Proprietario? @relation(fields: [proprietarioId], references: [id], onDelete: SetNull)
+  specs            Json?
+  fotoCopertina    String?
+  fotoGallery      String[]   @default([])
+  createdAt        DateTime   @default(now())
+  lat              Float?
+  lon              Float?
+  bookings         Booking[]
+  blocks           Block[]
+  expenses         Expense[]
+  maintenance      Maintenance[]
+  tariffe          Tariffa[]
+  permanenze       Permanenza[]
+
+  @@index([tenantId])
+  @@index([proprietarioId])
+}
+
+// Proprietario della barca in custodia (anagrafica dell'ormeggio, distinta dai clienti del noleggio).
+model Proprietario {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  nome      String
+  telefono  String?
+  email     String?
+  note      String?
+  dedupKey  String // normalizzato da telefono/email/nome per riuso senza fusioni automatiche
+  createdAt DateTime @default(now())
+  boats     Boat[]
+
+  @@unique([tenantId, dedupKey])
+  @@index([tenantId])
+}
+
+model Customer {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  nome      String
+  telefono  String
+  email     String?
+  note      String?
+  dedupKey  String
+  createdAt DateTime @default(now())
+  bookings  Booking[]
+
+  @@unique([tenantId, dedupKey])
+  @@index([tenantId])
+}
+
+model Booking {
+  id          String        @id @default(uuid())
+  tenantId    String
+  tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  boatId      String
+  boat        Boat          @relation(fields: [boatId], references: [id], onDelete: Restrict)
+  customerId  String?
+  customer    Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  startAt     DateTime
+  endAt       DateTime
+  stato       BookingStatus @default(prenotata)
+  passeggeri  Int           @default(2)
+  clienteNome String?
+  telefono    String?
+  destinazione String?
+  formula     String?
+  skipperId   String?
+  skipper     Skipper?      @relation(fields: [skipperId], references: [id], onDelete: SetNull)
+  extras      BookingExtra[]
+  patenteOk   Boolean       @default(false)
+  note        String?
+  idempotencyKey String?    @unique
+  createdAt   DateTime      @default(now())
+
+  // --- Pagamenti (Fase 2) ---
+  prezzoCent     Int? // prezzo del noleggio in centesimi (se assente, non si può incassare online)
+  origineCanale  String  @default("diretto") // "diretto" oppure "naboat": solo da qui matura la fee NaBoat
+  payToken       String? @unique // link pubblico di pagamento
+  payTokenExpires DateTime?
+  payments       Payment[]
+
+  // --- Cauzione con blocco carta ---
+  cauzioneCent     Int?
+  cauzioneStato    CauzioneStato @default(non_richiesta)
+  cauzioneIntentId String?
+
+  // --- Contratto digitale ---
+  contrattoToken     String?   @unique
+  contrattoFirmatoAt DateTime?
+  contrattoFirmaNome String?
+  contrattoFirmaIp   String?
+
+  // --- Check-in / check-out ---
+  checkinAt             DateTime?
+  checkinNote           String?
+  checkinCarburantePct  Int?
+  checkoutAt            DateTime?
+  checkoutNote          String?
+  checkoutCarburantePct Int?
+  danniCent             Int?
+  fotoCheckin           String[] @default([])
+  fotoCheckout          String[] @default([])
+
+  // --- Promemoria al cliente ---
+  promemoriaInviatoAt DateTime?
+
+  @@index([tenantId, boatId, startAt])
+}
+
+model Block {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  boatId    String
+  boat      Boat     @relation(fields: [boatId], references: [id], onDelete: Cascade)
+  startAt   DateTime
+  endAt     DateTime
+  motivo    String?
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, boatId, startAt])
+}
+model AuditLog {
+  id        String   @id @default(uuid())
+  tenantId  String?
+  actorId   String?
+  azione    String
+  entita    String?
+  entitaId  String?
+  dettagli  String? // valori prima/dopo della modifica (JSON), se il registro completo è attivo
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([createdAt])
+}
+
+// Skipper interni assegnabili alle prenotazioni (RFQ: flotta e risorse)
+model Skipper {
+  id        String    @id @default(uuid())
+  tenantId  String
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  nome      String
+  telefono  String?
+  attivo    Boolean   @default(true)
+  userId    String?   @unique // se lo skipper ha anche un accesso al portale, qui c'è il suo utente
+  user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt DateTime  @default(now())
+  bookings  Booking[]
+
+  @@index([tenantId])
+}
+
+// Extra / servizi opzionali (carburante, tender, ecc.)
+model Extra {
+  id        String         @id @default(uuid())
+  tenantId  String
+  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  nome      String
+  prezzo    Float?
+  attivo    Boolean        @default(true)
+  createdAt DateTime       @default(now())
+  bookings  BookingExtra[]
+
+  @@index([tenantId])
+}
+
+// --- Servizi NaBoat: due aree separate ma comunicanti ---
+// 1) GESTIONALE: attivazione una tantum (installazione, caricamento barche, formazione)
+//    + canone di manutenzione e assistenza (mensile o stagionale).
+// 2) MARKETPLACE: fee percentuale SOLO sulle prenotazioni che arrivano dal canale NaBoat.
+// Un noleggiatore può usare solo il gestionale (paga attivazione + canone) senza il marketplace,
+// oppure entrambi. Il modulo marketplace si può spegnere per singola azienda: in quel caso la fee non si applica.
+
+enum SubscriptionStato {
+  in_attesa
+  attivo
+  scaduto
+  annullato
+}
+
+// --- Copie di sicurezza: impostazioni scelte da NaBoat dal pannello ---
+// Lo script sul server (scripts/backup-orchestrator.sh) chiede al portale il "piano"
+// e esegue solo ciò che è attivo: così gli interruttori del pannello comandano davvero i backup.
+model BackupSettings {
+  id                    String   @id @default("singleton")
+  attivo                Boolean  @default(true) // interruttore generale dei backup
+  ogniOre               Int      @default(24) // frequenza: 1 = ogni ora, 24 = giornaliero
+  retentionCopie        Int      @default(48) // quante copie conservare in locale
+  includiFoto           Boolean  @default(true) // foto e allegati nell'archivio completo
+  destinazioneLocale    Boolean  @default(true) // archivio sul disco del server
+  destinazioneObjectStorage Boolean @default(false) // copia su Aruba Object Storage (S3)
+  destinazioneFtp       Boolean  @default(false) // copia gratuita sull'hosting Aruba
+  soloDatabase          Boolean  @default(false) // se attivo: solo dump del database, niente foto
+  macchinaDelTempo      Boolean  @default(false) // archiviazione continua del database (ritorno a qualsiasi secondo)
+  replicaAttiva         Boolean  @default(false) // copia su un secondo server
+  replicaHost           String? // indirizzo del secondo server
+  registroCompleto      Boolean  @default(true) // registra ogni modifica nel registro azioni
+  avvisoEmail           String? // dove mandare l'avviso se un backup fallisce
+  aggiornatoAt          DateTime @updatedAt
+
+  esecuzioni            BackupRun[]
+}
+
+// Esito di ogni esecuzione, riportato dallo script al portale.
+model BackupRun {
+  id            String         @id @default(uuid())
+  iniziatoAt    DateTime       @default(now())
+  finitoAt      DateTime?
+  esito         String         @default("in_corso") // ok | errore | saltato
+  dimensioneByte Int           @default(0)
+  file          String?
+  destinazioni  String         @default("") // es. "locale,s3,ftp"
+  includiFoto   Boolean        @default(true)
+  messaggio     String?
+  settings      BackupSettings @relation(fields: [settingsId], references: [id], onDelete: Cascade)
+  settingsId    String         @default("singleton")
+
+  @@index([iniziatoAt])
+}
+
+// Listino di piattaforma, modificabile da NaBoat. Riga singola (id = "singleton").
+model PlatformSettings {
+  id                      String   @id @default("singleton")
+  prezzoAttivazioneCent   Int      @default(0) // una tantum
+  canoneMensileCent       Int      @default(0) // manutenzione/assistenza al mese
+  canoneStagionaleCent    Int      @default(0) // manutenzione/assistenza a stagione
+  feeNaboatPctDefault     Float    @default(0) // fee % proposta alle nuove aziende
+  abbonamentoObbligatorio Boolean  @default(false)
+  aggiornatoAt            DateTime @updatedAt
+
+  // --- SEO delle pagine pubbliche (marketplace). Il gestionale resta sempre noindex. ---
+  seoPubblicheAttive     Boolean @default(false) // interruttore generale: se spento, tutto noindex e sitemap vuota
+  seoTitoloDefault       String? // titolo base del sito pubblico
+  seoDescrizioneDefault  String? // descrizione base (max ~160 caratteri)
+  seoKeywordsDefault     String? // parole chiave separate da virgola
+  seoImmagineDefault     String? // immagine social di default
+  seoDominioPubblico     String? // es. https://naboat.it (usato per canonical e sitemap)
+  seoAnalyticsId         String? // es. G-XXXXXXX (Google Analytics 4) o altro
+  seoVerificaGoogle      String? // codice di verifica Search Console
+  seoLocalitaDefault     String? // zona/porto di riferimento per le parole chiave generate
+
+  // --- Aspetto del portale (modificabile da NaBoat) ---
+  loginImmagine     String? // immagine di sfondo della pagina di accesso (vuoto = sfondo predefinito)
+  loginSfocatura    Int     @default(0) // 0-10: sfocatura dello sfondo per far leggere meglio il modulo
+  loginMessaggio    String? // frase di benvenuto mostrata sopra il modulo
+
+  // --- Home del sito pubblico (naboat.it) ---
+  homeTitolo      String? // titolo di apertura (vuoto = testo predefinito)
+  homeSottotitolo String? // riga sotto il titolo (vuoto = testo predefinito)
+  homeImmagine    String? // foto di apertura (vuoto = immagine dell'accesso o predefinita)
+
+  // --- Portale in manutenzione (il pubblico vede il messaggio, chi ha la sessione vede il sito) ---
+  manutenzioneAttiva Boolean @default(false)
+  manutenzioneTitolo String?
+  manutenzioneTesto  String?
+
+  // --- Listino del modulo Ormeggio (prezzi di NaBoat per gli ormeggiatori) ---
+  prezzoAttivazioneOrmeggioCent Int?
+  canoneOrmeggioMensileCent     Int?
+}
+
+// Messaggi dal form «Contatti» del sito pubblico: non appartengono a un'azienda,
+// li legge solo NaBoat dal pannello.
+model RichiestaContatto {
+  id        String    @id @default(uuid())
+  nome      String
+  cognome   String
+  telefono  String
+  email     String
+  messaggio String? // testo libero facoltativo (i link vengono rimossi in ingresso)
+  privacyAt DateTime // quando il visitatore ha dato il consenso
+  ip        String?
+  userAgent String?
+  lettoAt   DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([createdAt])
+}
+
+// SEO di una pagina pubblica. Una riga per: piattaforma, azienda, barca, skipper.
+// I campi "Auto" sono generati dal portale dai dati reali; i campi senza suffisso sono
+// le modifiche fatte a mano da NaBoat e hanno la precedenza.
+enum SeoTipo {
+  piattaforma
+  azienda
+  barca
+  skipper
+}
+
+model SeoPage {
+  id              String   @id @default(uuid())
+  tipo            SeoTipo
+  refId           String? // id di azienda/barca/skipper (null per la piattaforma)
+  tenantId        String? // azienda di appartenenza (null per la piattaforma)
+  slug            String?  @unique // indirizzo pubblico, es. "golfo-charter"
+  pubblica         Boolean  @default(false) // se la pagina pubblica è attiva
+  titoloAuto      String?
+  descrizioneAuto String?
+  keywordsAuto    String?
+  titolo          String? // override manuale
+  descrizione     String?
+  keywords        String?
+  immagine        String?
+  noindex         Boolean  @default(false)
+  aggiornatoAt    DateTime @updatedAt
+  creatoAt        DateTime @default(now())
+
+  @@unique([tipo, refId])
+  @@index([tenantId])
+  @@index([pubblica])
+}
+
+// Abbonamento di un'azienda: attivazione oppure manutenzione (mesi o stagioni scelti dal registrante).
+// tipo è testo libero (attivazione | manutenzione_mensile | manutenzione_stagionale) per restare configurabile.
+model Subscription {
+  id              String            @id @default(uuid())
+  tenantId        String
+  tenant          Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tipo            String
+  quantita        Int
+  prezzoCent      Int
+  inizioAt        DateTime
+  fineAt          DateTime
+  stato           SubscriptionStato @default(in_attesa)
+  sessionId       String?           @unique
+  paymentIntentId String?
+  metodo          String?
+  paidAt          DateTime?
+  createdAt       DateTime          @default(now())
+
+  @@index([tenantId, fineAt])
+}
+
+// Cauzione: si autorizza un blocco sulla carta, poi si rilascia o si addebita.
+enum CauzioneStato {
+  non_richiesta
+  in_attesa
+  autorizzata
+  rilasciata
+  addebitata
+}
+
+// Scadenze e interventi sulle barche (assicurazione, revisione, tagliando, ore motore).
+enum TipoIntervento {
+  assicurazione
+  revisione
+  tagliando
+  ore_motore
+  altro
+}
+
+model Maintenance {
+  id           String         @id @default(uuid())
+  tenantId     String
+  tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  boatId       String
+  boat         Boat           @relation(fields: [boatId], references: [id], onDelete: Cascade)
+  tipo         TipoIntervento @default(altro)
+  titolo       String
+  dataScadenza DateTime?
+  oreMotore    Int?
+  eseguitoAt   DateTime?
+  costoCent    Int?
+  note         String?
+  createdAt    DateTime       @default(now())
+
+  @@index([tenantId, dataScadenza])
+  @@index([boatId])
+}
+
+// Listino prezzi: per barca (o generale se boatId è null) e per stagione.
+enum TariffaTipo {
+  mezza_giornata
+  giornata
+  settimana
+}
+
+enum TariffaStagione {
+  alta
+  bassa
+  tutto_anno
+}
+
+model Tariffa {
+  id         String          @id @default(uuid())
+  tenantId   String
+  tenant     Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  boatId     String?
+  boat       Boat?           @relation(fields: [boatId], references: [id], onDelete: Cascade)
+  tipo       TariffaTipo
+  stagione   TariffaStagione @default(tutto_anno)
+  prezzoCent Int
+  attivo     Boolean         @default(true)
+  createdAt  DateTime        @default(now())
+
+  @@index([tenantId, tipo, stagione])
+}
+
+enum ExpenseCategoria {
+  carburante
+  manutenzione
+  skipper
+  assicurazione
+  ormeggio
+  pulizia
+  commissioni
+  altro
+}
+
+// Spesa di gestione dell'azienda, collegata o meno a una barca.
+// Serve al resoconto: incassi meno spese = margine per barca.
+model Expense {
+  id          String           @id @default(uuid())
+  tenantId    String
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  boatId      String?
+  boat        Boat?            @relation(fields: [boatId], references: [id], onDelete: SetNull)
+  categoria   ExpenseCategoria @default(altro)
+  descrizione String
+  importoCent Int
+  data        DateTime
+  note        String?
+  creatoDa    String?
+  createdAt   DateTime         @default(now())
+
+  @@index([tenantId, data])
+  @@index([boatId])
+}
+
+model BookingExtra {
+  bookingId String
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  extraId   String
+  extra     Extra   @relation(fields: [extraId], references: [id], onDelete: Cascade)
+
+  @@id([bookingId, extraId])
+}
+
+// ============================================================================
+// MODULO ORMEGGIO — per ormeggiatori e rimessaggi.
+// Stesse regole degli altri modelli: ogni tabella ha tenantId e ogni query
+// deve essere filtrata per azienda. Le barche in custodia sono separate da
+// quelle a noleggio dal campo Boat.uso.
+// ============================================================================
+
+enum TipoModulo {
+  noleggio
+  ormeggio
+  entrambi
+}
+
+enum UsoBarca {
+  noleggio // barca usata per il noleggio (modulo esistente)
+  custodia // barca in custodia presso un ormeggiatore
+}
+
+enum PermanenzaStato {
+  attiva
+  chiusa
+}
+
+enum MovimentoTipo {
+  uscita_programmata
+  uscita
+  rientro
+  trasferimento
+}
+
+enum AttivitaStato {
+  da_fare
+  in_corso
+  completato
+}
+
+enum AddebitoOrigine {
+  custodia
+  servizio
+  carburante
+  altro
+}
+
+enum AddebitoStato {
+  da_pagare
+  pagato
+}
+
+enum ContrattoOrmeggioTipo {
+  ormeggio_custodia
+  rimessaggio_custodia
+}
+
+// Area della struttura (es. «Area ormeggio», «Piazzale»): righe × colonne.
+model Area {
+  id        String    @id @default(uuid())
+  tenantId  String
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  nome      String
+  righe     Int       @default(1)
+  colonne   Int       @default(1)
+  ordine    Int       @default(0)
+  posti     Posto[]
+  createdAt DateTime  @default(now())
+
+  @@index([tenantId])
+}
+
+// Singolo posto della griglia. Il codice (es. «B3») è quello mostrato in mappa.
+model Posto {
+  id             String       @id @default(uuid())
+  tenantId       String
+  tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  areaId         String
+  area           Area         @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  riga           Int
+  colonna        Int
+  codice         String
+  bloccato       Boolean      @default(false) // posto non assegnabile (colonna, gru, passaggio)
+  lunghezzaMaxCm Int?
+  larghezzaMaxCm Int?
+  permanenze     Permanenza[]
+  createdAt      DateTime     @default(now())
+
+  @@unique([areaId, riga, colonna])
+  @@index([tenantId])
+}
+
+// Periodo di presenza di una barca in un posto: ormeggio o rimessaggio.
+// Si chiude, non si cancella: lo storico serve al conto e alle ricerche.
+model Permanenza {
+  id                String               @id @default(uuid())
+  tenantId          String
+  tenant            Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  boatId            String
+  boat              Boat                 @relation(fields: [boatId], references: [id], onDelete: Restrict)
+  postoId           String
+  posto             Posto                @relation(fields: [postoId], references: [id], onDelete: Restrict)
+  tipo              ContrattoOrmeggioTipo @default(ormeggio_custodia)
+  inizioAt          DateTime
+  finePrevistaAt    DateTime? // null = permanenza indeterminata
+  fineAt            DateTime? // chiusura effettiva (null = ancora in corso)
+  stato             PermanenzaStato      @default(attiva)
+  corrispettivoCent Int? // importo pattuito per la custodia
+  note              String?
+  movimenti         Movimento[]
+  attivita          Attivita[]
+  addebiti          Addebito[]
+  contratto         ContrattoOrmeggio?
+  payments          Payment[]
+  createdAt         DateTime             @default(now())
+
+  @@index([tenantId, stato])
+  @@index([boatId])
+  @@index([postoId])
+}
+
+// Uscita programmata, uscita effettiva, rientro, trasferimento di posto.
+model Movimento {
+  id           String      @id @default(uuid())
+  tenantId     String
+  tenant       Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  permanenzaId String
+  permanenza   Permanenza  @relation(fields: [permanenzaId], references: [id], onDelete: Cascade)
+  boatId       String
+  tipo         MovimentoTipo
+  previstoAt   DateTime?
+  effettivoAt  DateTime?
+  note         String?
+  createdAt    DateTime    @default(now())
+
+  @@index([tenantId, effettivoAt])
+  @@index([permanenzaId])
+}
+
+// Servizio o attività sulla barca: lavaggio, carburante, motore, rimessaggio…
+// «incluso» = compreso nella custodia, quindi non genera addebito.
+model Attivita {
+  id           String        @id @default(uuid())
+  tenantId     String
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  permanenzaId String
+  permanenza   Permanenza    @relation(fields: [permanenzaId], references: [id], onDelete: Cascade)
+  tipo         String // nome del servizio (anche libero)
+  dataPrevista DateTime?
+  stato        AttivitaStato @default(da_fare)
+  quantita     Float?
+  unita        String? // litri, ore, fisso…
+  prezzoCent   Int?
+  addettoId    String?
+  addetto      User?         @relation(fields: [addettoId], references: [id], onDelete: SetNull)
+  incluso      Boolean       @default(false)
+  completatoAt DateTime?
+  note         String?
+  createdAt    DateTime      @default(now())
+
+  @@index([tenantId, dataPrevista])
+  @@index([permanenzaId])
+}
+
+// Catalogo dei servizi proposto dall'azienda (modificabile dal titolare).
+model ServizioCatalogo {
+  id         String   @id @default(uuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  nome       String
+  prezzoCent Int?
+  unita      String?
+  attivo     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId])
+}
+
+// Voce del conto del proprietario: custodia, servizio, carburante, altro.
+// È distinta dall'incasso (Payment): prima si addebita, poi si incassa.
+model Addebito {
+  id           String          @id @default(uuid())
+  tenantId     String
+  tenant       Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  permanenzaId String
+  permanenza   Permanenza      @relation(fields: [permanenzaId], references: [id], onDelete: Cascade)
+  descrizione  String
+  importoCent  Int
+  data         DateTime        @default(now())
+  origine      AddebitoOrigine @default(altro)
+  stato        AddebitoStato   @default(da_pagare)
+  attivitaId   String? // se nasce da un servizio completato
+  createdAt    DateTime        @default(now())
+
+  @@index([tenantId, data])
+  @@index([permanenzaId])
+}
+
+// Contratto di ormeggio/rimessaggio: stesso motore di firma del noleggio
+// (gettone riservato, firma con nome + data/ora + IP).
+model ContrattoOrmeggio {
+  id             String               @id @default(uuid())
+  tenantId       String
+  tenant         Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  permanenzaId   String               @unique
+  permanenza     Permanenza           @relation(fields: [permanenzaId], references: [id], onDelete: Cascade)
+  tipo           ContrattoOrmeggioTipo
+  token          String               @unique
+  testoSnapshot  Json? // dati al momento della firma (barca, proprietario, importi)
+  richiestoAt    DateTime             @default(now())
+  firmatoAt      DateTime?
+  firmaNome      String?
+  firmaIp        String?
+
+  @@index([tenantId])
+}

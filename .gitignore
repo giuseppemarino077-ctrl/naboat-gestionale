@@ -1,0 +1,11 @@
+node_modules
+.next
+.env
+.env.local
+backups
+public/uploads
+*.log
+
+.DS_Store
+Thumbs.db
+.Rhistory

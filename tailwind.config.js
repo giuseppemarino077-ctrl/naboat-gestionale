@@ -1,0 +1,28 @@
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  content: ["./src/**/*.{ts,tsx}"],
+  theme: {
+    extend: {
+      colors: {
+        ink: "#33241c",
+        deep: "#9a3412",
+        ocean: "#c2410c",
+        sea: "#f97316",
+        foam: "#fff1e6",
+        sand: "#f7f4ee",
+        gold: "#e6a73c",
+        coral: "#e8755b",
+        line: "#ecdfd5",
+        muted: "#8a7568",
+        aqua: "#fdba74",
+      },
+      fontFamily: {
+        sans: ["DM Sans", "system-ui", "sans-serif"],
+        display: ["Manrope", "DM Sans", "sans-serif"],
+      },
+      borderRadius: { card: "18px" },
+      boxShadow: { naboat: "0 24px 70px rgba(5,47,63,.14)" },
+    },
+  },
+  plugins: [],
+};
