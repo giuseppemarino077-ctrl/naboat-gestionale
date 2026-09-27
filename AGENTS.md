@@ -10,7 +10,7 @@ Ogni azienda (tenant) vede solo i propri dati. Lingua dell'interfaccia: italiano
 - Next.js 15 (App Router) + React 19 + TypeScript
 - PostgreSQL 15 + Prisma 5
 - Redis (rate-limit)
-- Tailwind CSS 3 (token colori NaBoat: deep #052f3f, ocean #087f8c, sea #23a6a6)
+- Tailwind CSS 3 (token colori NaBoat, palette arancione: deep #9a3412, ocean #c2410c, sea #f97316, ink #33241c, foam #fff1e6). I colori stanno in `tailwind.config.js` e in `src/app/globals.css`.
 - Auth: JWT (jose) in cookie httpOnly + bcrypt + TOTP (2FA)
 - Pagamenti: Stripe (`stripe`) + SMTP (`nodemailer`) + immagini (`sharp`)
 
@@ -118,8 +118,9 @@ Nota: il DB locale è esposto sulla porta **5434** (la 5432 è spesso occupata).
 - Icone del telefono e favicon: `public/icon-192.png`, `public/icon-512.png`, `public/apple-touch-icon.png` e `src/app/favicon.ico` — sono un «badge» blu NaBoat con il logo bianco centrato (leggibile anche su schede del browser chiare).
 - Si rigenerano tutte con `node scripts/logo-assets.mjs` a partire da `design/logo-naboat.png`. Se cambia il logo, sostituire quel file e rilanciare lo script.
 
-## Modulo Ormeggio (ormeggiatori e rimessaggi) — in costruzione
-- **Fondamenta già in produzione (fase O1)**: tabelle `Area`, `Posto`, `Permanenza`, `Movimento`, `Attivita`, `ServizioCatalogo`, `Addebito`, `ContrattoOrmeggio`; campi `Tenant.tipoModulo`/`moduloOrmeggio`, `Boat.uso` (noleggio|custodia), `User.vedeImporti`, `Payment.permanenzaId`, `PlatformSettings.prezzoAttivazioneOrmeggioCent`/`canoneOrmeggioMensileCent`.
+## Modulo Ormeggio (ormeggiatori e rimessaggi) — in produzione (fasi O1–O4)
+- **In produzione**: oltre alle fondamenta (fase O1), sono attivi griglia aree/posti, permanenze, movimenti, servizi/attività, conto con addebiti e incassi, contratto digitale con firma (`/contratto-ormeggio/[token]`) e pagamento online. Codice: `src/lib/ormeggio.ts`, `src/lib/pdf.ts`, pagine `/ormeggio/*`, API `/api/v1/ormeggio/*`. Smoke test dedicato: `node scripts/smoke-ormeggio.mjs`.
+- **Fondamenta (fase O1)**: tabelle `Area`, `Posto`, `Permanenza`, `Movimento`, `Attivita`, `ServizioCatalogo`, `Addebito`, `ContrattoOrmeggio`; campi `Tenant.tipoModulo`/`moduloOrmeggio`, `Boat.uso` (noleggio|custodia), `User.vedeImporti`, `Payment.permanenzaId`, `PlatformSettings.prezzoAttivazioneOrmeggioCent`/`canoneOrmeggioMensileCent`.
 - **La regola «niente doppie assegnazioni» sta nel database**: due vincoli `EXCLUDE USING gist` su `Permanenza` (posto e barca, solo per le permanenze attive) nella migrazione `vincolo_permanenze`, con estensione `btree_gist`. Se un salvataggio viola la regola, l'API deve tradurre l'errore di vincolo in **409** con messaggio chiaro.
 - **Registrazione**: si sceglie `modulo` (`noleggio`/`ormeggio`/`entrambi`) → scrive `Tenant.tipoModulo` + `moduloOrmeggio`.
 - **Barche separate**: `GET /api/v1/boats` filtra per `uso` (default `noleggio`; `?uso=custodia` o `?uso=tutte`). Le pagine del modulo ormeggio devono sempre chiedere `?uso=custodia`, così i due mondi non si mescolano mai.

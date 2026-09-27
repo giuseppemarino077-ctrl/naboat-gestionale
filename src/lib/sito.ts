@@ -9,7 +9,7 @@ export const LINK_SONDAGGIO =
   "https://docs.google.com/forms/d/e/1FAIpQLSftpEBun2odfFqGrd3R4B-IvxkcJn8ME3q8JWZCvuhk1l1dEw/viewform";
 
 // Percorsi serviti senza accesso sul dominio del sito.
-export const PERCORSI_SITO = ["/", "/chi-siamo", "/contatti", "/progetto"];
+export const PERCORSI_SITO = ["/", "/chi-siamo", "/contatti", "/progetto", "/privacy", "/cookie", "/termini"];
 
 // Presentazione del progetto (vecchio sito, copia statica in public/progetto).
 export const LINK_PROGETTO = "/progetto";

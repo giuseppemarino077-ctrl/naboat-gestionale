@@ -42,6 +42,11 @@ export function PiedeSito({ appBase }: { appBase: string }) {
       </div>
       <div className="border-t border-white/10 py-4 text-center text-xs text-white/50">
         © {new Date().getFullYear()} NaBoat · Server e copie di sicurezza in Italia
+        <div className="mt-2 flex flex-wrap justify-center gap-4">
+          <a className="hover:text-white" href="/privacy">Privacy</a>
+          <a className="hover:text-white" href="/cookie">Cookie</a>
+          <a className="hover:text-white" href="/termini">Termini</a>
+        </div>
       </div>
     </footer>
   );

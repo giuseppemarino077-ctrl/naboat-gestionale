@@ -1,6 +1,6 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { sendMail } from "@/lib/mailer";
+import { escapeHtml, sendMail, subjectSicuro } from "@/lib/mailer";
 import { clientIp, rateLimit } from "@/lib/ratelimit";
 import { verifyTurnstile } from "@/lib/turnstile";
 import { z } from "zod";
@@ -70,9 +70,15 @@ export async function POST(req: Request) {
   });
 
   const quando = new Date().toLocaleString("it-IT", { timeZone: "Europe/Rome" });
+  // Tutti i valori inseriti dall'utente vengono neutralizzati nell'HTML per evitare
+  // che il messaggio di notifica possa contenere markup.
+  const hNome = escapeHtml(`${p.data.nome} ${p.data.cognome}`);
+  const hTelefono = escapeHtml(p.data.telefono);
+  const hEmail = escapeHtml(p.data.email);
+  const hMessaggio = escapeHtml(messaggio).replace(/\n/g, "<br>");
   await sendMail(
     DESTINATARIO,
-    `Contatto dal sito: ${p.data.nome} ${p.data.cognome}`,
+    subjectSicuro(`Contatto dal sito: ${p.data.nome} ${p.data.cognome}`),
     [
       "Nuova richiesta dal form dei contatti del sito.",
       "",
@@ -86,12 +92,12 @@ export async function POST(req: Request) {
     ].join("\n"),
     `<p>Nuova richiesta dal form dei contatti del sito.</p>
 <ul>
-  <li><b>Nome:</b> ${p.data.nome} ${p.data.cognome}</li>
-  <li><b>Telefono:</b> ${p.data.telefono}</li>
-  <li><b>Email:</b> ${p.data.email}</li>
+  <li><b>Nome:</b> ${hNome}</li>
+  <li><b>Telefono:</b> ${hTelefono}</li>
+  <li><b>Email:</b> ${hEmail}</li>
   <li><b>Ricevuta:</b> ${quando}</li>
 </ul>
-${messaggio ? `<p><b>Messaggio:</b><br>${messaggio.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>")}</p>` : ""}
+${hMessaggio ? `<p><b>Messaggio:</b><br>${hMessaggio}</p>` : ""}
 <p>La trovi anche nel pannello NaBoat, sezione <b>Messaggi dal sito</b>.</p>`,
   );
 

@@ -50,7 +50,15 @@ export function parsePeriodo(url: URL): Periodo {
 export async function riepilogo(tenantId: string, periodo: Periodo): Promise<Riepilogo> {
   const [payments, expenses, boats] = await Promise.all([
     prisma.payment.findMany({
-      where: { tenantId, createdAt: { gte: periodo.from, lte: periodo.to } },
+      where: {
+        tenantId,
+        // Gli incassi si attribuiscono alla data di incasso (paidAt); i pagamenti
+        // ancora in attesa (paidAt nullo) restano attribuiti alla data di creazione.
+        OR: [
+          { paidAt: { gte: periodo.from, lte: periodo.to } },
+          { paidAt: null, createdAt: { gte: periodo.from, lte: periodo.to } },
+        ],
+      },
       select: {
         id: true,
         importoCent: true,
