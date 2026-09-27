@@ -4,6 +4,8 @@
 // se non per creare/eliminare tenant di test (li lascia, sono pending/active isolati).
 const BASE = process.argv[2] || process.env.SMOKE_BASE || "http://localhost:3000";
 import sharp from "sharp";
+import { PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
 const SUPERADMIN = { email: process.env.SUPERADMIN_EMAIL || "admin@naboat.it", password: process.env.SUPERADMIN_PASSWORD || "NaBoat-Admin-12345" };
 
 let pass = 0, fail = 0;
@@ -348,6 +350,7 @@ const run = async () => {
   });
   const robots1 = await (await fetch(`${BASE}/robots.txt`)).text();
   T("robots apre le pagine pubbliche quando sono attive", robots1.includes("Allow: /") && robots1.includes("Disallow: /oggi") && robots1.includes("Sitemap: https://naboat.test/sitemap.xml"), robots1.replace(/\n/g, " | ").slice(0, 200));
+  T("robots blocca anche ormeggio e registro", robots1.includes("Disallow: /ormeggio") && robots1.includes("Disallow: /registro"), robots1.replace(/\n/g, " | ").slice(0, 200));
   const sitemap1 = await (await fetch(`${BASE}/sitemap.xml`)).text();
   T("sitemap contiene le pagine pubblicate", sitemap1.includes("<urlset") && sitemap1.includes(pagDopo.slug), sitemap1.slice(0, 160));
 
@@ -559,6 +562,63 @@ const run = async () => {
   const ctPannello = await adm.fetch("/api/v1/admin/contatti");
   const ctB = await jarB.fetch("/api/v1/admin/contatti");
   T("contatti: pannello riservato a NaBoat", ctPannello.status === 200 && ctB.status === 403, `${ctPannello.status}/${ctB.status}`);
+
+  // ---- Pagine legali pubbliche ----
+  T("pagina privacy pubblica", (await fetch(`${BASE}/privacy`)).status === 200);
+  T("pagina cookie pubblica", (await fetch(`${BASE}/cookie`)).status === 200);
+  T("pagina termini pubblica", (await fetch(`${BASE}/termini`)).status === 200);
+
+  // ---- Canale di vendita: non modificabile dall'azienda, impostabile da NaBoat ----
+  const chA = await json("A", `/api/v1/bookings/${bk.data.id}`, "PATCH", { prezzoEuro: "100,00", origineCanale: "naboat" });
+  T("l'azienda non può cambiare il canale di vendita", chA.status === 200 && chA.data?.origineCanale === "diretto", `${chA.status} canale=${chA.data?.origineCanale}`);
+  const chAdm = await adm.fetch("/api/v1/admin/bookings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bookingId: bk.data.id, origineCanale: "naboat" }) });
+  T("NaBoat imposta il canale naboat", chAdm.status === 200 && (await chAdm.json()).origineCanale === "naboat", `${chAdm.status}`);
+  const chList = await (await adm.fetch(`/api/v1/admin/bookings?tenantId=${tA.id}`)).json();
+  T("NaBoat vede il canale nella prenotazione", Array.isArray(chList) && chList.find((x) => x.id === bk.data.id)?.origineCanale === "naboat");
+  T("canale riservato a NaBoat", (await jarB.fetch("/api/v1/admin/bookings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bookingId: bk.data.id, origineCanale: "diretto" }) })).status === 403);
+  await adm.fetch("/api/v1/admin/bookings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bookingId: bk.data.id, origineCanale: "diretto" }) });
+
+  // ---- Foto dei clienti private ----
+  T("foto privata non accessibile senza login", (await fetch(`${BASE}/api/v1/uploads/privato/${tA.id}/x.webp`)).status === 401);
+  T("foto privata non servita dal percorso pubblico", (await fetch(`${BASE}/uploads/privato/x/y.webp`, { redirect: "manual" })).status === 404);
+  T("foto privata di altra azienda -> 404", (await jarB.fetch(`/api/v1/uploads/privato/${tA.id}/x.webp`)).status === 404);
+
+  // ---- Sicurezza: reset password, revoca sessioni, recupero 2FA ----
+  const emailReset = `smokereset${Date.now()}@test.local`;
+  const jarR = new Jar();
+  await jarR.fetch("/api/v1/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(reg("Smoke Reset", emailReset)) });
+  const listR = await (await adm.fetch("/api/v1/admin/tenants")).json();
+  const tR = listR.find((t) => t.nome === "Smoke Reset");
+  await adm.fetch("/api/v1/admin/tenants", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: tR.id, azione: "approve" }) });
+  await jarR.fetch("/api/v1/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: emailReset, password: "password-smoke-123" }) });
+  T("sessione nuova valida", (await jarR.fetch("/api/v1/boats")).status === 200);
+
+  const rr = await fetch(`${BASE}/api/v1/auth/password-reset`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: emailReset }) });
+  T("richiesta reset password accettata", rr.status === 200, `${rr.status}`);
+  const uR = await prisma.user.findUnique({ where: { email: emailReset }, select: { resetToken: true, id: true } });
+  T("token di reset generato", !!uR?.resetToken);
+  const rc = await fetch(`${BASE}/api/v1/auth/password-reset/conferma`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: uR.resetToken, password: "password-nuova-123" }) });
+  T("reset password confermato", rc.status === 200, `${rc.status}`);
+  T("sessione precedente revocata dopo il cambio password", (await jarR.fetch("/api/v1/boats")).status === 401);
+  T("link di reset non riutilizzabile -> 404", (await fetch(`${BASE}/api/v1/auth/password-reset/conferma`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: uR.resetToken, password: "password-nuova-123" }) })).status === 404);
+  T("vecchia password rifiutata", (await fetch(`${BASE}/api/v1/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: emailReset, password: "password-smoke-123" }) })).status === 401);
+  const jarR2 = new Jar();
+  T("nuova password funziona", (await jarR2.fetch("/api/v1/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: emailReset, password: "password-nuova-123" }) })).status === 200);
+
+  // NaBoat vede gli utenti e può azzerarne la 2FA
+  const admU = await adm.fetch(`/api/v1/admin/utenti?tenantId=${tR.id}`);
+  const listU = await admU.json();
+  T("NaBoat legge gli utenti dell'azienda", admU.status === 200 && Array.isArray(listU) && listU.some((u) => u.email === emailReset), `${admU.status}`);
+  T("NaBoat azzera la 2FA di un utente", (await adm.fetch("/api/v1/admin/utenti", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: emailReset }) })).status === 200);
+  T("recupero 2FA riservato a NaBoat", (await jarR2.fetch("/api/v1/admin/utenti", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: emailReset }) })).status === 403);
+  T("azzerare la 2FA invalida la sessione dell'utente", (await jarR2.fetch("/api/v1/boats")).status === 401);
+  await jarR2.fetch("/api/v1/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: emailReset, password: "password-nuova-123" }) });
+
+  // Sospensione azienda: effetto immediato sulle sessioni aperte
+  await adm.fetch("/api/v1/admin/tenants", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: tR.id, azione: "suspend" }) });
+  T("azienda sospesa: accesso bloccato subito", (await jarR2.fetch("/api/v1/boats")).status === 403);
+  await adm.fetch("/api/v1/admin/tenants", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: tR.id, azione: "reactivate" }) });
+  T("azienda riattivata: accesso ripristinato", (await jarR2.fetch("/api/v1/boats")).status === 200);
 
   // logout
   await jar.fetch("/api/v1/auth/logout", { method: "POST" });
