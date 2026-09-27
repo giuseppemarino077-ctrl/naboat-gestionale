@@ -5,7 +5,15 @@ type Cal = { boats: any[]; bookings: any[]; blocks: any[] };
 type Sel = { boatId: string; giorno: string; booking?: any; block?: any } | null;
 
 const isoDay = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-const dayOf = (v: string) => new Date(v).toISOString().slice(0, 10);
+const dayOf = (v: string) => isoDay(new Date(v));
+// Costruzione orari a prova di browser (Safari non accetta "YYYY-MM-DDTHH:mm" senza secondi).
+function istante(giorno: string, ora: string) {
+  const [y, m, d] = giorno.split("-").map(Number);
+  const [hh, mm] = ora.split(":").map(Number);
+  return new Date(y, (m || 1) - 1, d || 1, hh || 0, mm || 0, 0, 0);
+}
+const inizioGiorno = (giorno: string) => istante(giorno, "00:00");
+const fineGiorno = (giorno: string) => { const d = istante(giorno, "00:00"); d.setHours(23, 59, 59, 999); return d; };
 const hhmm = (v: string) => new Date(v).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
 const euro = (c: number | null) => (c == null ? "—" : (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" }));
 const rif = (id: string) => `NB-${id.slice(0, 8).toUpperCase()}`;
@@ -41,6 +49,7 @@ export default function CalendarioPage() {
   const [sezBlocco, setSezBlocco] = useState(false);
   const [sezSposta, setSezSposta] = useState(false);
   const [sezCliente, setSezCliente] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   const monday = useMemo(() => {
     const d = new Date();
@@ -99,27 +108,35 @@ export default function CalendarioPage() {
 
   const creaPrenotazione = async () => {
     if (!sel) return;
+    if (!crea.clienteNome.trim() || crea.telefono.trim().length < 4) { setErr("Indica nome cliente e telefono."); return; }
+    const start = istante(sel.giorno, crea.dalle);
+    const end = istante(sel.giorno, crea.alle);
+    if (!(start < end)) { setErr("L'orario di rientro deve essere dopo la partenza."); return; }
     const body = {
       boatId: sel.boatId,
-      startAt: new Date(`${sel.giorno}T${crea.dalle}`).toISOString(),
-      endAt: new Date(`${sel.giorno}T${crea.alle}`).toISOString(),
-      clienteNome: crea.clienteNome, telefono: crea.telefono, email: crea.email || undefined,
+      startAt: start.toISOString(),
+      endAt: end.toISOString(),
+      clienteNome: crea.clienteNome.trim(), telefono: crea.telefono.trim(), email: crea.email || undefined,
       passeggeri: Number(crea.passeggeri), destinazione: crea.destinazione || undefined,
       formula: crea.formula || undefined, note: crea.note || undefined,
       patenteOk: crea.patenteOk, skipperId: crea.skipperId || undefined,
       idempotencyKey: crypto.randomUUID(),
     };
+    setBusy(true);
     const j = await chiama("/api/v1/bookings", "POST", body);
     if (j?.id) {
       if (crea.prezzoEuro.trim()) await chiama(`/api/v1/bookings/${j.id}`, "PATCH", { prezzoEuro: crea.prezzoEuro });
       setMsg("Prenotazione creata."); setSel(null);
     }
+    setBusy(false);
   };
 
   const rendiNonDisponibile = async () => {
     if (!sel) return;
-    const j = await chiama("/api/v1/blocks", "POST", { boatId: sel.boatId, startAt: new Date(`${sel.giorno}T00:00`).toISOString(), endAt: new Date(`${sel.giorno}T23:59`).toISOString(), motivo: blocco.motivo || undefined });
+    setBusy(true);
+    const j = await chiama("/api/v1/blocks", "POST", { boatId: sel.boatId, startAt: inizioGiorno(sel.giorno).toISOString(), endAt: fineGiorno(sel.giorno).toISOString(), motivo: blocco.motivo || undefined });
     if (j) { setMsg("Giornata resa non disponibile."); setSel(null); }
+    setBusy(false);
   };
 
   const rimuoviBlocco = async (id: string) => {
@@ -133,8 +150,13 @@ export default function CalendarioPage() {
   const eliminaPren = async (b: any) => { if (confirm("Eliminare la prenotazione?") && await chiama(`/api/v1/bookings/${b.id}`, "DELETE")) { setMsg("Prenotazione eliminata."); setSel(null); } };
   const salvaSposta = async () => {
     if (!sel?.booking) return;
-    const j = await chiama(`/api/v1/bookings/${sel.booking.id}`, "PATCH", { boatId: sposta.boatId, startAt: new Date(`${sposta.giorno}T${sposta.dalle}`).toISOString(), endAt: new Date(`${sposta.giorno}T${sposta.alle}`).toISOString() });
+    const start = istante(sposta.giorno, sposta.dalle);
+    const end = istante(sposta.giorno, sposta.alle);
+    if (!(start < end)) { setErr("Orari incoerenti."); return; }
+    setBusy(true);
+    const j = await chiama(`/api/v1/bookings/${sel.booking.id}`, "PATCH", { boatId: sposta.boatId, startAt: start.toISOString(), endAt: end.toISOString() });
     if (j) { setMsg("Prenotazione spostata."); setSel(null); }
+    setBusy(false);
   };
   const salvaCliente = async () => {
     if (!sel?.booking) return;
@@ -277,6 +299,8 @@ export default function CalendarioPage() {
               <button className="grid h-9 w-9 place-items-center rounded-full bg-[#faf6f2] text-muted" onClick={() => setSel(null)}>✕</button>
             </div>
 
+            {err && <p className="mt-4 rounded-2xl border border-coral/40 bg-[#fdeeea] p-3 text-sm font-semibold text-coral">{err}</p>}
+
             {sel.booking ? (
               <div className="mt-5 grid gap-4">
                 <div className="rounded-2xl border border-[#a9e0d0] bg-[#eafaf5] p-4">
@@ -369,9 +393,17 @@ export default function CalendarioPage() {
                         </select>
                       </label>
                       <label className="grid gap-1 text-sm">Prezzo €<input className="rounded-2xl border border-line p-3" value={crea.prezzoEuro} onChange={(e) => setCrea({ ...crea, prezzoEuro: e.target.value })} placeholder="dal listino" /></label>
-                      <label className="flex items-center gap-2 text-sm sm:col-span-2"><input type="checkbox" checked={crea.patenteOk} onChange={(e) => setCrea({ ...crea, patenteOk: e.target.checked })} /> {barcaSel?.patenteRichiesta ? "Il cliente ha la patente nautica" : "Patente non richiesta per questa barca"}</label>
+                      {barcaSel?.patenteRichiesta ? (
+                        <div className="grid gap-2 rounded-2xl border border-gold/50 bg-[#fff7e6] p-3 text-sm sm:col-span-2">
+                          <p className="font-semibold text-[#9a6406]">Questa barca richiede la patente nautica.</p>
+                          <p className="text-muted">Spunta che il cliente è patentato, oppure assegna uno skipper.</p>
+                          <label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={crea.patenteOk} onChange={(e) => setCrea({ ...crea, patenteOk: e.target.checked })} /> Il cliente ha la patente nautica</label>
+                        </div>
+                      ) : (
+                        <p className="rounded-2xl border border-[#a9e0d0] bg-[#eafaf5] p-3 text-sm text-[#177469] sm:col-span-2">Per questa barca la patente nautica non è richiesta.</p>
+                      )}
                       <label className="grid gap-1 text-sm sm:col-span-2">Nota<input className="rounded-2xl border border-line p-3" value={crea.note} onChange={(e) => setCrea({ ...crea, note: e.target.value })} placeholder="Itinerario, richieste, promemoria…" /></label>
-                      <button className="btn-primary sm:col-span-2" onClick={creaPrenotazione}>Crea prenotazione</button>
+                      <button className="btn-primary sm:col-span-2 disabled:opacity-50" disabled={busy || (!!barcaSel?.patenteRichiesta && !crea.patenteOk && !crea.skipperId)} onClick={creaPrenotazione}>{busy ? "Creo…" : "Crea prenotazione"}</button>
                     </div>
                   )}
                 </div>
@@ -381,7 +413,7 @@ export default function CalendarioPage() {
                   {sezBlocco && (
                     <div className="grid gap-2 border-t border-line p-4">
                       <input className="rounded-2xl border border-line p-3" placeholder="Motivo (es. manutenzione, uso privato…)" value={blocco.motivo} onChange={(e) => setBlocco({ motivo: e.target.value })} />
-                      <button className="btn-primary" onClick={rendiNonDisponibile}>Rendi non disponibile</button>
+                      <button className="btn-primary" disabled={busy} onClick={rendiNonDisponibile}>{busy ? "Salvo…" : "Rendi non disponibile"}</button>
                     </div>
                   )}
                 </div>
