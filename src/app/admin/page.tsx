@@ -29,6 +29,10 @@ export default function AdminPage() {
   const [caricandoHome, setCaricandoHome] = useState(false);
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
+  const [utenti, setUtenti] = useState<Record<string, any[]>>({});
+  const [utentiAperti, setUtentiAperti] = useState<Record<string, boolean>>({});
+  const [pren, setPren] = useState<Record<string, any[]>>({});
+  const [prenAperti, setPrenAperti] = useState<Record<string, boolean>>({});
 
   const caricaSfondo = async (file: File) => {
     setCaricandoSfondo(true); setErr("");
@@ -124,6 +128,41 @@ export default function AdminPage() {
     const r = await fetch("/api/v1/admin/payments", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, azione }) });
     if (!r.ok) { const j = await r.json().catch(() => ({})); setErr(j.error ?? "Errore"); return; }
     setErr(""); load();
+  };
+
+  const caricaUtenti = async (tenantId: string) => {
+    const r = await fetch(`/api/v1/admin/utenti?tenantId=${tenantId}`);
+    const j = await r.json().catch(() => []);
+    if (Array.isArray(j)) setUtenti((u) => ({ ...u, [tenantId]: j }));
+  };
+  const toggleUtenti = (tenantId: string) => {
+    const apri = !utentiAperti[tenantId];
+    setUtentiAperti((a) => ({ ...a, [tenantId]: apri }));
+    if (apri) caricaUtenti(tenantId);
+  };
+  const reset2fa = async (tenantId: string, userId: string) => {
+    if (!confirm("Azzerare la 2FA di questo utente? Dovrà configurarla di nuovo al prossimo accesso.")) return;
+    const r = await fetch("/api/v1/admin/utenti", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { setErr(j.error ?? "Errore"); return; }
+    setErr(""); setMsg("2FA azzerata: l'utente dovrà riaccedere."); caricaUtenti(tenantId);
+  };
+
+  const caricaPren = async (tenantId: string) => {
+    const r = await fetch(`/api/v1/admin/bookings?tenantId=${tenantId}`);
+    const j = await r.json().catch(() => []);
+    if (Array.isArray(j)) setPren((p) => ({ ...p, [tenantId]: j }));
+  };
+  const togglePren = (tenantId: string) => {
+    const apri = !prenAperti[tenantId];
+    setPrenAperti((a) => ({ ...a, [tenantId]: apri }));
+    if (apri) caricaPren(tenantId);
+  };
+  const setCanale = async (tenantId: string, bookingId: string, origineCanale: "diretto" | "naboat") => {
+    const r = await fetch("/api/v1/admin/bookings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bookingId, origineCanale }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { setErr(j.error ?? "Errore"); return; }
+    setErr(""); setMsg("Canale della prenotazione aggiornato."); caricaPren(tenantId);
   };
 
   return (
@@ -349,6 +388,42 @@ export default function AdminPage() {
                 {p.pagamentiBloccatiNaBoat
                   ? <button className="text-[#177469]" onClick={() => pagamentiAzione(t.id, "sblocca")}>Sblocca pagamenti</button>
                   : <button className="text-coral" onClick={() => pagamentiAzione(t.id, "blocca")}>Blocca pagamenti</button>}
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-3 border-t border-line pt-2 text-xs font-bold">
+              <button className="text-ocean" onClick={() => toggleUtenti(t.id)}>Utenti e 2FA</button>
+              <button className="text-ocean" onClick={() => togglePren(t.id)}>Canale prenotazioni</button>
+            </div>
+
+            {utentiAperti[t.id] && (
+              <div className="grid gap-1 border-t border-line pt-2 text-xs">
+                {(utenti[t.id] ?? []).map((u: any) => (
+                  <div key={u.id} className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold">{u.email}</span>
+                    <span className="text-muted">{u.role}</span>
+                    <span className={u.totpEnabled ? "badge-ready" : "badge-pending"}>{u.totpEnabled ? "2FA attiva" : "senza 2FA"}</span>
+                    {u.totpEnabled && <button className="font-bold text-coral" onClick={() => reset2fa(t.id, u.id)}>Azzera 2FA</button>}
+                  </div>
+                ))}
+                {utenti[t.id] && utenti[t.id].length === 0 && <span className="text-muted">Nessun utente.</span>}
+              </div>
+            )}
+
+            {prenAperti[t.id] && (
+              <div className="grid gap-1 border-t border-line pt-2 text-xs">
+                <p className="text-muted">Imposta il canale di vendita: da «naboat» matura la fee NaBoat, da «diretto» no. Solo NaBoat può cambiarlo.</p>
+                {(pren[t.id] ?? []).map((b: any) => (
+                  <div key={b.id} className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold">{b.clienteNome ?? "cliente"}</span>
+                    <span className="text-muted">{new Date(b.startAt).toLocaleDateString("it-IT")} · {b.boat?.nome ?? ""}</span>
+                    <span className={b.origineCanale === "naboat" ? "badge-ready" : "badge-pending"}>{b.origineCanale}</span>
+                    <button className="font-bold text-ocean" onClick={() => setCanale(t.id, b.id, b.origineCanale === "naboat" ? "diretto" : "naboat")}>
+                      {b.origineCanale === "naboat" ? "Imposta diretto" : "Imposta naboat"}
+                    </button>
+                  </div>
+                ))}
+                {pren[t.id] && pren[t.id].length === 0 && <span className="text-muted">Nessuna prenotazione.</span>}
               </div>
             )}
           </div>
