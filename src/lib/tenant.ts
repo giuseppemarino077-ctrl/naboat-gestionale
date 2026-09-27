@@ -10,29 +10,48 @@ import { abbonamentoAttivo, abbonamentoRichiesto } from "@/lib/subscriptions";
 export async function requireTenant(req: Request, opts: { ignoraAbbonamento?: boolean } = {}) {
   const s = await getSession();
   if (!s) return { error: fail("Non autenticato", 401) };
-  if (s.role === "superadmin") {
-    if (mustTwoFa(s.role, s.twofa)) return { error: fail("2FA obbligatoria: abilitala da /sicurezza", 403) };
+
+  // Controllo dal database a ogni richiesta: l'utente può essere stato eliminato,
+  // l'azienda sospesa, oppure ruolo/password cambiati (sessionVersion). Così i gettoni
+  // già emessi non restano validi fino alla scadenza.
+  const u = await prisma.user.findUnique({
+    where: { id: s.sub },
+    select: {
+      id: true,
+      role: true,
+      emailVerified: true,
+      tenantId: true,
+      sessionVersion: true,
+      tenant: { select: { status: true } },
+    },
+  });
+  if (!u) return { error: fail("Sessione non più valida: accedi di nuovo", 401) };
+  if ((s.ver ?? 0) !== u.sessionVersion) return { error: fail("Sessione scaduta: accedi di nuovo", 401) };
+
+  if (u.role === "superadmin") {
+    if (mustTwoFa(u.role, s.twofa)) return { error: fail("2FA obbligatoria: abilitala da /sicurezza", 403) };
     const tid = new URL(req.url).searchParams.get("tenantId");
     if (!tid) return { error: fail("Superadmin: specificare ?tenantId=", 400) };
-    return { userId: s.sub, tenantId: tid, role: s.role };
+    return { userId: u.id, tenantId: tid, role: u.role };
   }
-  if (!s.tenantId) return { error: fail("Nessuna azienda associata", 403) };
-  if (s.tenantStatus !== "active") return { error: fail("Azienda non attiva (in attesa/sospesa)", 403) };
-  if (s.role !== "owner" && s.role !== "operatore" && s.role !== "skipper") return { error: fail("Permesso negato", 403) };
+
+  const tenantStatus = u.tenant?.status ?? null;
+  if (!u.tenantId || !tenantStatus) return { error: fail("Nessuna azienda associata", 403) };
+  if (tenantStatus !== "active") return { error: fail("Azienda non attiva (in attesa/sospesa)", 403) };
+  if (u.role !== "owner" && u.role !== "operatore" && u.role !== "skipper") return { error: fail("Permesso negato", 403) };
   // Lo skipper consulta (uscite, calendario, turni) ma non modifica nulla.
-  if (s.role === "skipper" && req.method !== "GET" && req.method !== "HEAD") {
+  if (u.role === "skipper" && req.method !== "GET" && req.method !== "HEAD") {
     return { error: fail("Ruolo skipper: sola consultazione", 403) };
   }
-  if (mustTwoFa(s.role, s.twofa)) return { error: fail("2FA obbligatoria: abilitala da /sicurezza", 403) };
-  if (process.env.REQUIRE_EMAIL_VERIFY === "true") {
-    const u = await prisma.user.findUnique({ where: { id: s.sub }, select: { emailVerified: true } });
-    if (!u?.emailVerified) return { error: fail("Email non confermata: controlla la posta", 403) };
+  if (mustTwoFa(u.role, s.twofa)) return { error: fail("2FA obbligatoria: abilitala da /sicurezza", 403) };
+  if (process.env.REQUIRE_EMAIL_VERIFY === "true" && !u.emailVerified) {
+    return { error: fail("Email non confermata: controlla la posta", 403) };
   }
   if (!opts.ignoraAbbonamento && (await abbonamentoRichiesto())) {
-    const attivo = await abbonamentoAttivo(s.tenantId);
+    const attivo = await abbonamentoAttivo(u.tenantId);
     if (!attivo) return { error: fail("Abbonamento non attivo: attivalo dalla pagina Abbonamento", 402) };
   }
-  return { userId: s.sub, tenantId: s.tenantId, role: s.role };
+  return { userId: u.id, tenantId: u.tenantId, role: u.role };
 }
 
 export function isOwnerOrSuperadmin(role: string) {

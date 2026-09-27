@@ -56,6 +56,7 @@ export async function POST(req: Request) {
     role: user.role,
     tenantStatus: user.tenant?.status ?? null,
     twofa: twofaDone,
+    ver: user.sessionVersion,
   });
   return ok({
     userId: user.id,

@@ -85,8 +85,9 @@ export default function LoginPage() {
               <Turnstile onToken={setToken} />
               {err && <p className="text-sm font-semibold text-coral">{err}</p>}
               <button className="btn-primary" type="submit">Accedi</button>
-              <div className="flex justify-between text-sm font-bold">
+              <div className="flex flex-wrap justify-between gap-2 text-sm font-bold">
                 <a href="/registrazione" className="text-ocean">Registra la tua azienda →</a>
+                <a href="/password-dimenticata" className="text-ocean">Password dimenticata?</a>
               </div>
               {da && <p className="text-xs text-muted">Dopo l'accesso torni alla pagina che avevi aperto.</p>}
               <p className="text-xs text-muted">La doppia chiave (codice dal telefono) si attiva <b>dopo l'accesso</b>, dalla sezione <b>Sicurezza</b>.</p>

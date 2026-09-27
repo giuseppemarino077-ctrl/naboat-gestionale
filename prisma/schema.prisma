@@ -151,6 +151,12 @@ model User {
   emailVerified Boolean @default(false)
   verifyToken   String?
   verifyExpires DateTime?
+  // Reset password: token monouso con scadenza.
+  resetToken    String?  @unique
+  resetExpires  DateTime?
+  // Versione della sessione: incrementandola si invalidano i gettoni gia emessi
+  // (cambio password, cambio ruolo, disattivazione 2FA, sospensione...).
+  sessionVersion Int     @default(0)
   createdAt    DateTime @default(now())
 
   // Se questo utente è anche uno skipper in anagrafica, da qui si sa quale.

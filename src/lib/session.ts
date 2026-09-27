@@ -18,6 +18,7 @@ export type SessionPayload = {
   role: string;
   tenantStatus: string | null;
   twofa: boolean; // requisito 2FA soddisfatto per questa sessione
+  ver?: number; // versione della sessione (User.sessionVersion): cambiarla invalida i gettoni
 };
 
 function secret() {
