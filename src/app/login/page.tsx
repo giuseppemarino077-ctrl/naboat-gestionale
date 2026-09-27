@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Turnstile from "@/components/Turnstile";
+import { dimenticaUtente } from "@/components/Utente";
 
 type Aspetto = { sfondo: string; sfocatura: number; messaggio: string };
 
@@ -45,6 +46,7 @@ export default function LoginPage() {
       return;
     }
     const destinazione = j.role === "superadmin" ? "/admin" : j.tenantOrmeggio && j.tenantModulo !== "entrambi" ? "/ormeggio" : "/oggi";
+    dimenticaUtente();
     r.push(da ?? destinazione);
     r.refresh();
   };
