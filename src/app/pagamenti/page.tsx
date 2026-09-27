@@ -1,4 +1,5 @@
 "use client";
+import { copiaTesto } from "@/lib/browser";
 import { useUtente } from "@/components/Utente";
 import { useEffect, useState } from "react";
 
@@ -96,7 +97,7 @@ export default function PagamentiPage() {
     const importo = prompt(`Importo cauzione in euro per ${c.clienteNome ?? "il cliente"}:`, c.cauzioneCent ? (c.cauzioneCent / 100).toFixed(2).replace(".", ",") : "500,00");
     if (importo === null) return;
     const r = await api("/api/v1/payments/cauzione", "POST", { bookingId: c.id, cauzioneEuro: importo });
-    if (r?.url) { setLink(r.url); await navigator.clipboard.writeText(r.url).catch(() => {}); setMsg("Link cauzione copiato: invialo al cliente per il blocco sulla carta."); }
+    if (r?.url) { setLink(r.url); await copiaTesto(r.url); setMsg("Link cauzione copiato: invialo al cliente per il blocco sulla carta."); }
   };
 
   const cauzioneAzione = async (c: any, azione: "rilascia" | "addebita") => {
@@ -192,7 +193,7 @@ export default function PagamentiPage() {
         {link && (
           <div className="grid gap-1">
             <code className="break-all rounded bg-[#3a2418] p-2 text-[#f6e3d5]">{link}</code>
-            <button className="w-fit text-sm font-bold text-ocean" onClick={() => navigator.clipboard.writeText(link)}>Copia link</button>
+            <button className="w-fit text-sm font-bold text-ocean" onClick={() => copiaTesto(link)}>Copia link</button>
           </div>
         )}
       </div>

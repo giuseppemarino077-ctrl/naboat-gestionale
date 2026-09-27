@@ -1,4 +1,5 @@
 "use client";
+import { copiaTesto } from "@/lib/browser";
 import { useEffect, useState } from "react";
 
 type Partenza = {
@@ -64,7 +65,7 @@ export default function OggiPage() {
     const r = await api(`/api/v1/bookings/${p.id}/contratto`, "POST");
     if (r?.url) {
       setLink(r.url);
-      await navigator.clipboard.writeText(r.url).catch(() => {});
+      await copiaTesto(r.url);
       setMsg("Link del contratto copiato: invialo al cliente (WhatsApp o email).");
     }
   };

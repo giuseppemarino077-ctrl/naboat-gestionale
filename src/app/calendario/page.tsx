@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { uuidSicuro, copiaTesto } from "@/lib/browser";
 
 type Cal = { boats: any[]; bookings: any[]; blocks: any[] };
 type Sel = { boatId: string; giorno: string; booking?: any; block?: any } | null;
@@ -148,7 +149,7 @@ export default function CalendarioPage() {
         clienteNome: crea.clienteNome.trim(), telefono: crea.telefono.trim(), email: crea.email || undefined,
         passeggeri: Number(crea.passeggeri), destinazione: crea.destinazione || undefined,
         formula: crea.formula || undefined, note: crea.note || undefined,
-        patenteOk: crea.patenteOk, skipperId: crea.skipperId || undefined, idempotencyKey: crypto.randomUUID(),
+        patenteOk: crea.patenteOk, skipperId: crea.skipperId || undefined, idempotencyKey: uuidSicuro(),
       }),
     });
     const j = await r.json().catch(() => ({}));
@@ -173,8 +174,8 @@ export default function CalendarioPage() {
 
   const registraPartenza = async (b: any) => azione("Barca segnata in mare. Ora compare in «Oggi» come uscita in corso.", `/api/v1/bookings/${b.id}/checkin`, "POST", { carburantePct: partenza.carburante === "" ? null : Number(partenza.carburante), note: partenza.note || null });
   const registraRientro = async (b: any) => azione("Rientro registrato: il noleggio è concluso.", `/api/v1/bookings/${b.id}/checkout`, "POST", { carburantePct: rientro.carburante === "" ? null : Number(rientro.carburante), danniEuro: rientro.danni || null, note: rientro.note || null });
-  const generaContratto = async (b: any) => { const j = await azione("Link del contratto generato.", `/api/v1/bookings/${b.id}/contratto`, "POST"); if (j?.url) { setLinkContratto(j.url); await navigator.clipboard.writeText(j.url).catch(() => {}); } };
-  const generaPagamento = async (b: any) => { const j = await azione("Link di pagamento generato.", "/api/v1/payments/checkout", "POST", { bookingId: b.id }); if (j?.url) { setLinkPagamento(j.url); await navigator.clipboard.writeText(j.url).catch(() => {}); } };
+  const generaContratto = async (b: any) => { const j = await azione("Link del contratto generato.", `/api/v1/bookings/${b.id}/contratto`, "POST"); if (j?.url) { setLinkContratto(j.url); await copiaTesto(j.url); } };
+  const generaPagamento = async (b: any) => { const j = await azione("Link di pagamento generato.", "/api/v1/payments/checkout", "POST", { bookingId: b.id }); if (j?.url) { setLinkPagamento(j.url); await copiaTesto(j.url); } };
   const eliminaPren = async (b: any) => { if (confirm("Annullare la prenotazione? Sparirà dal calendario.")) await azione("Prenotazione annullata.", `/api/v1/bookings/${b.id}`, "DELETE", undefined, true); };
   const salvaSposta = async () => {
     if (!sel?.booking) return;

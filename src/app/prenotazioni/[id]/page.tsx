@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { copiaTesto } from "@/lib/browser";
 
 const euro = (c: number | null | undefined) => (c == null ? "—" : (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" }));
 const dt = (v: string | null) => (v ? new Date(v).toLocaleString("it-IT", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
@@ -62,8 +63,8 @@ export default function PrenotazionePage() {
   };
   const annulla = async () => { if (confirm("Annullare la prenotazione?")) await azione("Prenotazione annullata.", `/api/v1/bookings/${id}`, "DELETE"); };
   const assegnaSkipper = async (skipperId: string) => azione("Skipper aggiornato.", `/api/v1/bookings/${id}`, "PATCH", { skipperId: skipperId || null });
-  const contratto = async () => { const j = await azione("Link contratto generato.", `/api/v1/bookings/${id}/contratto`, "POST"); if (j?.url) { setLinkContratto(j.url); await navigator.clipboard.writeText(j.url).catch(() => {}); } };
-  const generaLinkPagamento = async () => { const j = await azione("Link di pagamento generato.", "/api/v1/payments/checkout", "POST", { bookingId: id }); if (j?.url) { setLinkPagamento(j.url); await navigator.clipboard.writeText(j.url).catch(() => {}); } };
+  const contratto = async () => { const j = await azione("Link contratto generato.", `/api/v1/bookings/${id}/contratto`, "POST"); if (j?.url) { setLinkContratto(j.url); await copiaTesto(j.url); } };
+  const generaLinkPagamento = async () => { const j = await azione("Link di pagamento generato.", "/api/v1/payments/checkout", "POST", { bookingId: id }); if (j?.url) { setLinkPagamento(j.url); await copiaTesto(j.url); } };
 
   if (err && !b) return <p className="rounded-2xl border border-coral/40 bg-[#fdeeea] p-4 text-sm font-semibold text-coral">{err} <Link className="font-bold text-ocean" href="/prenotazioni">← Prenotazioni</Link></p>;
   if (!b) return <p className="p-4 text-sm text-muted">Caricamento…</p>;
@@ -124,7 +125,7 @@ export default function PrenotazionePage() {
             <div className="mt-3 flex flex-wrap gap-2">
               {b.telefono && <a className="btn-soft" href={`tel:${b.telefono}`}>Chiama</a>}
               {b.telefono && <a className="btn-soft" href={waLink(b.telefono, `Ciao ${b.clienteNome ?? "cliente"}, `) ?? "#"} target="_blank" rel="noreferrer">WhatsApp</a>}
-              {b.telefono && <button className="btn-soft" onClick={() => navigator.clipboard.writeText(b.telefono).catch(() => {})}>Copia telefono</button>}
+              {b.telefono && <button className="btn-soft" onClick={() => copiaTesto(b.telefono)}>Copia telefono</button>}
             </div>
           </section>
 
