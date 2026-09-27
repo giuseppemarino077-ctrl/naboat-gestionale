@@ -45,6 +45,14 @@ Nota: il DB locale è esposto sulla porta **5434** (la 5432 è spesso occupata).
 - Mai committare `.env`/`.env.local`.
 - Se tocchi l'autenticazione, mantieni: cookie httpOnly, SameSite=lax, secure in produzione.
 
+## Sessione, password e 2FA (regole aggiunte)
+- `requireTenant`/`requireSuperadmin` **rileggono utente e azienda dal database a ogni richiesta** (non si fidano dei valori nel gettone): eliminazione utente, sospensione azienda e cambio ruolo hanno effetto immediato.
+- `User.sessionVersion` è nel gettone (`ver`): incrementandola si invalidano **tutte** le sessioni di quell'utente. Si incrementa su cambio password, cambio ruolo e azzeramento 2FA. Non rimuovere questo confronto.
+- **Reset password**: `/password-dimenticata` + `/reimposta-password`, API `POST /api/v1/auth/password-reset` e `/conferma` (token monouso, 1 ora; risposta sempre uguale per non rivelare le email registrate). La conferma incrementa `sessionVersion`.
+- **Recupero 2FA** (solo NaBoat): `GET /api/v1/admin/utenti?tenantId=…` e `POST /api/v1/admin/utenti` (azzeramento, con UI in `/admin`).
+- **Foto dei clienti private**: check-in/check-out si salvano con `savePhoto(..., { privato: true })` sotto `privato/<tenant>/` e si servono **solo** da `/api/v1/uploads/privato/...` (autenticata, isolata per azienda). La rotta pubblica `/uploads/...` deve continuare a rifiutare il prefisso `privato/`.
+- **Canale di vendita**: `Booking.origineCanale` **non** è modificabile dall'azienda (decide la fee NaBoat). Solo NaBoat via `PATCH /api/v1/admin/bookings` (UI in `/admin`).
+
 ## Pagamenti (Fase 2) — regole specifiche
 - Le chiavi Stripe sono **cifrate a riposo** (`src/lib/payments.ts`: AES-256-GCM con chiave derivata da `AUTH_SECRET`). Non decifrarle mai per restituirle via API: le API mostrano solo il booleano «configurato».
 - Il pagamento è **multi-azienda**: ogni azienda ha il proprio account. Ogni query su `Payment` deve filtrare per `tenantId`.
