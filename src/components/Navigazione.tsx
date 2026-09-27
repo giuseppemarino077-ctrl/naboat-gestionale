@@ -16,6 +16,7 @@ const AZIENDA_E_SKIPPER = ["owner", "operatore", "skipper"];
 const VOCI: Voce[] = [
   { href: "/oggi", icona: "⌂", nome: "Oggi", ruoli: AZIENDA_E_SKIPPER, modulo: "noleggio", gruppo: "noleggio" },
   { href: "/calendario", icona: "▦", nome: "Calendario", ruoli: AZIENDA_E_SKIPPER, modulo: "noleggio", gruppo: "noleggio" },
+  { href: "/prenotazioni", icona: "☰", nome: "Prenotazioni", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio" },
   { href: "/turni", icona: "⏱", nome: "Turni", ruoli: AZIENDA_E_SKIPPER, modulo: "noleggio", gruppo: "noleggio" },
   { href: "/meteo", icona: "☁", nome: "Meteo", ruoli: AZIENDA_E_SKIPPER, modulo: "noleggio", gruppo: "noleggio" },
   { href: "/flotta", icona: "⌁", nome: "Flotta", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio" },

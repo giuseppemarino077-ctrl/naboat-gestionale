@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
 type Cal = { boats: any[]; bookings: any[]; blocks: any[] };
 type Sel = { boatId: string; giorno: string; booking?: any; block?: any } | null;
@@ -321,6 +322,7 @@ export default function CalendarioPage() {
                   {sel.booking.checkinAt && <p className="mt-2 text-xs text-muted">Partita alle {hhmm(sel.booking.checkinAt)}{sel.booking.checkinCarburantePct != null ? ` · carburante ${sel.booking.checkinCarburantePct}%` : ""}{sel.booking.checkoutAt ? ` · rientrata alle ${hhmm(sel.booking.checkoutAt)}` : ""}</p>}
                 </div>
 
+                <Link className="btn-soft w-full text-center" href={`/prenotazioni/${sel.booking.id}`}>Apri prenotazione →</Link>
                 <button className="w-full rounded-2xl bg-[#25D366] px-4 py-3 font-bold text-white" onClick={() => whatsapp(sel.booking, testoPromemoria(sel.booking))}>✆ Invia riepilogo WhatsApp</button>
                 <button className="w-full rounded-2xl border border-line px-4 py-3 font-bold text-ocean" onClick={() => whatsapp(sel.booking, `Ciao ${sel.booking.clienteNome ?? "cliente"}, `)}>✎ Scrivi su WhatsApp</button>
 

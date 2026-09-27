@@ -5,6 +5,25 @@ import { parseImportoEuro } from "@/lib/payments";
 import { requireAzienda } from "@/lib/tenant";
 import { z } from "zod";
 
+// Dettaglio di una prenotazione: barca, cliente, skipper, extra e incassi.
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const t = await requireAzienda(req);
+  if ("error" in t) return t.error;
+  const { id } = await params;
+  const b = await prisma.booking.findFirst({
+    where: { id, tenantId: t.tenantId },
+    include: {
+      boat: { select: { id: true, nome: true, tipo: true, capienza: true, patenteRichiesta: true, fotoCopertina: true } },
+      skipper: { select: { id: true, nome: true, telefono: true } },
+      customer: { select: { id: true, nome: true, telefono: true, email: true } },
+      extras: { include: { extra: { select: { id: true, nome: true, prezzo: true } } } },
+      payments: { orderBy: { createdAt: "desc" } },
+    },
+  });
+  if (!b) return fail("Prenotazione non trovata", 404);
+  return ok(b);
+}
+
 // Transizioni consentite: prenotata -> in_mare -> rientrata ; * -> cancellata (tranne rientrata)
 const NEXT: Record<string, string[]> = {
   prenotata: ["in_mare", "cancellata"],
