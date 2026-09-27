@@ -1,6 +1,7 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { calcolaImporti, paymentConfig, stripeClient } from "@/lib/payments";
+import { clientIp, rateLimit } from "@/lib/ratelimit";
 import type Stripe from "stripe";
 
 // Pagina pubblica di pagamento: accesso consentito solo dal token del link.
@@ -43,6 +44,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
+  const ip = clientIp(req);
+  // Limite per IP: senza sessione, questo endpoint va protetto da sola forza bruta.
+  if (!(await rateLimit(`rl:paga-public:${ip}`, 30, 3600)).ok) return fail("Troppi tentativi: riprova più tardi", 429);
+
   const { token } = await ctx.params;
   const booking = await prenotazioneDaToken(token);
   if (!booking) return fail("Link non valido o scaduto", 404);
@@ -58,28 +63,34 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   // Cauzione: blocco sulla carta, non un incasso.
   if (tipo === "cauzione") {
     if (!booking.cauzioneCent || booking.cauzioneCent <= 0) return fail("Cauzione non prevista per questa prenotazione", 422);
-    if (booking.cauzioneStato === "autorizzata") return fail("Cauzione gi� autorizzata", 422);
-    if (booking.checkoutAt) return fail("Noleggio gi� concluso", 422);
+    if (booking.cauzioneStato === "autorizzata") return fail("Cauzione già autorizzata", 422);
+    if (booking.checkoutAt) return fail("Noleggio già concluso", 422);
 
     const base = (process.env.APP_URL || new URL(req.url).origin).replace(/\/$/, "");
     const stripeC = stripeClient(cfg.stripeSecretKey);
-    const sessione = await stripeC.checkout.sessions.create({
-      mode: "payment",
-      line_items: [
-        {
-          quantity: 1,
-          price_data: {
-            currency: "eur",
-            unit_amount: booking.cauzioneCent,
-            product_data: { name: `Cauzione (blocco sulla carta) - ${booking.boat?.nome ?? "imbarcazione"}` },
+    let sessione: Stripe.Checkout.Session;
+    try {
+      sessione = await stripeC.checkout.sessions.create({
+        mode: "payment",
+        line_items: [
+          {
+            quantity: 1,
+            price_data: {
+              currency: "eur",
+              unit_amount: booking.cauzioneCent,
+              product_data: { name: `Cauzione (blocco sulla carta) - ${booking.boat?.nome ?? "imbarcazione"}` },
+            },
           },
-        },
-      ],
-      payment_intent_data: { capture_method: "manual" },
-      success_url: `${base}/paga/${token}?esito=cauzione-ok`,
-      cancel_url: `${base}/paga/${token}?esito=cauzione-annullata`,
-      metadata: { tenantId: booking.tenantId, bookingId: booking.id, tipo: "cauzione" },
-    });
+        ],
+        payment_intent_data: { capture_method: "manual" },
+        success_url: `${base}/paga/${token}?esito=cauzione-ok`,
+        cancel_url: `${base}/paga/${token}?esito=cauzione-annullata`,
+        metadata: { tenantId: booking.tenantId, bookingId: booking.id, tipo: "cauzione" },
+      });
+    } catch (e) {
+      console.error("[paga-public] Stripe cauzione:", e instanceof Error ? e.message : e);
+      return fail("Pagamento non disponibile in questo momento: riprova più tardi", 422);
+    }
     await prisma.booking.update({ where: { id: booking.id }, data: { cauzioneStato: "in_attesa" } });
     return ok({ url: sessione.url, cauzioneCent: booking.cauzioneCent }, 201);
   }
@@ -101,7 +112,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = [
     {
       quantity: 1,
-      price_data: { currency: "eur", unit_amount: importi.importoCent, product_data: { name: `${descrizione} �?" ${booking.boat?.nome ?? "imbarcazione"}` } },
+      price_data: { currency: "eur", unit_amount: importi.importoCent, product_data: { name: `${descrizione} - ${booking.boat?.nome ?? "imbarcazione"}` } },
     },
   ];
   if (commissioneCent > 0) {
@@ -113,13 +124,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
   const base = (process.env.APP_URL || new URL(req.url).origin).replace(/\/$/, "");
   const stripe = stripeClient(cfg.stripeSecretKey);
-  const session = await stripe.checkout.sessions.create({
-    mode: "payment",
-    line_items,
-    success_url: `${base}/paga/${token}?esito=ok`,
-    cancel_url: `${base}/paga/${token}?esito=annullato`,
-    metadata: { tenantId: booking.tenantId, bookingId: booking.id, tipo },
-  });
+  let session: Stripe.Checkout.Session;
+  try {
+    session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      line_items,
+      success_url: `${base}/paga/${token}?esito=ok`,
+      cancel_url: `${base}/paga/${token}?esito=annullato`,
+      metadata: { tenantId: booking.tenantId, bookingId: booking.id, tipo },
+    });
+  } catch (e) {
+    console.error("[paga-public] Stripe:", e instanceof Error ? e.message : e);
+    return fail("Pagamento non disponibile in questo momento: riprova più tardi", 422);
+  }
 
   await prisma.payment.create({
     data: {
@@ -139,4 +156,3 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
   return ok({ url: session.url, totaleCent: importi.totaleCent }, 201);
 }
-

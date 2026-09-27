@@ -1,10 +1,13 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { paymentConfig, stripeClient } from "@/lib/payments";
+import { clientIp, rateLimit } from "@/lib/ratelimit";
 
 // Pagamento online del corrispettivo di permanenza: lo paga il proprietario dal link riservato.
 // L'incasso va all'ormeggiatore; nessuna fee NaBoat sul modulo ormeggio.
 export async function POST(req: Request, { params }: { params: Promise<{ token: string }> }) {
+  const ip = clientIp(req);
+  if (!(await rateLimit(`rl:paga-ormeggio:${ip}`, 30, 3600)).ok) return fail("Troppi tentativi: riprova più tardi", 429);
   const { token } = await params;
   const c = await prisma.contrattoOrmeggio.findUnique({
     where: { token },
@@ -45,7 +48,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
       metadata: { tenantId: p.tenantId, permanenzaId: p.id, tipo: "ormeggio_permanenza" },
     });
   } catch (e) {
-    return fail(`Stripe ha rifiutato la richiesta: ${e instanceof Error ? e.message : "errore"}`, 422);
+    console.error("[ormeggio-paga] Stripe:", e instanceof Error ? e.message : e);
+    return fail("Pagamento non disponibile in questo momento: riprova più tardi", 422);
   }
 
   await prisma.payment.create({

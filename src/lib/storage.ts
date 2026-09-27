@@ -1,6 +1,6 @@
 import { PutObjectCommand, S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { mkdir, writeFile, unlink } from "fs/promises";
-import { join } from "path";
+import { join, normalize } from "path";
 import { randomUUID } from "crypto";
 import sharp from "sharp";
 
@@ -25,7 +25,10 @@ function s3client() {
   return s3;
 }
 
-export async function savePhoto(tenantId: string, bytes: Buffer, mime: string): Promise<string> {
+// Le foto pubbliche (barche, loghi, sfondi) stanno sotto /uploads/<tenant>.
+// Le foto dei clienti (check-in/check-out) stanno sotto privato/<tenant> e si
+// servono solo dalla rotta autenticata /api/v1/uploads/privato/...
+export async function savePhoto(tenantId: string, bytes: Buffer, mime: string, opts: { privato?: boolean } = {}): Promise<string> {
   if (!MIME_OK.includes(mime) || !bytes.length || bytes.length > MAX_BYTES) {
     throw new InvalidPhotoError("Immagine non valida o superiore a 5 MB");
   }
@@ -40,22 +43,28 @@ export async function savePhoto(tenantId: string, bytes: Buffer, mime: string): 
     throw new InvalidPhotoError("Immagine non valida: usare JPEG, PNG o WebP non animati, massimo 25 megapixel");
   }
   mime = "image/webp";
-  const key = `${tenantId}/${randomUUID()}.webp`;
+  const prefisso = opts.privato ? `privato/${tenantId}` : tenantId;
+  const key = `${prefisso}/${randomUUID()}.webp`;
   if (driver === "s3") {
     await s3client().send(new PutObjectCommand({ Bucket: process.env.S3_BUCKET!, Key: key, Body: bytes, ContentType: mime }));
     const base = (process.env.S3_PUBLIC_BASE_URL ?? process.env.S3_ENDPOINT ?? "").replace(/\/$/, "");
     return `${base}/${process.env.S3_BUCKET}/${key}`;
   }
-  const dir = join(process.cwd(), "public", "uploads", tenantId);
+  const dir = join(process.cwd(), "public", "uploads", prefisso);
   await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, key.split("/")[1]), bytes);
-  return `/uploads/${key}`;
+  await writeFile(join(dir, key.split("/").pop()!), bytes);
+  return opts.privato ? `/api/v1/uploads/privato/${key}` : `/uploads/${key}`;
 }
 
 export async function deletePhoto(url: string) {
   try {
-    if (url.startsWith("/uploads/")) {
-      await unlink(join(process.cwd(), "public", url));
+    if (url.startsWith("/api/v1/uploads/privato/") || url.startsWith("/uploads/")) {
+      const interno = url.startsWith("/api/v1/uploads/privato/")
+        ? url.replace("/api/v1/uploads/privato/", "privato/")
+        : url.replace("/uploads/", "");
+      const base = normalize(join(process.cwd(), "public", "uploads"));
+      const file = normalize(join(base, interno));
+      if (file.startsWith(base)) await unlink(file);
     } else if (driver === "s3" && process.env.S3_BUCKET) {
       const base = (process.env.S3_PUBLIC_BASE_URL ?? process.env.S3_ENDPOINT ?? "").replace(/\/$/, "");
       const key = url.replace(`${base}/${process.env.S3_BUCKET}/`, "");

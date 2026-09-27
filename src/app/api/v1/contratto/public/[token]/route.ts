@@ -1,5 +1,6 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
+import { clientIp, rateLimit } from "@/lib/ratelimit";
 
 // Contratto di noleggio: pagina pubblica accessibile solo con il token della prenotazione.
 async function daToken(token: string) {
@@ -42,6 +43,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
 
 // Firma: il cliente conferma i dati e scrive nome e cognome.
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
+  const ip = clientIp(req);
+  if (!(await rateLimit(`rl:contratto:${ip}`, 20, 3600)).ok) return fail("Troppi tentativi: riprova più tardi", 429);
   const { token } = await ctx.params;
   const b = await daToken(token);
   if (!b) return fail("Link non valido", 404);
@@ -53,14 +56,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   if (!accettato) return fail("Devi accettare le condizioni per firmare", 422);
   if (nome.length < 3 || nome.length > 120) return fail("Scrivi nome e cognome completi", 422);
 
-  const ip =
+  const firmaIp =
     req.headers.get("cf-connecting-ip") ??
     req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
     "non rilevato";
 
   const upd = await prisma.booking.update({
     where: { id: b.id },
-    data: { contrattoFirmatoAt: new Date(), contrattoFirmaNome: nome, contrattoFirmaIp: ip },
+    data: { contrattoFirmatoAt: new Date(), contrattoFirmaNome: nome, contrattoFirmaIp: firmaIp },
   });
   await prisma.auditLog.create({
     data: { tenantId: b.tenantId, azione: "contratto.firmato", entita: "Booking", entitaId: b.id },

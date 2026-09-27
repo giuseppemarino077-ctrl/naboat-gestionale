@@ -1,6 +1,7 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { paymentConfig } from "@/lib/payments";
+import { clientIp, rateLimit } from "@/lib/ratelimit";
 
 // Contratto di ormeggio/rimessaggio: pagina pubblica raggiungibile solo con il token riservato.
 async function daToken(token: string) {
@@ -54,6 +55,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
+  const ip = clientIp(req);
+  if (!(await rateLimit(`rl:contratto-ormeggio:${ip}`, 20, 3600)).ok) return fail("Troppi tentativi: riprova più tardi", 429);
   const { token } = await ctx.params;
   const c = await daToken(token);
   if (!c) return fail("Link non valido", 404);
@@ -62,13 +65,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const nome = String(body?.nome ?? "").trim();
   if (body?.accettato !== true) return fail("Devi accettare le condizioni per firmare", 422);
   if (nome.length < 3 || nome.length > 120) return fail("Scrivi nome e cognome completi", 422);
-  const ip =
+  const firmaIp =
     req.headers.get("cf-connecting-ip") ??
     req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
     "non rilevato";
   const upd = await prisma.contrattoOrmeggio.update({
     where: { id: c.id },
-    data: { firmatoAt: new Date(), firmaNome: nome, firmaIp: ip },
+    data: { firmatoAt: new Date(), firmaNome: nome, firmaIp },
   });
   await prisma.auditLog.create({
     data: { tenantId: c.tenantId, azione: "ormeggio.contratto.firmato", entita: "Permanenza", entitaId: c.permanenzaId },

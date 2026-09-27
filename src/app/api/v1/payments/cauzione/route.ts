@@ -74,7 +74,8 @@ export async function POST(req: Request) {
       metadata: { tenantId: t.tenantId, bookingId: booking.id, tipo: "cauzione" },
     });
   } catch (e) {
-    return fail(`Stripe ha rifiutato la richiesta: ${e instanceof Error ? e.message : "errore"}`, 422);
+    console.error("[cauzione] Stripe:", e instanceof Error ? e.message : e);
+    return fail("Operazione non disponibile in questo momento: riprova più tardi", 422);
   }
 
   await prisma.booking.update({
@@ -154,6 +155,7 @@ export async function PATCH(req: Request) {
     });
     return ok({ cauzioneStato: upd.cauzioneStato, addebitatoCent: addebitoCent });
   } catch (e) {
-    return fail(`Stripe ha rifiutato la richiesta: ${e instanceof Error ? e.message : "errore"}`, 422);
+    console.error("[cauzione] Stripe:", e instanceof Error ? e.message : e);
+    return fail("Operazione non disponibile in questo momento: riprova più tardi", 422);
   }
 }

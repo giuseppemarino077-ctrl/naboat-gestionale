@@ -82,6 +82,13 @@ export async function POST(req: Request) {
       where: { sessionId: session.id, tenantId, stato: "in_attesa" },
       data: { stato: "fallito" },
     });
+    // La cauzione abbandonata torna disponibile (altrimenti resterebbe "in attesa" per sempre).
+    if (session.metadata?.tipo === "cauzione" && session.metadata?.bookingId) {
+      await prisma.booking.updateMany({
+        where: { id: session.metadata.bookingId, tenantId, cauzioneStato: "in_attesa" },
+        data: { cauzioneStato: "non_richiesta" },
+      });
+    }
   }
 
   return ok({ received: true });

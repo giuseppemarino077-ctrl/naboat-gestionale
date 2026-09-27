@@ -19,6 +19,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ percorso: strin
   const { percorso } = await ctx.params;
   const relativo = (percorso ?? []).join("/");
 
+  // Le foto private (check-in/check-out) non si servono da qui: solo dalla rotta autenticata.
+  if (relativo === "privato" || relativo.startsWith("privato/")) {
+    return new NextResponse("Non trovato", { status: 404 });
+  }
+
   // Nessun percorso che esca dalla cartella dei caricamenti.
   const base = normalize(join(process.cwd(), "public", "uploads"));
   const file = normalize(join(base, relativo));

@@ -13,10 +13,11 @@ const NEXT: Record<string, string[]> = {
   cancellata: [],
 };
 
+// Il canale di vendita (diretto/naboat) NON è modificabile dall'azienda: decide la fee
+// NaBoat, quindi lo imposta solo NaBoat (dai metadata della prenotazione/marketplace).
 const PatchSchema = z.object({
   stato: z.enum(["prenotata", "in_mare", "rientrata", "cancellata"]).optional(),
   prezzoEuro: z.string().max(20).optional().nullable(),
-  origineCanale: z.enum(["diretto", "naboat"]).optional(),
 });
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -25,7 +26,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const { id } = await params;
   const p = PatchSchema.safeParse(await req.json().catch(() => null));
   if (!p.success) return fail("Dati non validi", 422);
-  if (!p.data.stato && p.data.prezzoEuro === undefined && !p.data.origineCanale) return fail("Nessuna modifica richiesta", 422);
+  if (!p.data.stato && p.data.prezzoEuro === undefined) return fail("Nessuna modifica richiesta", 422);
 
   const cur = await prisma.booking.findFirst({ where: { id, tenantId: t.tenantId } });
   if (!cur) return fail("Prenotazione non trovata", 404);
@@ -36,7 +37,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   const data: Record<string, unknown> = {};
   if (p.data.stato) data.stato = p.data.stato;
-  if (p.data.origineCanale) data.origineCanale = p.data.origineCanale;
   if (p.data.prezzoEuro !== undefined) {
     if (p.data.prezzoEuro === null || p.data.prezzoEuro === "") {
       data.prezzoCent = null;
