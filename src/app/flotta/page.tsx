@@ -16,6 +16,8 @@ export default function FlottaPage() {
   const fileInput = useRef<HTMLInputElement>(null);
   const [extra, setExtra] = useState({ nome: "", prezzo: "" });
   const [skipper, setSkipper] = useState({ nome: "", telefono: "" });
+  const [editId, setEditId] = useState<string | null>(null);
+  const [edit, setEdit] = useState({ nome: "", tipo: "", capienza: 1, potenzaCv: 0, patenteRichiesta: false });
 
   const load = () => {
     fetch("/api/v1/boats")
@@ -165,10 +167,27 @@ export default function FlottaPage() {
                       </label>
                     </div>
                   </div>
-                  <div className="mt-3 flex gap-2 text-xs">
+                  <div className="mt-3 flex gap-3 text-xs">
+                    <button className="font-bold text-ocean" onClick={() => { setEditId(editId === b.id ? null : b.id); setEdit({ nome: b.nome, tipo: b.tipo ?? "", capienza: b.capienza, potenzaCv: b.potenzaCv ?? 0, patenteRichiesta: b.patenteRichiesta }); }}>{editId === b.id ? "Chiudi" : "✎ Modifica"}</button>
                     <button className="font-bold text-ocean" onClick={() => api(`/api/v1/boats/${b.id}/duplicate`, "POST")}>Duplica</button>
                     <button className="font-bold text-coral" onClick={() => confirm("Eliminare?") && api(`/api/v1/boats/${b.id}`, "DELETE")}>Elimina</button>
                   </div>
+
+                  {editId === b.id && (
+                    <div className="mt-3 grid gap-2 rounded-2xl border border-line bg-[#faf6f2] p-3 text-sm">
+                      <label className="grid gap-1">Nome<input className="rounded-2xl border border-line p-2.5" value={edit.nome} onChange={(e) => setEdit({ ...edit, nome: e.target.value })} /></label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="grid gap-1">Tipo<input className="rounded-2xl border border-line p-2.5" value={edit.tipo} onChange={(e) => setEdit({ ...edit, tipo: e.target.value })} /></label>
+                        <label className="grid gap-1">Capienza<input className="rounded-2xl border border-line p-2.5" type="number" min={1} value={edit.capienza} onChange={(e) => setEdit({ ...edit, capienza: Number(e.target.value) })} /></label>
+                        <label className="grid gap-1">Potenza (CV)<input className="rounded-2xl border border-line p-2.5" type="number" min={0} value={edit.potenzaCv} onChange={(e) => setEdit({ ...edit, potenzaCv: Number(e.target.value) })} /></label>
+                        <label className="flex items-end gap-2 pb-2"><input type="checkbox" checked={edit.patenteRichiesta} onChange={(e) => setEdit({ ...edit, patenteRichiesta: e.target.checked })} /> Patente richiesta</label>
+                      </div>
+                      <div className="flex gap-2">
+                        <button className="btn-primary flex-1" onClick={async () => { await api(`/api/v1/boats/${b.id}`, "PATCH", { nome: edit.nome, tipo: edit.tipo || null, capienza: edit.capienza, potenzaCv: edit.potenzaCv, patenteRichiesta: edit.patenteRichiesta }); setEditId(null); }}>Salva modifiche</button>
+                        <button className="btn-soft" onClick={() => setEditId(null)}>Annulla</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </article>
             ))}
