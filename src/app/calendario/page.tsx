@@ -1,291 +1,341 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import {
+  Giorno, oggi, aData, giornoDi, oreDi, istante, inizioGiorno, fineGiorno,
+  aggiungiGiorni, lunediDi, giorniTra,
+} from "@/lib/calendario";
 import { uuidSicuro, copiaTesto } from "@/lib/browser";
 
 type Cal = { boats: any[]; bookings: any[]; blocks: any[] };
-type Sel = { boatId: string; giorno: string; booking?: any; block?: any } | null;
+type Vista = "giorno" | "settimana" | "agenda";
+type Sel =
+  | { modo: "nuovo"; boatId: string; giorno: Giorno }
+  | { modo: "prenotazione"; id: string }
+  | { modo: "blocco"; id: string }
+  | null;
 
-const isoDay = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-const dayOf = (v: string) => isoDay(new Date(v));
-// Costruzione orari a prova di browser (Safari non accetta "YYYY-MM-DDTHH:mm" senza secondi).
-function istante(giorno: string, ora: string) {
-  const [y, m, d] = giorno.split("-").map(Number);
-  const [hh, mm] = ora.split(":").map(Number);
-  return new Date(y, (m || 1) - 1, d || 1, hh || 0, mm || 0, 0, 0);
-}
-const inizioGiorno = (giorno: string) => istante(giorno, "00:00");
-const fineGiorno = (giorno: string) => { const d = istante(giorno, "00:00"); d.setHours(23, 59, 59, 999); return d; };
-
-const hhmm = (v: string) => new Date(v).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
 const euro = (c: number | null) => (c == null ? "—" : (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" }));
-const rif = (id: string) => `NB-${id.slice(0, 8).toUpperCase()}`;
-
-const STATO_CELL: Record<string, string> = {
-  prenotata: "border-[#f0d59a] bg-[#fff0cc] text-[#9a6406]",
-  in_mare: "border-[#a9e0d0] bg-[#d8f3ea] text-[#177469]",
-  rientrata: "border-[#d3dadb] bg-[#e8ecec] text-[#5d696b]",
+const codice = (b: any) => `NB-${new Date(b.startAt).getFullYear()}-${String(b.id).slice(0, 6).toUpperCase()}`;
+const waLink = (tel: string | null | undefined, testo: string) => {
+  const n = (tel ?? "").replace(/\D/g, "");
+  return n ? `https://wa.me/${n.startsWith("39") ? n : `39${n}`}?text=${encodeURIComponent(testo)}` : null;
 };
 
-function waLink(tel: string | null | undefined, testo: string) {
-  const n = (tel ?? "").replace(/\D/g, "");
-  if (!n) return null;
-  const num = n.startsWith("39") ? n : `39${n}`;
-  return `https://wa.me/${num}?text=${encodeURIComponent(testo)}`;
+function coloreEvento(b: any) {
+  if (b.stato === "rientrata") return "border-[#d3dadb] bg-[#eceff0] text-[#5d696b]";
+  if (b.stato === "in_mare") return "border-[#8fd3c2] bg-[#d8f3ea] text-[#14554c]";
+  return "border-[#a9e0d0] bg-[#e7f8f1] text-[#177469]";
 }
 
 export default function CalendarioPage() {
-  const [offset, setOffset] = useState(0);
+  const [base, setBase] = useState<Giorno>(oggi());
+  const [vista, setVista] = useState<Vista>("settimana");
   const [data, setData] = useState<Cal | null>(null);
   const [skippers, setSkippers] = useState<any[]>([]);
   const [me, setMe] = useState<any>(null);
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
+  const [fBarca, setFBarca] = useState<string>("");
+  const [fTipo, setFTipo] = useState<"tutti" | "prenotazioni" | "blocchi">("tutti");
   const [sel, setSel] = useState<Sel>(null);
   const [busy, setBusy] = useState(false);
 
+  // form
   const [crea, setCrea] = useState({ dalle: "09:00", alle: "17:00", passeggeri: 1, formula: "", clienteNome: "", telefono: "", email: "", destinazione: "", patenteOk: false, skipperId: "", note: "", prezzoEuro: "" });
   const [blocco, setBlocco] = useState({ motivo: "" });
-  const [sposta, setSposta] = useState({ boatId: "", giorno: "", dalle: "", alle: "" });
-  const [cliente, setCliente] = useState({ clienteNome: "", telefono: "" });
+  const [mod, setMod] = useState({ clienteNome: "", telefono: "", boatId: "", giorno: "", dalle: "", alle: "" });
   const [partenza, setPartenza] = useState({ carburante: "100", note: "" });
   const [rientro, setRientro] = useState({ carburante: "", danni: "", note: "" });
   const [linkContratto, setLinkContratto] = useState("");
   const [linkPagamento, setLinkPagamento] = useState("");
-  const [sezCrea, setSezCrea] = useState(false);
-  const [sezBlocco, setSezBlocco] = useState(false);
-  const [sezSposta, setSezSposta] = useState(false);
-  const [sezCliente, setSezCliente] = useState(false);
+  const [sez, setSez] = useState<"crea" | "blocca" | "sposta" | "cliente" | null>("crea");
 
-  const monday = useMemo(() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    d.setDate(d.getDate() - ((d.getDay() + 6) % 7) + offset * 7);
-    return d;
-  }, [offset]);
-  const days = useMemo(() => [...Array(14)].map((_, i) => { const d = new Date(monday); d.setDate(d.getDate() + i); return d; }), [monday]);
   const range = useMemo(() => {
-    const from = new Date(days[0]); from.setHours(0, 0, 0, 0);
-    const to = new Date(days[days.length - 1]); to.setHours(23, 59, 59, 999);
-    return { from: from.toISOString(), to: to.toISOString() };
-  }, [days]);
-  const oggi = isoDay(new Date());
+    if (vista === "giorno") return { from: inizioGiorno(base).toISOString(), to: fineGiorno(base).toISOString() };
+    if (vista === "settimana") {
+      const lun = lunediDi(base);
+      return { from: inizioGiorno(lun).toISOString(), to: fineGiorno(aggiungiGiorni(lun, 6)).toISOString() };
+    }
+    return { from: inizioGiorno(base).toISOString(), to: fineGiorno(aggiungiGiorni(base, 13)).toISOString() };
+  }, [vista, base]);
 
-  const load = () => {
-    fetch(`/api/v1/calendar?from=${range.from}&to=${range.to}`)
-      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
-      .then((j) => { if (j && Array.isArray(j.boats)) { setData(j); setErr(""); } else setErr("Serve login con azienda attiva."); })
-      .catch(() => setErr("Serve login con azienda attiva."));
-    fetch("/api/v1/skippers").then((r) => r.json()).then((j) => Array.isArray(j) && setSkippers(j)).catch(() => {});
-  };
-  useEffect(load, [offset]);
-  useEffect(() => { fetch("/api/v1/auth/me").then((r) => r.json()).then((j) => setMe(j.user)).catch(() => {}); }, []);
-
-  // Ricarica i dati e mantiene aperta la scheda con i valori aggiornati (le conseguenze si vedono subito).
   const ricarica = async () => {
     const j = await fetch(`/api/v1/calendar?from=${range.from}&to=${range.to}`).then((r) => r.json()).catch(() => null);
-    if (!j) return null;
-    setData(j);
-    setSel((cur) => {
-      if (!cur) return cur;
-      const nb = (j.bookings ?? []).find((k: any) => k.id === cur.booking?.id);
-      const nblk = (j.blocks ?? []).find((x: any) => x.id === cur.block?.id);
-      return { ...cur, booking: nb, block: nblk };
-    });
+    if (j && Array.isArray(j.boats)) { setData(j); setErr(""); }
+    else setErr("Serve login con azienda attiva.");
     return j;
   };
+  useEffect(() => { ricarica(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [vista, base]);
+  useEffect(() => {
+    fetch("/api/v1/skippers").then((r) => r.json()).then((j) => Array.isArray(j) && setSkippers(j)).catch(() => {});
+    fetch("/api/v1/auth/me").then((r) => r.json()).then((j) => setMe(j.user)).catch(() => {});
+  }, []);
 
-  const azione = async (okMsg: string, url: string, method: string, body?: any, chiudi = false) => {
+  const barche = (data?.boats ?? []).filter((b) => !fBarca || b.id === fBarca);
+
+  const chiama = async (okMsg: string, url: string, method: string, body?: any, chiudi = false) => {
     setBusy(true); setErr("");
     const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
     const j = await r.json().catch(() => ({}));
     setBusy(false);
     if (!r.ok) { setErr(j.error ?? "Errore"); return null; }
     setMsg(okMsg);
-    if (chiudi) setSel(null); else await ricarica();
+    await ricarica();
+    if (chiudi) setSel(null);
     return j;
   };
 
-  const apriCella = (boatId: string, d: Date) => {
-    const g = isoDay(d);
-    const booking = (data?.bookings ?? []).find((k) => k.boatId === boatId && dayOf(k.startAt) === g);
-    const block = (data?.blocks ?? []).find((x) => x.boatId === boatId && dayOf(x.startAt) <= g && dayOf(x.endAt) >= g);
-    const barca = data?.boats.find((b) => b.id === boatId);
-    setMsg(""); setErr(""); setLinkContratto(""); setLinkPagamento("");
-    setSel({ boatId, giorno: g, booking, block });
-    setSezCrea(false); setSezBlocco(false); setSezSposta(false); setSezCliente(false);
+  const apriNuovo = (boatId: string, giorno: Giorno) => {
+    setErr(""); setMsg(""); setLinkContratto(""); setLinkPagamento("");
+    setCrea({ dalle: "09:00", alle: "17:00", passeggeri: 1, formula: "", clienteNome: "", telefono: "", email: "", destinazione: "", patenteOk: false, skipperId: "", note: "", prezzoEuro: "" });
     setBlocco({ motivo: "" });
-    setPartenza({ carburante: "100", note: "" });
-    setRientro({ carburante: "", danni: "", note: "" });
-    if (booking) {
-      setSposta({ boatId, giorno: g, dalle: hhmm(booking.startAt), alle: hhmm(booking.endAt) });
-      setCliente({ clienteNome: booking.clienteNome ?? "", telefono: booking.telefono ?? "" });
-      setPartenza({ carburante: booking.checkinCarburantePct != null ? String(booking.checkinCarburantePct) : "100", note: "" });
-    } else {
-      setCrea({ dalle: "09:00", alle: "17:00", passeggeri: 1, formula: "", clienteNome: "", telefono: "", email: "", destinazione: "", patenteOk: false, skipperId: "", note: "", prezzoEuro: "" });
-      proponiPrezzo(boatId, g, "09:00", "17:00");
-    }
+    setSez("crea");
+    setSel({ modo: "nuovo", boatId, giorno });
+    proponiPrezzo(boatId, giorno, "09:00", "17:00");
   };
+  const apriPrenotazione = (id: string) => {
+    const b = (data?.bookings ?? []).find((x) => x.id === id);
+    if (!b) return;
+    setErr(""); setMsg(""); setLinkContratto(""); setLinkPagamento(""); setSez("sposta");
+    setMod({ clienteNome: b.clienteNome ?? "", telefono: b.telefono ?? "", boatId: b.boatId, giorno: giornoDi(b.startAt), dalle: oreDi(b.startAt), alle: oreDi(b.endAt) });
+    setPartenza({ carburante: b.checkinCarburantePct != null ? String(b.checkinCarburantePct) : "100", note: "" });
+    setRientro({ carburante: "", danni: "", note: "" });
+    setSel({ modo: "prenotazione", id });
+  };
+  const apriBlocco = (id: string) => { setErr(""); setMsg(""); setSel({ modo: "blocco", id }); };
 
-  const proponiPrezzo = async (boatId: string, giorno: string, dalle: string, alle: string) => {
+  const proponiPrezzo = async (boatId: string, giorno: Giorno, dalle: string, alle: string) => {
     const ore = (Number(alle.slice(0, 2)) + Number(alle.slice(3)) / 60) - (Number(dalle.slice(0, 2)) + Number(dalle.slice(3)) / 60);
     const tipo = ore <= 5 ? "mezza_giornata" : "giornata";
     const r = await fetch(`/api/v1/tariffe?boatId=${boatId}&data=${giorno}&tipo=${tipo}`);
     const j = await r.json().catch(() => ({}));
-    if (r.ok && j?.prezzoCent) setCrea((cur) => ({ ...cur, prezzoEuro: (j.prezzoCent / 100).toFixed(2).replace(".", ",") }));
+    if (r.ok && j?.prezzoCent) setCrea((c) => ({ ...c, prezzoEuro: (j.prezzoCent / 100).toFixed(2).replace(".", ",") }));
   };
 
   const creaPrenotazione = async () => {
-    if (!sel) return;
+    if (sel?.modo !== "nuovo") return;
     if (!crea.clienteNome.trim() || crea.telefono.trim().length < 4) { setErr("Indica nome cliente e telefono."); return; }
     const start = istante(sel.giorno, crea.dalle);
     const end = istante(sel.giorno, crea.alle);
-    if (!(start < end)) { setErr("L'orario di rientro deve essere dopo la partenza."); return; }
-    setBusy(true); setErr("");
-    const r = await fetch("/api/v1/bookings", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        boatId: sel.boatId, startAt: start.toISOString(), endAt: end.toISOString(),
-        clienteNome: crea.clienteNome.trim(), telefono: crea.telefono.trim(), email: crea.email || undefined,
-        passeggeri: Number(crea.passeggeri), destinazione: crea.destinazione || undefined,
-        formula: crea.formula || undefined, note: crea.note || undefined,
-        patenteOk: crea.patenteOk, skipperId: crea.skipperId || undefined, idempotencyKey: uuidSicuro(),
-      }),
+    if (!(start < end)) { setErr("Il rientro deve essere dopo la partenza."); return; }
+    const j = await chiama("Prenotazione creata.", "/api/v1/bookings", "POST", {
+      boatId: sel.boatId, startAt: start.toISOString(), endAt: end.toISOString(),
+      clienteNome: crea.clienteNome.trim(), telefono: crea.telefono.trim(), email: crea.email || undefined,
+      passeggeri: Number(crea.passeggeri), destinazione: crea.destinazione || undefined, formula: crea.formula || undefined,
+      note: crea.note || undefined, patenteOk: crea.patenteOk, skipperId: crea.skipperId || undefined, idempotencyKey: uuidSicuro(),
     });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) { setBusy(false); setErr(j.error ?? "Errore"); return; }
-    if (crea.prezzoEuro.trim()) {
-      await fetch(`/api/v1/bookings/${j.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prezzoEuro: crea.prezzoEuro }) });
+    if (j?.id) {
+      if (crea.prezzoEuro.trim()) await fetch(`/api/v1/bookings/${j.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prezzoEuro: crea.prezzoEuro }) });
+      await ricarica();
+      apriPrenotazione(j.id);
     }
-    setBusy(false);
-    const jj = await ricarica();
-    setMsg("Prenotazione creata.");
-    // Apre subito la scheda della prenotazione appena creata.
-    const nb = (jj?.bookings ?? []).find((k: any) => k.id === j.id);
-    if (nb) setSel({ boatId: nb.boatId, giorno: dayOf(nb.startAt), booking: nb });
   };
-
-  const rendiNonDisponibile = async () => {
-    if (!sel) return;
-    const j = await azione("Giornata resa non disponibile.", "/api/v1/blocks", "POST", { boatId: sel.boatId, startAt: inizioGiorno(sel.giorno).toISOString(), endAt: fineGiorno(sel.giorno).toISOString(), motivo: blocco.motivo || undefined }, true);
-    if (j) setSel(null);
+  const creaBlocco = async () => {
+    if (sel?.modo !== "nuovo") return;
+    await chiama("Giornata resa non disponibile.", "/api/v1/blocks", "POST", { boatId: sel.boatId, startAt: inizioGiorno(sel.giorno).toISOString(), endAt: fineGiorno(sel.giorno).toISOString(), motivo: blocco.motivo || undefined }, true);
   };
-  const rimuoviBlocco = async (id: string) => { if (confirm("Rimuovere il blocco?")) await azione("Blocco rimosso.", `/api/v1/blocks/${id}`, "DELETE", {}, true); };
-
-  const registraPartenza = async (b: any) => azione("Barca segnata in mare. Ora compare in «Oggi» come uscita in corso.", `/api/v1/bookings/${b.id}/checkin`, "POST", { carburantePct: partenza.carburante === "" ? null : Number(partenza.carburante), note: partenza.note || null });
-  const registraRientro = async (b: any) => azione("Rientro registrato: il noleggio è concluso.", `/api/v1/bookings/${b.id}/checkout`, "POST", { carburantePct: rientro.carburante === "" ? null : Number(rientro.carburante), danniEuro: rientro.danni || null, note: rientro.note || null });
-  const generaContratto = async (b: any) => { const j = await azione("Link del contratto generato.", `/api/v1/bookings/${b.id}/contratto`, "POST"); if (j?.url) { setLinkContratto(j.url); await copiaTesto(j.url); } };
-  const generaPagamento = async (b: any) => { const j = await azione("Link di pagamento generato.", "/api/v1/payments/checkout", "POST", { bookingId: b.id }); if (j?.url) { setLinkPagamento(j.url); await copiaTesto(j.url); } };
-  const eliminaPren = async (b: any) => { if (confirm("Annullare la prenotazione? Sparirà dal calendario.")) await azione("Prenotazione annullata.", `/api/v1/bookings/${b.id}`, "DELETE", undefined, true); };
-  const salvaSposta = async () => {
-    if (!sel?.booking) return;
-    const start = istante(sposta.giorno, sposta.dalle);
-    const end = istante(sposta.giorno, sposta.alle);
+  const rimuoviBlocco = async (id: string) => { if (confirm("Rendere di nuovo libera questa giornata?")) await chiama("Giornata di nuovo libera.", `/api/v1/blocks/${id}`, "DELETE", undefined, true); };
+  const annullaPren = async (id: string) => { if (confirm("Annullare la prenotazione?")) await chiama("Prenotazione annullata.", `/api/v1/bookings/${id}`, "DELETE", undefined, true); };
+  const partenzaOra = async (b: any) => azionePren(b, "Barca segnata in mare.", "checkin", { carburantePct: partenza.carburante === "" ? null : Number(partenza.carburante), note: partenza.note || null });
+  const rientroOra = async (b: any) => azionePren(b, "Rientro registrato.", "checkout", { carburantePct: rientro.carburante === "" ? null : Number(rientro.carburante), danniEuro: rientro.danni || null, note: rientro.note || null });
+  const azionePren = async (b: any, ok: string, az: string, body: any) => { await chiama(ok, `/api/v1/bookings/${b.id}/${az}`, "POST", body); };
+  const salvaMod = async (b: any) => {
+    const start = istante(mod.giorno, mod.dalle); const end = istante(mod.giorno, mod.alle);
     if (!(start < end)) { setErr("Orari incoerenti."); return; }
-    await azione("Prenotazione spostata.", `/api/v1/bookings/${sel.booking.id}`, "PATCH", { boatId: sposta.boatId, startAt: start.toISOString(), endAt: end.toISOString() });
+    await chiama("Prenotazione aggiornata.", `/api/v1/bookings/${b.id}`, "PATCH", { boatId: mod.boatId, startAt: start.toISOString(), endAt: end.toISOString(), clienteNome: mod.clienteNome, telefono: mod.telefono });
   };
-  const salvaCliente = async () => { if (sel?.booking) await azione("Cliente aggiornato.", `/api/v1/bookings/${sel.booking.id}`, "PATCH", { clienteNome: cliente.clienteNome, telefono: cliente.telefono }); };
-  const whatsapp = (b: any, testo: string) => { const l = waLink(b.telefono, testo); if (!l) { setErr("Il cliente non ha un telefono salvato."); return; } window.open(l, "_blank"); setMsg("WhatsApp aperto: invia il messaggio dall'app."); };
+  const contratto = async (b: any) => { const j = await chiama("Link contratto generato.", `/api/v1/bookings/${b.id}/contratto`, "POST"); if (j?.url) { setLinkContratto(j.url); await copiaTesto(j.url); } };
+  const pagamento = async (b: any) => { const j = await chiama("Link di pagamento generato.", "/api/v1/payments/checkout", "POST", { bookingId: b.id }); if (j?.url) { setLinkPagamento(j.url); await copiaTesto(j.url); } };
+  const whatsapp = (b: any, testo: string) => { const l = waLink(b.telefono, testo); if (!l) { setErr("Il cliente non ha un telefono."); return; } window.open(l, "_blank"); };
 
-  const oggiBookings = (data?.bookings ?? []).filter((k) => dayOf(k.startAt) === oggi);
-  const oggiBlocchi = (data?.blocks ?? []).filter((x) => dayOf(x.startAt) <= oggi && dayOf(x.endAt) >= oggi);
-  const prossima = [...oggiBookings].sort((a, b) => +new Date(a.startAt) - +new Date(b.startAt)).find((k) => k.stato === "prenotata");
-  const senzaTelefono = oggiBookings.filter((k) => !k.telefono).length;
-  const daFare = oggiBookings.filter((k) => !k.contrattoFirmatoAt || !k.checkinAt).length;
+  // eventi raggruppati per barca/giorno
+  const eventiGiorno = (boatId: string, g: Giorno) => {
+    const bks = (data?.bookings ?? []).filter((k) => k.boatId === boatId && giornoDi(k.startAt) === g);
+    const blk = (data?.blocks ?? []).find((x) => x.boatId === boatId && giornoDi(x.startAt) <= g && giornoDi(x.endAt) >= g);
+    return { bks, blk };
+  };
 
-  const barcaSel = data?.boats.find((b) => b.id === sel?.boatId);
-  const nomeAz = me?.tenantNome ?? "l'azienda";
-  const testoPromemoria = (b: any) => `Ciao ${b.clienteNome ?? "cliente"}, ti ricordiamo la tua uscita con ${nomeAz} il ${new Date(b.startAt).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })} alle ${hhmm(b.startAt)}. A presto!`;
-  const step = (b: any) => (b.stato === "in_mare" ? 1 : b.stato === "rientrata" ? 2 : 0);
+  const nav = (n: number) => setBase((b) => aggiungiGiorni(b, vista === "settimana" ? n * 7 : vista === "agenda" ? n * 14 : n));
+  const etichettaRange = vista === "giorno"
+    ? aData(base).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
+    : vista === "settimana"
+      ? `${aData(lunediDi(base)).toLocaleDateString("it-IT", { day: "numeric", month: "short" })} – ${aData(aggiungiGiorni(lunediDi(base), 6)).toLocaleDateString("it-IT", { day: "numeric", month: "short", year: "numeric" })}`
+      : `${aData(base).toLocaleDateString("it-IT", { day: "numeric", month: "short" })} – ${aData(aggiungiGiorni(base, 13)).toLocaleDateString("it-IT", { day: "numeric", month: "short" })}`;
+
+  const barcaDi = (id: string) => data?.boats.find((b) => b.id === id);
+  const prenSel = sel?.modo === "prenotazione" ? (data?.bookings ?? []).find((b) => b.id === sel.id) : null;
+  const blkSel = sel?.modo === "blocco" ? (data?.blocks ?? []).find((b) => b.id === sel.id) : null;
+
+  const ore = Array.from({ length: 24 }, (_, i) => i);
 
   return (
     <div className="grid gap-4">
       {err && <p className="rounded-2xl border border-coral/40 bg-[#fdeeea] p-3 text-sm font-semibold text-coral">{err}</p>}
       {msg && <p className="rounded-2xl border border-[#bfe6dc] bg-[#eafaf5] p-3 text-sm font-semibold text-[#177469]">{msg}</p>}
 
-      <div className="rounded-3xl bg-gradient-to-br from-[#3a2418] to-[#2a1408] p-5 text-white shadow-lg">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-[#f3cba6]">Cruscotto operativo · oggi</p>
-            <h1 className="mt-1 text-2xl">{new Date().toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })}</h1>
-            <p className="mt-1 text-sm text-white/70">{oggiBookings.length === 0 ? "Nessun movimento programmato: la giornata è libera." : `${oggiBookings.length} prenotazioni in programma.`}</p>
-          </div>
-          <div className="rounded-2xl bg-white/10 px-4 py-3 text-sm">{prossima ? <>Prossima partenza <b>{hhmm(prossima.startAt)}</b> · {prossima.boat?.nome}</> : "Agenda libera"}</div>
-        </div>
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {[{ n: "Prenotazioni", v: oggiBookings.length }, { n: "Barche bloccate", v: oggiBlocchi.length }, { n: "Senza telefono", v: senzaTelefono }, { n: "Da fare", v: daFare }].map((k) => (
-            <div key={k.n} className="rounded-2xl bg-white/10 px-3 py-2"><p className="text-[10px] uppercase tracking-widest text-white/60">{k.n}</p><p className="font-display text-2xl">{k.v}</p></div>
+      {/* Barra strumenti */}
+      <div className="flex flex-wrap items-center gap-3 rounded-3xl border border-line bg-white p-3 shadow-sm">
+        <div className="inline-flex rounded-full border border-line p-1">
+          {(["giorno", "settimana", "agenda"] as Vista[]).map((v) => (
+            <button key={v} className={"rounded-full px-4 py-1.5 text-sm font-bold capitalize " + (vista === v ? "bg-ocean text-white" : "text-ocean hover:bg-foam")} onClick={() => setVista(v)}>{v}</button>
           ))}
         </div>
-        <p className="mt-3 text-sm">{daFare === 0 ? "✓ Nessuna criticità operativa" : `⚠ ${daFare} prenotazioni da completare (contratto o partenza)`}</p>
+        <div className="flex items-center gap-1">
+          <button className="btn-soft" onClick={() => nav(-1)}>‹</button>
+          <button className="btn-soft" onClick={() => setBase(oggi())}>Oggi</button>
+          <button className="btn-soft" onClick={() => nav(1)}>›</button>
+        </div>
+        <strong className="text-sm capitalize">{etichettaRange}</strong>
+        <div className="ml-auto flex flex-wrap items-center gap-2 text-sm">
+          <select className="rounded-full border border-line bg-white px-3 py-2" value={fBarca} onChange={(e) => setFBarca(e.target.value)}>
+            <option value="">Tutte le barche</option>
+            {(data?.boats ?? []).map((b) => <option key={b.id} value={b.id}>{b.nome}</option>)}
+          </select>
+          <select className="rounded-full border border-line bg-white px-3 py-2" value={fTipo} onChange={(e) => setFTipo(e.target.value as any)}>
+            <option value="tutti">Tutti gli eventi</option>
+            <option value="prenotazioni">Solo prenotazioni</option>
+            <option value="blocchi">Solo blocchi</option>
+          </select>
+        </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3 text-xs">
-          <span className="inline-flex items-center gap-1"><i className="h-3 w-3 rounded-full bg-[#fff0cc] ring-1 ring-[#f0d59a]" /> Prenotata</span>
-          <span className="inline-flex items-center gap-1"><i className="h-3 w-3 rounded-full bg-[#d8f3ea] ring-1 ring-[#a9e0d0]" /> In mare</span>
-          <span className="inline-flex items-center gap-1"><i className="h-3 w-3 rounded-full bg-[#e8ecec] ring-1 ring-[#d3dadb]" /> Rientrata</span>
-          <span className="inline-flex items-center gap-1"><i className="h-3 w-3 rounded-full bg-[#fdeeea] ring-1 ring-[#f6c9be]" /> Blocco</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <button className="btn-soft" onClick={() => setOffset(offset - 1)}>‹</button>
-          <strong className="text-sm">{days[0].toLocaleDateString("it-IT", { day: "numeric", month: "short" })} – {days[days.length - 1].toLocaleDateString("it-IT", { day: "numeric", month: "short" })}</strong>
-          <button className="btn-soft" onClick={() => setOffset(offset + 1)}>›</button>
-          <button className="btn-soft" onClick={() => setOffset(0)}>Oggi</button>
-        </div>
+      <div className="flex flex-wrap items-center gap-3 text-xs">
+        <span className="inline-flex items-center gap-1"><i className="h-3 w-4 rounded bg-[#e7f8f1] ring-1 ring-[#a9e0d0]" /> prenotazione</span>
+        <span className="inline-flex items-center gap-1"><i className="h-3 w-4 rounded bg-[#d8f3ea] ring-1 ring-[#8fd3c2]" /> in navigazione</span>
+        <span className="inline-flex items-center gap-1"><i className="h-3 w-4 rounded bg-[#eceff0] ring-1 ring-[#d3dadb]" /> completata</span>
+        <span className="inline-flex items-center gap-1"><i className="h-3 w-4 rounded bg-[#fdeeea] ring-1 ring-[#f6c9be]" /> blocco</span>
+        <span className="inline-flex items-center gap-1"><i className="h-3 w-4 rounded bg-white ring-1 ring-line" /> libera</span>
       </div>
 
-      <div className="card overflow-x-auto">
-        <div className="min-w-[980px]">
-          <div className="grid" style={{ gridTemplateColumns: `180px repeat(${days.length}, minmax(64px,1fr))` }}>
-            <div className="sticky left-0 z-10 border-b border-line bg-white px-3 py-2 text-xs font-bold text-muted">IMBARCAZIONE</div>
-            {days.map((d) => {
-              const isOggi = isoDay(d) === oggi;
-              return <div key={+d} className={"border-b border-l border-line px-1 py-2 text-center text-[11px] " + (isOggi ? "bg-[#fff0cc] font-bold text-[#9a6406]" : "text-muted")}>{d.toLocaleDateString("it-IT", { weekday: "short" })}<br /><b>{d.getDate()}</b></div>;
-            })}
-            {(data?.boats ?? []).map((bt: any) => (
-              <div key={bt.id} className="contents">
-                <div className="sticky left-0 z-10 border-b border-line bg-white px-3 py-3 text-sm">
-                  <p className="font-bold">{bt.nome}</p>
-                  <p className="text-xs text-muted">{bt.capienza} posti{bt.patenteRichiesta ? " · patente" : ""}</p>
-                  <span className={bt.stato === "manutenzione" ? "badge-block" : bt.stato === "non_disponibile" ? "badge-pending" : "badge-ready"}>{bt.stato.replace("_", " ")}</span>
-                </div>
-                {days.map((d) => {
-                  const g = isoDay(d);
-                  const bks = (data?.bookings ?? []).filter((k) => k.boatId === bt.id && dayOf(k.startAt) === g);
-                  const blk = (data?.blocks ?? []).find((x) => x.boatId === bt.id && dayOf(x.startAt) <= g && dayOf(x.endAt) >= g);
-                  return (
-                    <button key={bt.id + g} onClick={() => apriCella(bt.id, d)} className={"min-h-[74px] border-b border-l border-line p-1 text-left align-top transition hover:bg-foam " + (g === oggi ? "bg-[#fffaf2]" : "")}>
-                      {bks.map((k) => (
-                        <span key={k.id} className={"mb-1 block rounded-xl border px-2 py-1 text-[11px] font-semibold " + (STATO_CELL[k.stato] ?? "border-line bg-white")}>
-                          {hhmm(k.startAt)} {k.clienteNome}{k.checkinAt && !k.checkoutAt ? " · in mare" : ""}
-                        </span>
-                      ))}
-                      {blk && <span className="mb-1 block rounded-xl border border-[#f6c9be] bg-[#fdeeea] px-2 py-1 text-[11px] font-semibold text-coral">Blocco{blk.motivo ? `: ${blk.motivo}` : ""}</span>}
-                      {bks.length === 0 && !blk && <span className="text-[11px] text-muted">Libera</span>}
-                    </button>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
       {data && data.boats.length === 0 && (
         <div className="card grid place-items-center gap-2 p-8 text-center">
           <p className="font-semibold">Nessuna barca in flotta.</p>
-          <a className="btn-primary" href="/flotta">Vai a Flotta</a>
+          <Link className="btn-primary" href="/flotta">Vai a Flotta</Link>
         </div>
       )}
 
+      {/* VISTA GIORNO — timeline oraria multi-barca */}
+      {vista === "giorno" && (
+        <div className="card overflow-x-auto">
+          <div className="min-w-[900px]">
+            <div className="grid" style={{ gridTemplateColumns: "180px repeat(24, minmax(34px,1fr))" }}>
+              <div className="sticky left-0 z-10 border-b border-line bg-white px-3 py-2 text-xs font-bold text-muted">IMBARCAZIONE</div>
+              {ore.map((h) => <div key={h} className="border-b border-l border-line py-1 text-center text-[10px] text-muted">{String(h).padStart(2, "0")}</div>)}
+              {barche.map((bt) => {
+                const { bks, blk } = eventiGiorno(bt.id, base);
+                return (
+                  <div key={bt.id} className="contents">
+                    <div className="sticky left-0 z-10 border-b border-line bg-white px-3 py-3 text-sm">
+                      <p className="font-bold">{bt.nome}</p>
+                      <p className="text-xs text-muted">{bt.capienza} posti</p>
+                    </div>
+                    <div className="relative h-16 border-b border-l border-line" style={{ gridColumn: "2 / span 24" }}>
+                      {ore.map((h) => <div key={h} className="absolute top-0 h-full border-l border-line/50" style={{ left: `calc(${(h / 24) * 100}% )` }} />)}
+                      {fTipo !== "blocchi" && bks.map((k) => {
+                        const s = new Date(k.startAt), e = new Date(k.endAt);
+                        const l = (s.getHours() + s.getMinutes() / 60) / 24 * 100;
+                        const w = Math.max(2, ((e.getTime() - s.getTime()) / 3600000) / 24 * 100);
+                        return (
+                          <button key={k.id} onClick={() => apriPrenotazione(k.id)} className={"absolute top-2 h-12 overflow-hidden rounded-lg border px-2 py-1 text-left text-[11px] font-semibold hover:brightness-105 " + coloreEvento(k)} style={{ left: `${l}%`, width: `${Math.min(100 - l, w)}%` }}>
+                            {oreDi(k.startAt)}–{oreDi(k.endAt)} {k.clienteNome}
+                            {k.origineCanale === "naboat" && <span className="ml-1 rounded bg-white/70 px-1 text-[9px]">NaBoat</span>}
+                          </button>
+                        );
+                      })}
+                      {fTipo !== "prenotazioni" && blk && (
+                        <button onClick={() => apriBlocco(blk.id)} className="absolute top-2 h-12 w-24 overflow-hidden rounded-lg border border-[#f6c9be] bg-[#fdeeea] px-2 py-1 text-left text-[11px] font-semibold text-coral" style={{ left: "0%" }}>
+                          Blocco{blk.motivo ? `: ${blk.motivo}` : ""}
+                        </button>
+                      )}
+                      <button className="absolute inset-0 -z-0" title="Clicca per creare" onClick={(ev) => { const rect = (ev.currentTarget as HTMLElement).getBoundingClientRect(); const frac = (ev.clientX - rect.left) / rect.width; const hh = Math.min(23, Math.max(0, Math.floor(frac * 24))); setSez("crea"); setCrea((c) => ({ ...c, dalle: `${String(hh).padStart(2, "0")}:00`, alle: `${String(Math.min(23, hh + 8)).padStart(2, "0")}:00` })); apriNuovo(bt.id, base); }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VISTA SETTIMANA — griglia barche × giorni */}
+      {vista === "settimana" && (
+        <div className="card overflow-x-auto">
+          <div className="min-w-[900px]">
+            <div className="grid" style={{ gridTemplateColumns: `180px repeat(7, minmax(110px,1fr))` }}>
+              <div className="sticky left-0 z-10 border-b border-line bg-white px-3 py-2 text-xs font-bold text-muted">IMBARCAZIONE</div>
+              {giorniTra(lunediDi(base), aggiungiGiorni(lunediDi(base), 6)).map((g) => (
+                <div key={g} className={"border-b border-l border-line px-2 py-2 text-center text-xs " + (g === oggi() ? "bg-[#fff0cc] font-bold text-[#9a6406]" : "text-muted")}>
+                  {aData(g).toLocaleDateString("it-IT", { weekday: "short" })}<br /><b>{aData(g).getDate()}</b>
+                </div>
+              ))}
+              {barche.map((bt) => (
+                <div key={bt.id} className="contents">
+                  <div className="sticky left-0 z-10 border-b border-line bg-white px-3 py-3 text-sm">
+                    <p className="font-bold">{bt.nome}</p>
+                    <span className={bt.stato === "manutenzione" ? "badge-block" : bt.stato === "non_disponibile" ? "badge-pending" : "badge-ready"}>{bt.stato.replace("_", " ")}</span>
+                  </div>
+                  {giorniTra(lunediDi(base), aggiungiGiorni(lunediDi(base), 6)).map((g) => {
+                    const { bks, blk } = eventiGiorno(bt.id, g);
+                    return (
+                      <div key={bt.id + g} className={"min-h-[80px] space-y-1 border-b border-l border-line p-1.5 " + (g === oggi() ? "bg-[#fffaf2]" : "")}>
+                        {fTipo !== "blocchi" && bks.map((k) => (
+                          <button key={k.id} onClick={() => apriPrenotazione(k.id)} className={"block w-full rounded-lg border px-2 py-1 text-left text-[11px] font-semibold hover:brightness-105 " + coloreEvento(k)}>
+                            {oreDi(k.startAt)} {k.clienteNome}{k.origineCanale === "naboat" ? <span className="ml-1 rounded bg-white/70 px-1 text-[9px]">NaBoat</span> : null}
+                          </button>
+                        ))}
+                        {fTipo !== "prenotazioni" && blk && (
+                          <button onClick={() => apriBlocco(blk.id)} className="block w-full rounded-lg border border-[#f6c9be] bg-[#fdeeea] px-2 py-1 text-left text-[11px] font-semibold text-coral">Blocco{blk.motivo ? `: ${blk.motivo}` : ""}</button>
+                        )}
+                        {bks.length === 0 && !blk && <button onClick={() => apriNuovo(bt.id, g)} className="block w-full rounded-lg border border-dashed border-line py-2 text-[11px] text-muted hover:border-ocean hover:bg-foam">＋ libera</button>}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VISTA AGENDA */}
+      {vista === "agenda" && (
+        <div className="grid gap-3">
+          {giorniTra(base, aggiungiGiorni(base, 13)).map((g) => {
+            const righe: any[] = [];
+            for (const bt of barche) {
+              const { bks, blk } = eventiGiorno(bt.id, g);
+              if (fTipo !== "blocchi") for (const k of bks) righe.push({ tipo: "p", k, bt });
+              if (fTipo !== "prenotazioni" && blk) righe.push({ tipo: "b", k: blk, bt });
+            }
+            if (righe.length === 0) return null;
+            return (
+              <div key={g} className="card p-4">
+                <p className="text-sm font-bold">{aData(g).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })}</p>
+                <div className="mt-2 grid gap-2">
+                  {righe.map((r) => (
+                    <button key={r.tipo + r.k.id} onClick={() => (r.tipo === "p" ? apriPrenotazione(r.k.id) : apriBlocco(r.k.id))} className={"flex items-center justify-between rounded-xl border px-3 py-2 text-left text-sm " + (r.tipo === "p" ? coloreEvento(r.k) : "border-[#f6c9be] bg-[#fdeeea] text-coral")}>
+                      <span>{r.tipo === "p" ? `${oreDi(r.k.startAt)}–${oreDi(r.k.endAt)} · ${r.bt.nome} · ${r.k.clienteNome ?? ""}` : `Blocco · ${r.bt.nome}${r.k.motivo ? ` · ${r.k.motivo}` : ""}`}</span>
+                      <span className="text-xs">{r.tipo === "p" ? (r.k.origineCanale === "naboat" ? "NaBoat" : "Diretta") : "blocco"}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+          {data && barche.length === 0 && <p className="text-sm text-muted">Nessun evento in questo intervallo.</p>}
+        </div>
+      )}
+
+      {/* SCHEDA LATERALE */}
       {sel && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4" onClick={() => setSel(null)}>
-          <div className="my-6 w-full max-w-xl rounded-3xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 bg-black/40" onClick={() => setSel(null)}>
+          <div className="absolute right-0 top-0 flex h-full w-full max-w-[480px] flex-col overflow-y-auto bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-widest text-ocean">Planning flotta</p>
-                <h2 className="text-2xl">{barcaSel?.nome}</h2>
-                <p className="text-sm text-muted">{new Date(sel.giorno + "T12:00").toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</p>
+                {sel.modo === "nuovo" && <><p className="text-xs font-semibold uppercase tracking-widest text-ocean">Nuovo</p><h2 className="text-xl">{barcaDi(sel.boatId)?.nome}</h2><p className="text-sm text-muted">{aData(sel.giorno).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })}</p></>}
+                {sel.modo === "prenotazione" && prenSel && <><p className="text-xs font-semibold uppercase tracking-widest text-ocean">{codice(prenSel)}</p><h2 className="text-xl">{barcaDi(prenSel.boatId)?.nome}</h2><p className="text-sm text-muted">{aData(giornoDi(prenSel.startAt)).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })}</p></>}
+                {sel.modo === "blocco" && blkSel && <><p className="text-xs font-semibold uppercase tracking-widest text-coral">Blocco</p><h2 className="text-xl">{barcaDi(blkSel.boatId)?.nome}</h2><p className="text-sm text-muted">{aData(giornoDi(blkSel.startAt)).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })}</p></>}
               </div>
               <button className="grid h-9 w-9 place-items-center rounded-full bg-[#faf6f2] text-muted" onClick={() => setSel(null)}>✕</button>
             </div>
@@ -293,164 +343,114 @@ export default function CalendarioPage() {
             {err && <p className="mt-4 rounded-2xl border border-coral/40 bg-[#fdeeea] p-3 text-sm font-semibold text-coral">{err}</p>}
             {msg && <p className="mt-4 rounded-2xl border border-[#bfe6dc] bg-[#eafaf5] p-3 text-sm font-semibold text-[#177469]">{msg}</p>}
 
-            {sel.booking ? (
-              <div className="mt-4 grid gap-4">
-                {/* Stato a step */}
-                <div className="flex items-center gap-2">
-                  {["Prenotata", "In mare", "Rientrata"].map((s, i) => (
-                    <span key={s} className={"flex-1 rounded-full px-2 py-1 text-center text-xs font-bold " + (i <= step(sel.booking) ? "bg-ocean text-white" : "bg-[#faf6f2] text-muted")}>{s}</span>
-                  ))}
+            {/* NUOVO */}
+            {sel.modo === "nuovo" && (
+              <div className="mt-4 grid gap-3">
+                <div className="flex gap-2">
+                  <button className={"flex-1 rounded-full px-3 py-2 text-sm font-bold " + (sez === "crea" ? "bg-ocean text-white" : "border border-line text-ocean")} onClick={() => setSez("crea")}>Nuova prenotazione</button>
+                  <button className={"flex-1 rounded-full px-3 py-2 text-sm font-bold " + (sez === "blocca" ? "bg-deep text-white" : "border border-line text-ocean")} onClick={() => setSez("blocca")}>Rendi non disponibile</button>
                 </div>
-
-                <div className="rounded-2xl border border-[#a9e0d0] bg-[#eafaf5] p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold uppercase tracking-widest text-[#177469]">Prenotazione</span>
-                    <span className={sel.booking.stato === "in_mare" ? "badge-ready" : sel.booking.stato === "rientrata" ? "badge-block" : "badge-pending"}>{sel.booking.stato.replace("_", " ")}</span>
+                {sez === "crea" ? (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="grid gap-1 text-sm">Partenza<input className="rounded-2xl border border-line p-3" type="time" value={crea.dalle} onChange={(e) => setCrea({ ...crea, dalle: e.target.value })} /></label>
+                    <label className="grid gap-1 text-sm">Rientro<input className="rounded-2xl border border-line p-3" type="time" value={crea.alle} onChange={(e) => setCrea({ ...crea, alle: e.target.value })} /></label>
+                    <label className="grid gap-1 text-sm">Passeggeri<input className="rounded-2xl border border-line p-3" type="number" min={1} value={crea.passeggeri} onChange={(e) => setCrea({ ...crea, passeggeri: Number(e.target.value) })} /></label>
+                    <label className="grid gap-1 text-sm">Formula<input className="rounded-2xl border border-line p-3" value={crea.formula} onChange={(e) => setCrea({ ...crea, formula: e.target.value })} /></label>
+                    <label className="grid gap-1 text-sm">Nome cliente *<input className="rounded-2xl border border-line p-3" value={crea.clienteNome} onChange={(e) => setCrea({ ...crea, clienteNome: e.target.value })} /></label>
+                    <label className="grid gap-1 text-sm">Telefono *<input className="rounded-2xl border border-line p-3" value={crea.telefono} onChange={(e) => setCrea({ ...crea, telefono: e.target.value })} /></label>
+                    <label className="grid gap-1 text-sm">Email<input className="rounded-2xl border border-line p-3" type="email" value={crea.email} onChange={(e) => setCrea({ ...crea, email: e.target.value })} /></label>
+                    <label className="grid gap-1 text-sm">Destinazione<input className="rounded-2xl border border-line p-3" value={crea.destinazione} onChange={(e) => setCrea({ ...crea, destinazione: e.target.value })} /></label>
+                    <label className="grid gap-1 text-sm">Skipper<select className="rounded-2xl border border-line p-3" value={crea.skipperId} onChange={(e) => setCrea({ ...crea, skipperId: e.target.value })}><option value="">Nessuno</option>{skippers.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}</select></label>
+                    <label className="grid gap-1 text-sm">Prezzo €<input className="rounded-2xl border border-line p-3" value={crea.prezzoEuro} onChange={(e) => setCrea({ ...crea, prezzoEuro: e.target.value })} /></label>
+                    {barcaDi(sel.boatId)?.patenteRichiesta ? (
+                      <label className="flex items-center gap-2 rounded-2xl border border-gold/50 bg-[#fff7e6] p-3 text-sm font-semibold text-[#9a6406] sm:col-span-2"><input type="checkbox" checked={crea.patenteOk} onChange={(e) => setCrea({ ...crea, patenteOk: e.target.checked })} /> Il cliente ha la patente (o assegna uno skipper)</label>
+                    ) : (
+                      <p className="rounded-2xl border border-[#a9e0d0] bg-[#eafaf5] p-3 text-sm text-[#177469] sm:col-span-2">Patente non richiesta per questa barca.</p>
+                    )}
+                    <label className="grid gap-1 text-sm sm:col-span-2">Nota<input className="rounded-2xl border border-line p-3" value={crea.note} onChange={(e) => setCrea({ ...crea, note: e.target.value })} /></label>
+                    <button className="btn-primary sm:col-span-2 disabled:opacity-50" disabled={busy || (!!barcaDi(sel.boatId)?.patenteRichiesta && !crea.patenteOk && !crea.skipperId)} onClick={creaPrenotazione}>{busy ? "Creo…" : "Crea prenotazione"}</button>
                   </div>
-                  <p className="mt-1 text-lg font-extrabold">{sel.booking.clienteNome ?? "cliente"}</p>
-                  <p className="text-xs text-muted">{rif(sel.booking.id)} · canale {sel.booking.origineCanale}</p>
-                  <div className="mt-3 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
-                    <div><p className="text-xs text-muted">Inizio</p><b>{hhmm(sel.booking.startAt)}</b></div>
-                    <div><p className="text-xs text-muted">Fine</p><b>{hhmm(sel.booking.endAt)}</b></div>
-                    <div><p className="text-xs text-muted">Passeggeri</p><b>{sel.booking.passeggeri}</b></div>
-                    <div><p className="text-xs text-muted">Prezzo</p><b>{euro(sel.booking.prezzoCent)}</b></div>
-                    <div><p className="text-xs text-muted">Skipper</p><b>{skippers.find((s) => s.id === sel.booking.skipperId)?.nome ?? "nessuno"}</b></div>
-                    <div><p className="text-xs text-muted">Patente</p><b>{sel.booking.patenteOk ? "ok" : barcaSel?.patenteRichiesta ? "da verificare" : "non richiesta"}</b></div>
-                    <div><p className="text-xs text-muted">Contratto</p><b>{sel.booking.contrattoFirmatoAt ? "firmato" : "da firmare"}</b></div>
-                    <div><p className="text-xs text-muted">Cauzione</p><b>{sel.booking.cauzioneStato.replace("_", " ")}</b></div>
-                  </div>
-                  {sel.booking.note && <p className="mt-2 text-sm text-muted">{sel.booking.note}</p>}
-                  {sel.booking.checkinAt && <p className="mt-2 text-xs text-muted">Partita alle {hhmm(sel.booking.checkinAt)}{sel.booking.checkinCarburantePct != null ? ` · carburante ${sel.booking.checkinCarburantePct}%` : ""}{sel.booking.checkoutAt ? ` · rientrata alle ${hhmm(sel.booking.checkoutAt)}` : ""}</p>}
-                </div>
-
-                <Link className="btn-soft w-full text-center" href={`/prenotazioni/${sel.booking.id}`}>Apri prenotazione →</Link>
-                <button className="w-full rounded-2xl bg-[#25D366] px-4 py-3 font-bold text-white" onClick={() => whatsapp(sel.booking, testoPromemoria(sel.booking))}>✆ Invia riepilogo WhatsApp</button>
-                <button className="w-full rounded-2xl border border-line px-4 py-3 font-bold text-ocean" onClick={() => whatsapp(sel.booking, `Ciao ${sel.booking.clienteNome ?? "cliente"}, `)}>✎ Scrivi su WhatsApp</button>
-
-                {/* Partenza */}
-                {sel.booking.stato === "prenotata" && (
-                  <div className="rounded-2xl border border-line p-4">
-                    <p className="font-bold text-ocean">Registra partenza (check-in)</p>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                      <label className="grid gap-1 text-sm">Carburante %<input className="rounded-2xl border border-line p-3" type="number" min={0} max={100} value={partenza.carburante} onChange={(e) => setPartenza({ ...partenza, carburante: e.target.value })} /></label>
-                      <label className="grid gap-1 text-sm">Note<input className="rounded-2xl border border-line p-3" value={partenza.note} onChange={(e) => setPartenza({ ...partenza, note: e.target.value })} placeholder="dotazioni, stato…" /></label>
-                    </div>
-                    <button className="btn-primary mt-3 w-full" disabled={busy} onClick={() => registraPartenza(sel.booking)}>{busy ? "Salvo…" : "✓ Barca partita"}</button>
+                ) : (
+                  <div className="grid gap-2">
+                    <input className="rounded-2xl border border-line p-3" placeholder="Motivo (es. manutenzione, uso privato…)" value={blocco.motivo} onChange={(e) => setBlocco({ motivo: e.target.value })} />
+                    <button className="btn-primary" disabled={busy} onClick={creaBlocco}>{busy ? "Salvo…" : "Rendi non disponibile"}</button>
                   </div>
                 )}
-                {/* Rientro */}
-                {sel.booking.stato === "in_mare" && (
+              </div>
+            )}
+
+            {/* PRENOTAZIONE */}
+            {sel.modo === "prenotazione" && prenSel && (
+              <div className="mt-4 grid gap-4">
+                <div className="flex items-center gap-2">
+                  {["Confermata", "In navigazione", "Completata"].map((s, i) => {
+                    const step = prenSel.stato === "in_mare" ? 1 : prenSel.stato === "rientrata" ? 2 : 0;
+                    return <span key={s} className={"flex-1 rounded-full px-2 py-1 text-center text-xs font-bold " + (i <= step ? "bg-ocean text-white" : "bg-[#faf6f2] text-muted")}>{s}</span>;
+                  })}
+                </div>
+                <div className="rounded-2xl border border-[#a9e0d0] bg-[#eafaf5] p-4 text-sm">
+                  <p className="text-lg font-extrabold">{prenSel.clienteNome ?? "cliente"}</p>
+                  <p className="text-xs text-muted">{prenSel.telefono ?? "—"} · {prenSel.passeggeri} pax · {euro(prenSel.prezzoCent)}</p>
+                  <p className="mt-1 text-xs text-muted">{oreDi(prenSel.startAt)}–{oreDi(prenSel.endAt)} · {prenSel.origineCanale === "naboat" ? "NaBoat" : "Diretta"} · contratto {prenSel.contrattoFirmatoAt ? "firmato" : "da firmare"} · cauzione {String(prenSel.cauzioneStato).replace("_", " ")}</p>
+                  {prenSel.note && <p className="mt-1 text-xs">{prenSel.note}</p>}
+                </div>
+
+                <Link className="btn-soft w-full text-center" href={`/prenotazioni/${prenSel.id}`}>Apri prenotazione →</Link>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <button className="rounded-2xl bg-[#25D366] px-4 py-3 font-bold text-white" onClick={() => whatsapp(prenSel, `Ciao ${prenSel.clienteNome ?? "cliente"}, ti ricordiamo l'uscita con ${me?.tenantNome ?? "l'azienda"} il ${aData(giornoDi(prenSel.startAt)).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })} alle ${oreDi(prenSel.startAt)}. A presto!`)}>✆ WhatsApp</button>
+                  <button className="btn-soft" onClick={() => contratto(prenSel)}>Contratto</button>
+                </div>
+                {linkContratto && <p className="break-all rounded-2xl bg-[#faf6f2] p-3 text-xs"><a className="font-bold text-ocean" href={linkContratto} target="_blank" rel="noreferrer">{linkContratto}</a></p>}
+                {linkPagamento && <p className="break-all rounded-2xl bg-[#faf6f2] p-3 text-xs"><a className="font-bold text-ocean" href={linkPagamento} target="_blank" rel="noreferrer">{linkPagamento}</a></p>}
+
+                {prenSel.stato === "prenotata" && (
                   <div className="rounded-2xl border border-line p-4">
-                    <p className="font-bold text-ocean">Registra rientro (check-out)</p>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                    <p className="font-bold text-ocean">Registra partenza</p>
+                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                      <label className="grid gap-1 text-sm">Carburante %<input className="rounded-2xl border border-line p-3" type="number" min={0} max={100} value={partenza.carburante} onChange={(e) => setPartenza({ ...partenza, carburante: e.target.value })} /></label>
+                      <label className="grid gap-1 text-sm">Note<input className="rounded-2xl border border-line p-3" value={partenza.note} onChange={(e) => setPartenza({ ...partenza, note: e.target.value })} /></label>
+                    </div>
+                    <button className="btn-primary mt-2 w-full" disabled={busy} onClick={() => partenzaOra(prenSel)}>✓ Barca partita</button>
+                  </div>
+                )}
+                {prenSel.stato === "in_mare" && (
+                  <div className="rounded-2xl border border-line p-4">
+                    <p className="font-bold text-ocean">Registra rientro</p>
+                    <div className="mt-2 grid gap-2 sm:grid-cols-3">
                       <label className="grid gap-1 text-sm">Carburante %<input className="rounded-2xl border border-line p-3" type="number" min={0} max={100} value={rientro.carburante} onChange={(e) => setRientro({ ...rientro, carburante: e.target.value })} /></label>
-                      <label className="grid gap-1 text-sm">Danni €<input className="rounded-2xl border border-line p-3" value={rientro.danni} onChange={(e) => setRientro({ ...rientro, danni: e.target.value })} placeholder="vuoto = nessuno" /></label>
+                      <label className="grid gap-1 text-sm">Danni €<input className="rounded-2xl border border-line p-3" value={rientro.danni} onChange={(e) => setRientro({ ...rientro, danni: e.target.value })} /></label>
                       <label className="grid gap-1 text-sm">Note<input className="rounded-2xl border border-line p-3" value={rientro.note} onChange={(e) => setRientro({ ...rientro, note: e.target.value })} /></label>
                     </div>
-                    <button className="btn-primary mt-3 w-full" disabled={busy} onClick={() => registraRientro(sel.booking)}>{busy ? "Salvo…" : "⚓ Barca rientrata"}</button>
+                    <button className="btn-primary mt-2 w-full" disabled={busy} onClick={() => rientroOra(prenSel)}>⚓ Barca rientrata</button>
                   </div>
                 )}
-                {sel.booking.stato === "rientrata" && <p className="rounded-2xl bg-[#faf6f2] p-3 text-center text-sm font-semibold text-[#177469]">✓ Noleggio concluso (rientrata alle {hhmm(sel.booking.checkoutAt ?? sel.booking.endAt)})</p>}
+                <button className="btn-soft" disabled={busy || !prenSel.prezzoCent} onClick={() => pagamento(prenSel)}>{prenSel.prezzoCent ? "Link pagamento" : "Imposta il prezzo per il pagamento"}</button>
 
-                {/* Contratto e pagamento */}
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <button className="btn-soft" disabled={busy} onClick={() => generaContratto(sel.booking)}>Contratto: {sel.booking.contrattoFirmatoAt ? "rigenera link" : "genera link"}</button>
-                  <button className="btn-soft" disabled={busy || !sel.booking.prezzoCent} onClick={() => generaPagamento(sel.booking)}>Link pagamento {sel.booking.prezzoCent ? "" : "(imposta prezzo)"}</button>
-                </div>
-                {linkContratto && <p className="break-all rounded-2xl bg-[#faf6f2] p-3 text-xs text-muted">Contratto: <a className="font-bold text-ocean" href={linkContratto} target="_blank" rel="noreferrer">{linkContratto}</a></p>}
-                {linkPagamento && <p className="break-all rounded-2xl bg-[#faf6f2] p-3 text-xs text-muted">Pagamento: <a className="font-bold text-ocean" href={linkPagamento} target="_blank" rel="noreferrer">{linkPagamento}</a></p>}
-
-                {/* Sposta / cliente */}
-                <div className="rounded-2xl border border-line">
-                  <button className="flex w-full items-center justify-between px-4 py-3 font-bold text-ocean" onClick={() => setSezSposta(!sezSposta)}>Cambia barca, giorno o orario <span>{sezSposta ? "▾" : "▸"}</span></button>
-                  {sezSposta && (
-                    <div className="grid gap-2 border-t border-line p-4 sm:grid-cols-2">
-                      <select className="rounded-2xl border border-line p-3" value={sposta.boatId} onChange={(e) => setSposta({ ...sposta, boatId: e.target.value })}>{(data?.boats ?? []).map((x: any) => <option key={x.id} value={x.id}>{x.nome}</option>)}</select>
-                      <input className="rounded-2xl border border-line p-3" type="date" value={sposta.giorno} onChange={(e) => setSposta({ ...sposta, giorno: e.target.value })} />
-                      <input className="rounded-2xl border border-line p-3" type="time" value={sposta.dalle} onChange={(e) => setSposta({ ...sposta, dalle: e.target.value })} />
-                      <input className="rounded-2xl border border-line p-3" type="time" value={sposta.alle} onChange={(e) => setSposta({ ...sposta, alle: e.target.value })} />
-                      <button className="btn-primary sm:col-span-2" disabled={busy} onClick={salvaSposta}>Salva spostamento</button>
-                    </div>
-                  )}
-                </div>
-                <div className="rounded-2xl border border-line">
-                  <button className="flex w-full items-center justify-between px-4 py-3 font-bold text-ocean" onClick={() => setSezCliente(!sezCliente)}>Modifica cliente <span>{sezCliente ? "▾" : "▸"}</span></button>
-                  {sezCliente && (
-                    <div className="grid gap-2 border-t border-line p-4 sm:grid-cols-2">
-                      <input className="rounded-2xl border border-line p-3" placeholder="Nome cliente" value={cliente.clienteNome} onChange={(e) => setCliente({ ...cliente, clienteNome: e.target.value })} />
-                      <input className="rounded-2xl border border-line p-3" placeholder="Telefono" value={cliente.telefono} onChange={(e) => setCliente({ ...cliente, telefono: e.target.value })} />
-                      <button className="btn-primary sm:col-span-2" disabled={busy} onClick={salvaCliente}>Salva cliente</button>
-                    </div>
-                  )}
+                <div className="rounded-2xl border border-line p-4">
+                  <p className="font-bold text-ocean">Modifica</p>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    <select className="rounded-2xl border border-line p-3" value={mod.boatId} onChange={(e) => setMod({ ...mod, boatId: e.target.value })}>{(data?.boats ?? []).map((x) => <option key={x.id} value={x.id}>{x.nome}</option>)}</select>
+                    <input className="rounded-2xl border border-line p-3" type="date" value={mod.giorno} onChange={(e) => setMod({ ...mod, giorno: e.target.value })} />
+                    <input className="rounded-2xl border border-line p-3" type="time" value={mod.dalle} onChange={(e) => setMod({ ...mod, dalle: e.target.value })} />
+                    <input className="rounded-2xl border border-line p-3" type="time" value={mod.alle} onChange={(e) => setMod({ ...mod, alle: e.target.value })} />
+                    <input className="rounded-2xl border border-line p-3" placeholder="Nome cliente" value={mod.clienteNome} onChange={(e) => setMod({ ...mod, clienteNome: e.target.value })} />
+                    <input className="rounded-2xl border border-line p-3" placeholder="Telefono" value={mod.telefono} onChange={(e) => setMod({ ...mod, telefono: e.target.value })} />
+                    <button className="btn-primary sm:col-span-2" disabled={busy} onClick={() => salvaMod(prenSel)}>Salva modifiche</button>
+                  </div>
                 </div>
 
-                <button className="w-full rounded-2xl border border-coral/40 px-4 py-3 font-bold text-coral" disabled={busy} onClick={() => eliminaPren(sel.booking)}>Annulla prenotazione</button>
-                <button className="w-full rounded-2xl bg-[#3a2418] px-4 py-3 font-bold text-white" onClick={() => setSel(null)}>Chiudi</button>
+                <button className="rounded-2xl border border-coral/40 px-4 py-3 font-bold text-coral" disabled={busy} onClick={() => annullaPren(prenSel.id)}>Annulla prenotazione</button>
               </div>
-            ) : sel.block ? (
+            )}
+
+            {/* BLOCCO */}
+            {sel.modo === "blocco" && blkSel && (
               <div className="mt-4 grid gap-4">
-                <div className="rounded-2xl border border-[#f6c9be] bg-[#fdeeea] p-4">
-                  <p className="text-xs font-semibold uppercase tracking-widest text-coral">Non disponibile</p>
-                  <p className="mt-1 font-bold">{barcaSel?.nome} non è disponibile in questa giornata.</p>
-                  {sel.block.motivo && <p className="text-sm text-muted">Motivo: {sel.block.motivo}</p>}
+                <div className="rounded-2xl border border-[#f6c9be] bg-[#fdeeea] p-4 text-sm">
+                  <p className="font-bold text-coral">Giornata non disponibile</p>
+                  {blkSel.motivo && <p className="text-muted">Motivo: {blkSel.motivo}</p>}
                 </div>
-                <button className="w-full rounded-2xl border border-line px-4 py-3 font-bold text-ocean" disabled={busy} onClick={() => rimuoviBlocco(sel.block.id)}>Rimuovi blocco</button>
-                <button className="w-full rounded-2xl bg-[#3a2418] px-4 py-3 font-bold text-white" onClick={() => setSel(null)}>Chiudi</button>
-              </div>
-            ) : (
-              <div className="mt-4 grid gap-4">
-                <div className="rounded-2xl border border-[#a9e0d0] bg-[#eafaf5] p-4">
-                  <p className="font-bold text-[#177469]">Barca libera per l'intera giornata</p>
-                  <p className="text-sm text-muted">Crea qui la prenotazione oppure rendi la barca non disponibile per questa giornata.</p>
-                </div>
-
-                <div className="rounded-2xl border border-line">
-                  <button className="flex w-full items-center justify-between px-4 py-3 font-bold text-ocean" onClick={() => setSezCrea(!sezCrea)}>＋ Crea prenotazione <span>{sezCrea ? "▾" : "▸"}</span></button>
-                  {sezCrea && (
-                    <div className="grid gap-3 border-t border-line p-4 sm:grid-cols-2">
-                      <label className="grid gap-1 text-sm">Partenza *<input className="rounded-2xl border border-line p-3" type="time" value={crea.dalle} onChange={(e) => setCrea({ ...crea, dalle: e.target.value })} /></label>
-                      <label className="grid gap-1 text-sm">Rientro *<input className="rounded-2xl border border-line p-3" type="time" value={crea.alle} onChange={(e) => setCrea({ ...crea, alle: e.target.value })} /></label>
-                      <label className="grid gap-1 text-sm">Passeggeri *<input className="rounded-2xl border border-line p-3" type="number" min={1} value={crea.passeggeri} onChange={(e) => setCrea({ ...crea, passeggeri: Number(e.target.value) })} /></label>
-                      <label className="grid gap-1 text-sm">Formula<input className="rounded-2xl border border-line p-3" placeholder="facoltativa" value={crea.formula} onChange={(e) => setCrea({ ...crea, formula: e.target.value })} /></label>
-                      <label className="grid gap-1 text-sm">Nome cliente *<input className="rounded-2xl border border-line p-3" value={crea.clienteNome} onChange={(e) => setCrea({ ...crea, clienteNome: e.target.value })} /></label>
-                      <label className="grid gap-1 text-sm">Telefono *<input className="rounded-2xl border border-line p-3" value={crea.telefono} onChange={(e) => setCrea({ ...crea, telefono: e.target.value })} /></label>
-                      <label className="grid gap-1 text-sm">Email<input className="rounded-2xl border border-line p-3" type="email" value={crea.email} onChange={(e) => setCrea({ ...crea, email: e.target.value })} /></label>
-                      <label className="grid gap-1 text-sm">Destinazione<input className="rounded-2xl border border-line p-3" value={crea.destinazione} onChange={(e) => setCrea({ ...crea, destinazione: e.target.value })} /></label>
-                      <label className="grid gap-1 text-sm">Skipper
-                        <select className="rounded-2xl border border-line p-3" value={crea.skipperId} onChange={(e) => setCrea({ ...crea, skipperId: e.target.value })}>
-                          <option value="">Nessuno · non serve</option>
-                          {skippers.map((s: any) => <option key={s.id} value={s.id}>{s.nome}</option>)}
-                        </select>
-                      </label>
-                      <label className="grid gap-1 text-sm">Prezzo €<input className="rounded-2xl border border-line p-3" value={crea.prezzoEuro} onChange={(e) => setCrea({ ...crea, prezzoEuro: e.target.value })} placeholder="dal listino" /></label>
-                      {barcaSel?.patenteRichiesta ? (
-                        <div className="grid gap-2 rounded-2xl border border-gold/50 bg-[#fff7e6] p-3 text-sm sm:col-span-2">
-                          <p className="font-semibold text-[#9a6406]">Questa barca richiede la patente nautica.</p>
-                          <label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={crea.patenteOk} onChange={(e) => setCrea({ ...crea, patenteOk: e.target.checked })} /> Il cliente ha la patente nautica</label>
-                        </div>
-                      ) : (
-                        <p className="rounded-2xl border border-[#a9e0d0] bg-[#eafaf5] p-3 text-sm text-[#177469] sm:col-span-2">Per questa barca la patente nautica non è richiesta.</p>
-                      )}
-                      <label className="grid gap-1 text-sm sm:col-span-2">Nota<input className="rounded-2xl border border-line p-3" value={crea.note} onChange={(e) => setCrea({ ...crea, note: e.target.value })} placeholder="Itinerario, richieste, promemoria…" /></label>
-                      <button className="btn-primary sm:col-span-2 disabled:opacity-50" disabled={busy || (!!barcaSel?.patenteRichiesta && !crea.patenteOk && !crea.skipperId)} onClick={creaPrenotazione}>{busy ? "Creo…" : "Crea prenotazione"}</button>
-                    </div>
-                  )}
-                </div>
-
-                <div className="rounded-2xl border border-line">
-                  <button className="flex w-full items-center justify-between px-4 py-3 font-bold text-ocean" onClick={() => setSezBlocco(!sezBlocco)}>Rendi non disponibile <span>{sezBlocco ? "▾" : "▸"}</span></button>
-                  {sezBlocco && (
-                    <div className="grid gap-2 border-t border-line p-4">
-                      <input className="rounded-2xl border border-line p-3" placeholder="Motivo (es. manutenzione, uso privato…)" value={blocco.motivo} onChange={(e) => setBlocco({ motivo: e.target.value })} />
-                      <button className="btn-primary" disabled={busy} onClick={rendiNonDisponibile}>{busy ? "Salvo…" : "Rendi non disponibile"}</button>
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <a className="btn-soft flex-1 text-center" href="/flotta">Gestisci barca</a>
-                  <button className="flex-1 rounded-full bg-[#3a2418] px-4 py-2.5 font-bold text-white" onClick={() => setSel(null)}>Chiudi</button>
-                </div>
+                <button className="btn-soft w-full" disabled={busy} onClick={() => rimuoviBlocco(blkSel.id)}>Rendi di nuovo libera</button>
               </div>
             )}
           </div>
