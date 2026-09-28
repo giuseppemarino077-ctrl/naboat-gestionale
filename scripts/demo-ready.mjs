@@ -10,6 +10,9 @@ import { randomUUID, createHash, createCipheriv } from "crypto";
 
 const prisma = new PrismaClient();
 
+// Cartella delle foto: in locale public/uploads, sul server il volume montato (es. /app/uploads).
+const UPLOADS = process.env.UPLOADS_DIR || join(process.cwd(), "public", "uploads");
+
 // AUTH_SECRET serve per cifrare il numero della patente come fa l'applicazione.
 async function authSecret() {
   if (process.env.AUTH_SECRET) return process.env.AUTH_SECRET;
@@ -40,7 +43,7 @@ async function foto(tenantId, label, c1, c2) {
     <text x="60" y="190" font-family="Helvetica, Arial" font-size="30" fill="#ffffff" opacity="0.85">NaBoat · demo</text>
   </svg>`;
   const buf = await sharp(Buffer.from(svg)).webp({ quality: 82 }).toBuffer();
-  const dir = join(process.cwd(), "public", "uploads", tenantId);
+  const dir = join(UPLOADS, tenantId);
   await mkdir(dir, { recursive: true });
   const name = `${randomUUID()}.webp`;
   await writeFile(join(dir, name), buf);
@@ -177,7 +180,7 @@ async function clienteDemo(charter) {
   await prisma.payment.create({ data: { tenantId, bookingId: futura.id, provider: "stripe", tipo: "acconto", importoCent: euroCent(96), totaleCent: euroCent(96), stato: "pagato", metodo: "carta", paidAt: romeAt(-1, 9), descrizione: "Acconto 30%" } });
 
   // patente in verifica (foto privata + numero cifrato)
-  const dir = join(process.cwd(), "public", "uploads", "privato", `patenti-${account.id}`);
+  const dir = join(UPLOADS, "privato", `patenti-${account.id}`);
   await mkdir(dir, { recursive: true });
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600"><rect width="900" height="600" fill="#f4f1ea"/><rect x="40" y="40" width="820" height="520" fill="#ffffff" stroke="#d8cfc2"/><text x="80" y="130" font-family="Helvetica" font-size="34" fill="#33241c" font-weight="bold">PATENTE NAUTICA</text><text x="80" y="200" font-family="Helvetica" font-size="26" fill="#8a7568">Cliente Demo</text><text x="80" y="260" font-family="Helvetica" font-size="26" fill="#8a7568">NA-123456</text><text x="80" y="500" font-family="Helvetica" font-size="20" fill="#b9ada0">Documento dimostrativo</text></svg>`;
   const buf = await sharp(Buffer.from(svg)).webp({ quality: 85 }).toBuffer();
