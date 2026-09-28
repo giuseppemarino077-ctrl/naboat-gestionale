@@ -1,6 +1,6 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { decryptSecret, stripeClient } from "@/lib/payments";
+import { allineaRimborsi, decryptSecret, statoRimborsoDaStripe, stripeClient } from "@/lib/payments";
 import type Stripe from "stripe";
 
 const STATI_CHIUSI = ["elaborato", "ignorato"];
@@ -13,13 +13,23 @@ export async function POST(req: Request) {
 
   // Il tenant si legge dal corpo non ancora verificato, poi si verifica la firma con il suo segreto:
   // senza il segreto giusto l'evento viene rifiutato.
-  let preliminare: { data?: { object?: { metadata?: { tenantId?: string } } } };
+  let preliminare: { data?: { object?: { metadata?: { tenantId?: string }; payment_intent?: unknown } } };
   try {
     preliminare = JSON.parse(body);
   } catch {
     return fail("Corpo non valido", 400);
   }
-  const tenantId = preliminare.data?.object?.metadata?.tenantId;
+  // Il tenant arriva dai metadata; per gli eventi che ne sono privi (es. rimborsi
+  // avviati dal Dashboard Stripe) si risale dall'incasso tramite il payment_intent.
+  let tenantId = preliminare.data?.object?.metadata?.tenantId;
+  if (!tenantId) {
+    const pi = preliminare.data?.object?.payment_intent;
+    const intent = typeof pi === "string" ? pi : (pi as { id?: string } | undefined)?.id;
+    if (intent) {
+      const pagamento = await prisma.payment.findFirst({ where: { paymentIntentId: intent }, select: { tenantId: true } });
+      tenantId = pagamento?.tenantId ?? undefined;
+    }
+  }
   if (!tenantId) return fail("tenantId mancante nei metadata", 400);
 
   const tenant = await prisma.tenant.findUnique({
@@ -130,6 +140,64 @@ export async function POST(req: Request) {
     return chiudi("elaborato");
   };
 
+  // --- Rimborsi: riconcilia sia quelli avviati da noi sia quelli fatti dal Dashboard. ---
+  // L'esito reale non è "Stripe ha accettato": si aspetta lo stato definitivo del
+  // rimborso e solo allora si aggiorna Payment.rimborsoCent. L'operazione è
+  // idempotente (una riga per refundId) e non fa mai tornare indietro un "riuscito".
+  const sincronizzaRimborso = async (
+    refund: Stripe.Refund,
+    paymentIdHint: string | null
+  ): Promise<"ok" | "in_attesa_record" | "errore"> => {
+    const importoCent = typeof refund.amount === "number" ? refund.amount : 0;
+    const intent = typeof refund.payment_intent === "string" ? refund.payment_intent : refund.payment_intent?.id ?? null;
+    let paymentId = paymentIdHint ?? refund.metadata?.paymentId ?? null;
+    if (!paymentId && intent) {
+      const pag = await prisma.payment.findFirst({ where: { paymentIntentId: intent, tenantId }, select: { id: true } });
+      paymentId = pag?.id ?? null;
+    }
+    if (!paymentId) return "in_attesa_record";
+    const pag = await prisma.payment.findFirst({ where: { id: paymentId, tenantId }, select: { id: true } });
+    if (!pag) return "errore";
+
+    const stato = statoRimborsoDaStripe(refund.status);
+    const esistente = await prisma.refund.findUnique({ where: { refundId: refund.id }, select: { id: true, stato: true } });
+    if (esistente) {
+      if (esistente.stato === "riuscito" && stato !== "riuscito") return "ok";
+      await prisma.refund.update({
+        where: { id: esistente.id },
+        data: {
+          stato,
+          importoCent,
+          completatoAt: stato === "riuscito" || stato === "fallito" ? new Date() : null,
+        },
+      });
+    } else {
+      await prisma.refund.create({
+        data: {
+          tenantId,
+          paymentId: pag.id,
+          importoCent,
+          stato,
+          provider: "stripe",
+          refundId: refund.id,
+          motivo: "riconciliato dal webhook Stripe",
+          completatoAt: stato === "riuscito" || stato === "fallito" ? new Date() : null,
+        },
+      });
+      await prisma.auditLog.create({
+        data: {
+          tenantId,
+          azione: "pagamento.rimborso.riconciliato",
+          entita: "Payment",
+          entitaId: pag.id,
+          dettagli: JSON.stringify({ refundId: refund.id, importoCent, stato }),
+        },
+      });
+    }
+    await allineaRimborsi(pag.id);
+    return "ok";
+  };
+
   if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
     const session = event.data.object as Stripe.Checkout.Session;
     const tipo = (session.metadata?.tipo ?? "prenotazione") as string;
@@ -150,6 +218,27 @@ export async function POST(req: Request) {
     });
     await chiudi("elaborato");
     return ok({ received: true });
+  }
+
+  // Eventi di rimborso: l'oggetto è un Refund (anche per quelli creati dal Dashboard).
+  const tipoEvento = event.type as string;
+  if (tipoEvento === "refund.created" || tipoEvento === "refund.updated" || tipoEvento === "refund.failed") {
+    const esito = await sincronizzaRimborso(event.data.object as Stripe.Refund, null);
+    if (esito === "in_attesa_record") return chiudi("in_attesa_record", "incasso non ancora presente");
+    if (esito === "errore") return chiudi("errore", "incasso non appartenente all'azienda");
+    return chiudi("elaborato");
+  }
+
+  // Rimborso totale/parziale registrato sull'addebito: si sincronizzano tutti i
+  // rimborsi presenti sull'oggetto Charge.
+  if (tipoEvento === "charge.refunded") {
+    const charge = event.data.object as Stripe.Charge;
+    const intent = typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent?.id ?? null;
+    if (!intent) return chiudi("ignorato", "charge senza payment_intent");
+    const pag = await prisma.payment.findFirst({ where: { paymentIntentId: intent, tenantId }, select: { id: true } });
+    if (!pag) return chiudi("in_attesa_record", "incasso non ancora presente");
+    for (const r of charge.refunds?.data ?? []) await sincronizzaRimborso(r, pag.id);
+    return chiudi("elaborato");
   }
 
   await chiudi("ignorato", `evento non gestito: ${event.type}`);

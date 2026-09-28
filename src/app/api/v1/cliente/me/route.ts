@@ -1,6 +1,7 @@
 import { ok } from "@/lib/api";
 import { requireCliente } from "@/lib/clienti";
 import { prisma } from "@/lib/db";
+import { calcolaResiduoPrezzo } from "@/lib/payments";
 
 // Dati dell'area personale: account, patente (senza numero) e prenotazioni.
 export async function GET() {
@@ -16,14 +17,31 @@ export async function GET() {
       include: {
         boat: { select: { nome: true, tipo: true, porto: { select: { nome: true, indirizzo: true, lat: true, lon: true } } } },
         tenant: { select: { nome: true, telefonoContatto: true, slug: true } },
-        payments: { select: { stato: true, totaleCent: true } },
+        payments: {
+          select: {
+            id: true,
+            stato: true,
+            provider: true,
+            tipo: true,
+            importoCent: true,
+            feeNaboatCent: true,
+            feeProviderCent: true,
+            totaleCent: true,
+            rimborsoCent: true,
+            sessionId: true,
+            paymentIntentId: true,
+            createdAt: true,
+          },
+        },
       },
     }),
   ]);
 
   const ora = new Date();
   const prenotazioni = bookings.map((b) => {
-    const pagato = b.payments.filter((p) => p.stato === "pagato").reduce((s, p) => s + p.totaleCent, 0);
+    // Stesse allocazioni del gestionale: prezzo meno capitale incassato (senza fee
+    // né cauzione) e al netto dei rimborsi. Un rimborso parziale non azzera il saldo.
+    const residuo = calcolaResiduoPrezzo(b.prezzoCent ?? 0, b.payments, { cauzioneIntentId: b.cauzioneIntentId });
     return {
       id: b.id,
       stato: b.stato,
@@ -31,8 +49,9 @@ export async function GET() {
       endAt: b.endAt,
       passeggeri: b.passeggeri,
       prezzoCent: b.prezzoCent,
-      pagatoCent: pagato,
-      residuoCent: Math.max(0, (b.prezzoCent ?? 0) - pagato),
+      pagatoCent: residuo.capitaleIncassatoCent,
+      rimborsatoCent: residuo.rimborsatoCent,
+      residuoCent: residuo.residuoCent,
       boat: b.boat ? { nome: b.boat.nome, tipo: b.boat.tipo, porto: b.boat.porto } : null,
       azienda: { nome: b.tenant.nome, telefono: b.tenant.telefonoContatto, slug: b.tenant.slug },
     };

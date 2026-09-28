@@ -109,13 +109,33 @@ export async function PATCH(req: Request) {
   const stripe = stripeClient(cfg.stripeSecretKey);
 
   try {
+    // Si legge lo stato reale del blocco su Stripe: la cauzione autorizzata non è
+    // un incasso e non salda il prezzo del noleggio; la durata del blocco dipende
+    // dall'emittente, quindi non si assume una scadenza fissa.
+    const intent = await stripe.paymentIntents.retrieve(booking.cauzioneIntentId);
+
     if (p.data.azione === "rilascia") {
+      if (intent.status === "succeeded") return fail("Il blocco è già stato addebitato: non si può più rilasciare", 422);
+      if (intent.status === "canceled") {
+        // Già rilasciato o scaduto: si allinea lo stato senza richiamare Stripe.
+        const upd = await prisma.booking.update({ where: { id: booking.id }, data: { cauzioneStato: "rilasciata" } });
+        return ok({ cauzioneStato: upd.cauzioneStato, giaRilasciata: true });
+      }
+      if (intent.status !== "requires_capture" && intent.status !== "requires_confirmation" && intent.status !== "requires_payment_method") {
+        return fail(`Il blocco non è rilasciabile in questo stato (${intent.status})`, 422);
+      }
       await stripe.paymentIntents.cancel(booking.cauzioneIntentId);
       const upd = await prisma.booking.update({ where: { id: booking.id }, data: { cauzioneStato: "rilasciata" } });
       await prisma.auditLog.create({
         data: { tenantId: t.tenantId, actorId: t.userId, azione: "cauzione.rilasciata", entita: "Booking", entitaId: booking.id },
       });
       return ok({ cauzioneStato: upd.cauzioneStato });
+    }
+
+    // Addebito per danni: possibile solo finché il blocco è ancora catturabile.
+    if (intent.status === "succeeded") return fail("Cauzione già addebitata", 422);
+    if (intent.status !== "requires_capture") {
+      return fail(`Il blocco carta non è più addebitabile (stato: ${intent.status}): avvia una nuova cauzione`, 422);
     }
 
     let addebitoCent = booking.cauzioneCent ?? 0;
@@ -129,9 +149,10 @@ export async function PATCH(req: Request) {
     if (addebitoCent > massimo) return fail(`Massimo addebitabile: ${(massimo / 100).toFixed(2)} €`, 422);
 
     await stripe.paymentIntents.capture(booking.cauzioneIntentId, { amount_to_capture: addebitoCent });
-    const upd = await prisma.booking.update({ where: { id: booking.id }, data: { cauzioneStato: "addebitata" } });
+    const upd = await prisma.booking.update({ where: { id: booking.id }, data: { cauzioneStato: "addebitata", danniCent: addebitoCent } });
 
-    // L'addebito della cauzione entra nel registro incassi.
+    // L'addebito della cauzione entra nel registro incassi, ma resta distinto dal
+    // prezzo del noleggio (fare riferimento al cauzioneIntentId): non lo salda.
     await prisma.payment.create({
       data: {
         tenantId: t.tenantId,
@@ -150,7 +171,7 @@ export async function PATCH(req: Request) {
       },
     });
     await prisma.auditLog.create({
-      data: { tenantId: t.tenantId, actorId: t.userId, azione: "cauzione.addebitata", entita: "Booking", entitaId: booking.id },
+      data: { tenantId: t.tenantId, actorId: t.userId, azione: "cauzione.addebitata", entita: "Booking", entitaId: booking.id, dettagli: JSON.stringify({ addebitatoCent: addebitoCent }) },
     });
     return ok({ cauzioneStato: upd.cauzioneStato, addebitatoCent: addebitoCent });
   } catch (e) {

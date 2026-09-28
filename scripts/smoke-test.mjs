@@ -159,8 +159,14 @@ const run = async () => {
 
   const rim = await json("A", `/api/v1/payments?id=${man.data.id}`, "PATCH", { azione: "rimborso" });
   T("rimborso parziale secondo regola (50%)", rim.status === 200 && rim.data?.rimborsoCent === 25000 && rim.data?.stato === "rimborsato_parziale", JSON.stringify(rim.data));
+  // Il rimborso riguarda solo il capitale: la fee NaBoat (5000) non è rimborsabile.
+  T("rimborso oltre il tetto (capitale) -> 422", (await json("A", `/api/v1/payments?id=${man.data.id}`, "PATCH", { azione: "rimborso", importoEuro: "300" })).status === 422);
+  const idemRim = "smoke-rim-" + Date.now();
+  const rimIdem1 = await json("A", `/api/v1/payments?id=${man.data.id}`, "PATCH", { azione: "rimborso", importoEuro: "50", idempotencyKey: idemRim });
+  const rimIdem2 = await json("A", `/api/v1/payments?id=${man.data.id}`, "PATCH", { azione: "rimborso", importoEuro: "50", idempotencyKey: idemRim });
+  T("stessa chiave idempotenza: un solo rimborso", rimIdem1.status === 200 && rimIdem2.status === 200 && rimIdem2.data?.riutilizzato === true && rimIdem2.data?.rimborsoCent === rimIdem1.data?.rimborsoCent, `${rimIdem1.status}/${rimIdem2.status} ${JSON.stringify(rimIdem2.data)}`);
   const rim2 = await json("A", `/api/v1/payments?id=${man.data.id}`, "PATCH", { azione: "rimborso", completo: true });
-  T("rimborso totale completa il residuo", rim2.status === 200 && rim2.data?.rimborsoCent === 55000 && rim2.data?.stato === "rimborsato", JSON.stringify(rim2.data));
+  T("rimborso totale completa il capitale", rim2.status === 200 && rim2.data?.rimborsoCent === 50000 && rim2.data?.stato === "rimborsato", JSON.stringify(rim2.data));
   T("non rimborsabile due volte", (await json("A", `/api/v1/payments?id=${man.data.id}`, "PATCH", { azione: "rimborso" })).status === 422);
 
   // ---- Canale diretto: niente fee NaBoat, residuo sul prezzo effettivo (P01/P03) ----

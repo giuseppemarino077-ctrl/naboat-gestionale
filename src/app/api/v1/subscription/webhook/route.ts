@@ -1,5 +1,6 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
+import { aggiungiMesi, durataMesi, type Tipo } from "@/lib/subscriptions";
 import type Stripe from "stripe";
 
 const STATI_CHIUSI = ["elaborato", "ignorato"];
@@ -58,7 +59,7 @@ export async function POST(req: Request) {
     const session = event.data.object as Stripe.Checkout.Session;
     const sub = await prisma.subscription.findFirst({
       where: { sessionId: session.id },
-      select: { id: true, tenantId: true, stato: true, prezzoCent: true },
+      select: { id: true, tenantId: true, stato: true, prezzoCent: true, tipo: true, quantita: true, inizioAt: true, fineAt: true },
     });
     if (!sub) {
       await chiudi("in_attesa_record", "abbonamento non ancora presente");
@@ -84,11 +85,28 @@ export async function POST(req: Request) {
       return ok({ received: true });
     }
 
+    // Il periodo deve essere sensato: inizio < fine.
+    if (sub.fineAt <= sub.inizioAt) {
+      await chiudi("errore", "periodo non valido");
+      return ok({ received: true });
+    }
+    // Pagamento arrivato dopo la fine pianificata (link pagato in ritardo): il
+    // periodo slitta a partire da adesso mantenendo la durata, così dà diritti.
+    const adesso = new Date();
+    let inizioAt = sub.inizioAt;
+    let fineAt = sub.fineAt;
+    if (sub.tipo !== "attivazione" && fineAt <= adesso) {
+      inizioAt = adesso;
+      fineAt = aggiungiMesi(adesso, durataMesi(sub.tipo as Tipo, sub.quantita));
+    }
+
     await prisma.subscription.update({
       where: { id: sub.id },
       data: {
         stato: "attivo",
-        paidAt: new Date(),
+        paidAt: adesso,
+        inizioAt,
+        fineAt,
         metodo: session.payment_method_types?.[0] ?? "carta",
         paymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : null,
       },

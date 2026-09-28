@@ -1,7 +1,7 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { requireSuperadmin } from "@/lib/guard";
-import { MESI_PER_STAGIONE, TIPI, dataPartenza, etichetta, listino, preventivo, quantitaAmmessa } from "@/lib/subscriptions";
+import { MESI_PER_STAGIONE, TIPI, dataPartenzaSerializzata, etichetta, listino, listinoPerTenant, marcaScaduti, preventivo, quantitaAmmessa } from "@/lib/subscriptions";
 import { z } from "zod";
 
 // NaBoat: listino (attivazione, canone mensile/stagionale, fee), elenco abbonamenti,
@@ -10,10 +10,7 @@ export async function GET() {
   const g = await requireSuperadmin();
   if ("error" in g) return g.error;
 
-  await prisma.subscription.updateMany({
-    where: { stato: "attivo", tipo: { startsWith: "manutenzione" }, fineAt: { lt: new Date() } },
-    data: { stato: "scaduto" },
-  });
+  await marcaScaduti();
 
   const [l, subscriptions, tenants] = await Promise.all([
     listino(),
@@ -177,8 +174,9 @@ export async function PATCH(req: Request) {
       const gia = await prisma.subscription.findFirst({ where: { tenantId: tenant.id, tipo: "attivazione", stato: "attivo" }, select: { id: true } });
       if (gia) return fail("Attivazione già registrata per questa azienda", 422);
     }
-    const l = await listino();
-    const inizio = manuale.data.tipo === "attivazione" ? new Date() : await dataPartenza(tenant.id);
+    // Si usa il listino effettivo dell'azienda (listino di piattaforma + override).
+    const l = await listinoPerTenant(tenant.id);
+    const inizio = manuale.data.tipo === "attivazione" ? new Date() : await dataPartenzaSerializzata(tenant.id);
     const prev = preventivo(manuale.data.tipo, manuale.data.quantita, l, inizio);
     const sub = await prisma.subscription.create({
       data: {

@@ -5,6 +5,7 @@ import {
   TIPI,
   attivazionePagata,
   dataPartenza,
+  dataPartenzaSerializzata,
   etichetta,
   giorniResidui,
   listinoPerTenant,
@@ -55,6 +56,13 @@ export async function GET(req: Request) {
     manutenzione: manutenzione
       ? { id: manutenzione.id, tipo: manutenzione.tipo, fineAt: manutenzione.fineAt, giorniResidui: giorniResidui(manutenzione.fineAt) }
       : null,
+    // Matrice prodotto → prezzo applicato → modulo → decorrenza/scadenza.
+    matrice: [
+      { prodotto: "attivazione", prezzoCent: l.prezzoAttivazioneCent, modulo: "gestionale", decorrenza: "una tantum", scadenza: null },
+      { prodotto: "manutenzione_mensile", prezzoCent: l.canoneMensileCent, modulo: "gestionale", decorrenza: "1 mese per unità", scadenza: "fine periodo" },
+      { prodotto: "manutenzione_stagionale", prezzoCent: l.canoneStagionaleCent, modulo: "gestionale", decorrenza: `${MESI_PER_STAGIONE} mesi per stagione`, scadenza: "fine periodo" },
+      { prodotto: "marketplace", prezzoPct: tenant?.moduloMarketplace === false ? 0 : tenant?.feeNaboatPct ?? 0, modulo: "marketplace", decorrenza: "a prenotazione dal canale NaBoat", scadenza: null },
+    ],
     // Area marketplace: separata dal gestionale. Se il modulo è spento, la fee non si applica.
     marketplace: {
       attivo: tenant?.moduloMarketplace !== false,
@@ -120,7 +128,8 @@ export async function PUT(req: Request) {
   if (!stripe) return fail("Pagamento con carta non configurato: contatta NaBoat per il bonifico", 422);
 
   const l = await listinoPerTenant(t.tenantId);
-  const inizio = p.data.tipo === "attivazione" ? new Date() : await dataPartenza(t.tenantId);
+  // Partenza serializzata: due rinnovi simultanei non partono dalla stessa scadenza.
+  const inizio = p.data.tipo === "attivazione" ? new Date() : await dataPartenzaSerializzata(t.tenantId);
   const prev = preventivo(p.data.tipo, p.data.quantita, l, inizio);
   if (prev.prezzoCent <= 0) return fail("Voce non ancora a listino: contatta NaBoat", 422);
 

@@ -2,6 +2,7 @@ import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { requireSuperadmin } from "@/lib/guard";
 import { applicaLimitiTutti } from "@/lib/piani";
+import { marcaScaduti } from "@/lib/subscriptions";
 import { z } from "zod";
 
 // Gestione piani Free/Pro dei noleggiatori (solo NaBoat).
@@ -41,6 +42,9 @@ export async function POST(req: Request) {
     const g = await requireSuperadmin();
     if ("error" in g) return g.error;
   }
+  // Prima si marcano le manutenzioni scadute, poi si applicano i limiti dei piani:
+  // così la scadenza è applicabile da cron anche se nessuno apre il pannello admin.
+  await marcaScaduti();
   const esito = await applicaLimitiTutti();
   return ok(esito);
 }

@@ -116,6 +116,20 @@ export function calcolaImporti(
   return { importoCent, feeNaboatCent, feeProviderCent, totaleCent: importoCent + feeNaboatCent + feeProviderCent };
 }
 
+// --- Fee NaBoat: maturata ma NON trasferita automaticamente (nessun Connect) ---
+// La fee è calcolata al momento dell'incasso (calcolaImporti) e congelata nello
+// snapshot delle condizioni. Non esiste oggi nessun trasferimento automatico dei
+// soldi verso NaBoat: i pagamenti arrivano sull'account Stripe dell'azienda.
+// Il modello di incasso della fee va SCELTO DAL PROPRIETARIO, tra due alternative:
+//   A) FATTURAZIONE SUCCESSIVA: NaBoat fattura periodicamente alle aziende la fee
+//      maturata (si sommano i Payment con feeNaboatCent > 0 del periodo). Nessuna
+//      integrazione di pagamento in più, ma la fee è riscossa a parte.
+//   B) RIPARTIZIONE AUTOMATICA: al momento dell'incasso la quota NaBoat viene
+//      separata con un'integrazione dedicata (Stripe Connect o addebito separato),
+//      così arriva subito a NaBoat. Richiede però che ogni azienda colleghi il
+//      proprio account e va progettata prima di attivarla.
+// Fino a quella decisione non va implementato alcun trasferimento live.
+
 // RFQ D8: rimborso parziale, ammesso solo fino a N ore prima dell'uscita.
 // La fee NaBoat non viene mai rimborsata: si rimborsa una percentuale del solo prezzo del noleggio.
 export function calcolaRimborso(importoCent: number, rimborsoPct: number): number {
@@ -126,6 +140,72 @@ export function calcolaRimborso(importoCent: number, rimborsoPct: number): numbe
 export function rimborsoAmmesso(startAt: Date, rimborsoOreMinime: number, adesso = new Date()): boolean {
   const limite = new Date(startAt.getTime() - rimborsoOreMinime * 3600 * 1000);
   return adesso < limite;
+}
+
+// --- Rimborsi tracciati del solo capitale ---
+// Stati: richiesto (riga creata, Stripe non ancora interpellato) → pendente
+// (Stripe ha accettato, ma l'esito non è definitivo) → riuscito/fallito (webhook).
+// Solo i riusciti riducono il residuo; i richiesti/pendenti "riservano" il tetto
+// così due richieste simultanee non lo superano.
+export type RefundStato = "richiesto" | "pendente" | "riuscito" | "fallito";
+
+export type RimborsoTracciato = {
+  importoCent: number;
+  stato: string;
+};
+
+export type Rimborsabile = {
+  rimborsatoCent: number; // rimborsi già definitivi (capitale)
+  riservatoCent: number; // richiesti/pendenti non ancora definitivi
+  disponibileCent: number; // quanto capitale si può ancora rimborsare
+};
+
+// Tetto rimborsabile = capitale del noleggio (importoCent, senza fee) − rimborsi
+// riusciti − rimborsi in corso. `rimborsoCent` resta valido anche per i pagamenti
+// storici, registrati prima dell'introduzione delle righe Refund.
+export function calcolaRimborsabile(
+  payment: { importoCent: number; rimborsoCent?: number | null },
+  rimborsi: RimborsoTracciato[] = []
+): Rimborsabile {
+  const importo = Math.max(0, payment.importoCent ?? 0);
+  const sommaRiusciti = rimborsi
+    .filter((r) => r.stato === "riuscito")
+    .reduce((s, r) => s + Math.max(0, r.importoCent), 0);
+  const rimborsato = Math.min(importo, Math.max(Math.max(0, payment.rimborsoCent ?? 0), sommaRiusciti));
+  const riservato = rimborsi
+    .filter((r) => r.stato === "richiesto" || r.stato === "pendente")
+    .reduce((s, r) => s + Math.max(0, r.importoCent), 0);
+  return { rimborsatoCent: rimborsato, riservatoCent: riservato, disponibileCent: Math.max(0, importo - rimborsato - riservato) };
+}
+
+// Il pagamento è "rimborsato" solo quando tutto il capitale del noleggio è stato
+// restituito: le fee restano incassate e non fanno parte del rimborso.
+export function statoDopoRimborso(importoCent: number, rimborsatoCent: number): "rimborsato" | "rimborsato_parziale" {
+  return Math.max(0, rimborsatoCent) >= Math.max(0, importoCent) ? "rimborsato" : "rimborsato_parziale";
+}
+
+// Traduce lo stato Stripe di un rimborso in uno dei nostri quattro stati.
+export function statoRimborsoDaStripe(status: string | null | undefined): RefundStato {
+  if (status === "succeeded") return "riuscito";
+  if (status === "failed" || status === "canceled") return "fallito";
+  if (status === "pending" || status === "requires_action") return "pendente";
+  return "richiesto";
+}
+
+// Riallinea Payment.rimborsoCent/stato alla somma dei rimborsi definitivi.
+// Idempotente: si può richiamare da un webhook anche più volte.
+export async function allineaRimborsi(paymentId: string): Promise<{ rimborsoCent: number; stato: string } | null> {
+  const p = await prisma.payment.findUnique({
+    where: { id: paymentId },
+    select: { id: true, importoCent: true, rimborsoCent: true, stato: true },
+  });
+  if (!p) return null;
+  const rimborsi = await prisma.refund.findMany({ where: { paymentId }, select: { importoCent: true, stato: true } });
+  const { rimborsatoCent } = calcolaRimborsabile(p, rimborsi);
+  if (rimborsatoCent <= 0) return { rimborsoCent: p.rimborsoCent, stato: p.stato };
+  const stato = statoDopoRimborso(p.importoCent, rimborsatoCent);
+  const upd = await prisma.payment.update({ where: { id: p.id }, data: { rimborsoCent: rimborsatoCent, stato } });
+  return { rimborsoCent: upd.rimborsoCent, stato: upd.stato };
 }
 
 // Limite massimo degli importi gestiti dal progetto: 1.000.000 € in centesimi.

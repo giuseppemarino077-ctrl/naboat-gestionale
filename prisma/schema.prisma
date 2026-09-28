@@ -59,6 +59,7 @@ model Tenant {
   payments  Payment[]
   expenses  Expense[]
   subscriptions Subscription[]
+  refunds           Refund[]
   maintenance       Maintenance[]
   tariffe           Tariffa[]
 
@@ -137,6 +138,15 @@ enum PaymentTipo {
   totale
 }
 
+// Stati di un rimborso: la richiesta non è mai "riuscita" finché Stripe non la
+// conferma (webhook). Così un'accettazione provvisoria non riscrive il residuo.
+enum RefundStato {
+  richiesto
+  pendente
+  riuscito
+  fallito
+}
+
 // Incasso collegato a una prenotazione. Provider "stripe" oppure "manuale" (POS/contanti/bonifico).
 model Payment {
   id              String       @id @default(uuid())
@@ -165,9 +175,33 @@ model Payment {
   condizioniSnapshot Json?
   createdAt       DateTime     @default(now())
   paidAt          DateTime?
+  refunds         Refund[]
 
   @@index([tenantId, createdAt])
   @@index([bookingId])
+}
+
+// Rimborso del SOLO capitale di un incasso (mai fee NaBoat né commissione fornitore).
+// Tenuto separato dal Payment per distinguere richiesta, esito reale e idempotenza.
+model Refund {
+  id             String      @id @default(uuid())
+  tenantId       String
+  tenant         Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  paymentId      String
+  payment        Payment     @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  importoCent    Int
+  stato          RefundStato @default(richiesto)
+  provider       String      @default("stripe") // stripe | manuale
+  refundId       String?     @unique // id Stripe (re_…), per riconciliare i webhook
+  idempotencyKey String?     @unique // chiave del chiamante: due richieste uguali = un solo rimborso
+  motivo         String?
+  richiestoDa    String?
+  richiestoAt    DateTime    @default(now())
+  completatoAt   DateTime?
+  createdAt      DateTime    @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([paymentId])
 }
 
 // Registro degli eventi webhook Stripe: garantisce idempotenza e rende recuperabili
