@@ -57,6 +57,29 @@ const romeAt = (offset, h, m = 0) => {
 };
 const euroCent = (v) => Math.round(v * 100);
 
+async function utenteDemo(email, password, nome, role, tenantId) {
+  const passwordHash = await bcrypt.hash(password, 12);
+  return prisma.user.upsert({
+    where: { email },
+    update: { tenantId, role, nome, passwordHash, emailVerified: true },
+    create: { tenantId, email, role, nome, passwordHash, emailVerified: true },
+  });
+}
+
+// Crea le aziende e gli account demo se non esistono (server appena allestito).
+async function assicuraDemo() {
+  let charter = await prisma.tenant.findFirst({ where: { nome: "Demo Charter Napoli" } });
+  if (!charter) charter = await prisma.tenant.create({ data: { nome: "Demo Charter Napoli", status: "active", tipoModulo: "noleggio", indirizzoPartenza: "Porto di Napoli — Molo Luise" } });
+  await utenteDemo("titolare@demo.naboat.it", "Demo-Titolare-2026!", "Marco Titolare", "owner", charter.id);
+  await utenteDemo("operatore@demo.naboat.it", "Demo-Operatore-2026!", "Sara Operatrice", "operatore", charter.id);
+  await utenteDemo("skipper@demo.naboat.it", "Demo-Skipper-2026!", "Luigi Skipper", "skipper", charter.id);
+
+  let orm = await prisma.tenant.findFirst({ where: { nome: "Ormeggio Demo" } });
+  if (!orm) orm = await prisma.tenant.create({ data: { nome: "Ormeggio Demo", status: "active", tipoModulo: "ormeggio", moduloOrmeggio: true, indirizzoPartenza: "Porto di Napoli — Molo Luise", telefonoContatto: "+39 081 555 0200" } });
+  else await prisma.tenant.update({ where: { id: orm.id }, data: { tipoModulo: "ormeggio", moduloOrmeggio: true, status: "active" } });
+  await utenteDemo("ormeggiatore@demo.naboat.it", "Demo-Ormeggio-2026!", "Ormeggiatore Demo", "owner", orm.id);
+}
+
 async function pulisciOperativo(tenantId) {
   await prisma.recensione.deleteMany({ where: { tenantId } });
   await prisma.payment.deleteMany({ where: { tenantId } });
@@ -255,6 +278,7 @@ async function ormeggioDemo() {
 }
 
 async function main() {
+  await assicuraDemo();
   const charter = await demoCharter();
   if (charter) await clienteDemo(charter);
   await ormeggioDemo();
