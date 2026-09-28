@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Turnstile from "@/components/Turnstile";
+import { dimenticaUtente } from "@/components/Utente";
 
 export default function RegistrazionePage() {
   const r = useRouter();
@@ -39,6 +40,7 @@ export default function RegistrazionePage() {
       return;
     }
     setDone(true);
+    dimenticaUtente();
     r.push("/oggi");
     r.refresh();
   };

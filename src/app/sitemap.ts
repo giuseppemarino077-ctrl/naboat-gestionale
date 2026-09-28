@@ -51,6 +51,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }
     const voci: MetadataRoute.Sitemap = [
       { url: `${b}/`, lastModified: new Date(), changeFrequency: "weekly", priority: 1 },
+      { url: `${b}/noleggia`, changeFrequency: "weekly", priority: 0.9 },
+      { url: `${b}/per-noleggiatori`, changeFrequency: "monthly", priority: 0.7 },
       { url: `${b}/chi-siamo`, changeFrequency: "monthly", priority: 0.6 },
       { url: `${b}/contatti`, changeFrequency: "monthly", priority: 0.6 },
     ];

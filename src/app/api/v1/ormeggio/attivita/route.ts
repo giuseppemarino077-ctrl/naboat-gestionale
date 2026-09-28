@@ -1,4 +1,5 @@
 import { fail, ok } from "@/lib/api";
+import { registraAzione } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import { requireOrmeggio } from "@/lib/ormeggio";
 import { z } from "zod";
@@ -59,5 +60,6 @@ export async function POST(req: Request) {
       note: p.data.note?.trim() || null,
     },
   });
+  await registraAzione({ tenantId: t.tenantId, actorId: t.userId, azione: "ormeggio.attivita.crea", entita: "Attivita", entitaId: attivita.id, nota: attivita.tipo });
   return ok(attivita, 201);
 }

@@ -11,6 +11,15 @@ export async function requireOrmeggio(req: Request) {
   return t;
 }
 
+// L'accesso agli importi è un permesso separato: spostare una barca non deve
+// consentire di leggere o modificare conti, addebiti e incassi.
+export async function requireImporti(req: Request) {
+  const t = await requireOrmeggio(req);
+  if ("error" in t) return t;
+  if (t.vedeImporti === false) return { error: fail("Permesso negato: non hai l'accesso agli importi", 403) };
+  return t;
+}
+
 // Codice del posto in stile battaglia navale: riga 1 -> A, colonna 1 -> 1 (es. B3).
 export function codicePosto(riga: number, colonna: number) {
   return `${String.fromCharCode(64 + riga)}${colonna}`;

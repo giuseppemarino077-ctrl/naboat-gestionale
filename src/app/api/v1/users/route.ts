@@ -1,6 +1,7 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
+import { ePro, pianoDelTenant } from "@/lib/piani";
 import { isOwnerOrSuperadmin, requireTenant } from "@/lib/tenant";
 import { z } from "zod";
 
@@ -21,6 +22,7 @@ export async function POST(req: Request) {
   const t = await requireTenant(req);
   if ("error" in t) return t.error;
   if (!isOwnerOrSuperadmin(t.role)) return fail("Riservato al proprietario", 403);
+  if (!ePro(await pianoDelTenant(t.tenantId))) return fail("I collaboratori sono disponibili con il piano Pro", 402);
   const p = z.object({
     email: z.string().email().max(160),
     password: z.string().min(10).max(128),

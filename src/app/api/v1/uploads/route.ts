@@ -42,7 +42,9 @@ export async function POST(req: Request) {
 
   let url: string;
   try {
-    url = await savePhoto(t.tenantId, Buffer.from(await file.arrayBuffer()), file.type);
+    // Le foto di check-in/check-out ritraggono beni e persone del cliente:
+    // restano private e si servono solo agli utenti dell'azienda (rotta autenticata).
+    url = await savePhoto(t.tenantId, Buffer.from(await file.arrayBuffer()), file.type, { privato: !!prenotazione });
   } catch (error) {
     if (error instanceof InvalidPhotoError) return fail(error.message, 422);
     return fail("Salvataggio immagine fallito", 500);

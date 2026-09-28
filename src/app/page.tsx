@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { HomePubblica } from "@/components/sito/HomePubblica";
 import { Manutenzione } from "@/components/sito/Manutenzione";
 import { contenutiHome } from "@/lib/home";
+import { barcheInEvidenza, numeriPiattaforma } from "@/lib/marketplace";
 import { statoManutenzione } from "@/lib/manutenzione";
 import { contestoSito } from "@/lib/sito-server";
 
@@ -25,5 +26,6 @@ export default async function PaginaIniziale() {
   if (man.attiva) return <Manutenzione titolo={man.titolo} testo={man.testo} immagine={man.immagine} appBase={appBase} />;
 
   const contenuti = await contenutiHome();
-  return <HomePubblica appBase={appBase} contenuti={contenuti} />;
+  const [numeri, evidenza] = await Promise.all([numeriPiattaforma(), barcheInEvidenza(6)]);
+  return <HomePubblica appBase={appBase} contenuti={contenuti} numeri={numeri} evidenza={evidenza} />;
 }

@@ -1,12 +1,16 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 
-type Boat = { id: string; nome: string; tipo?: string; capienza: number; potenzaCv?: number; patenteRichiesta: boolean; stato: string; fotoCopertina?: string | null; fotoGallery: string[]; lat?: number | null; lon?: number | null };
+type Boat = { id: string; nome: string; tipo?: string; capienza: number; potenzaCv?: number; patenteRichiesta: boolean; stato: string; fotoCopertina?: string | null; fotoGallery: string[]; lat?: number | null; lon?: number | null; pubblicata?: boolean; inPausa?: boolean; portoId?: string | null; modelloId?: string | null; porto?: { id: string; nome: string } | null; modello?: { id: string; modello: string } | null };
 
 export default function FlottaPage() {
   const [boats, setBoats] = useState<Boat[]>([]);
   const [skippers, setSkippers] = useState<any[]>([]);
   const [extras, setExtras] = useState<any[]>([]);
+  const [porti, setPorti] = useState<any[]>([]);
+  const [modelli, setModelli] = useState<any[]>([]);
+  const [ricerca, setRicerca] = useState("");
+  const [archiviate, setArchiviate] = useState(false);
   const [tab, setTab] = useState<"barche" | "skipper" | "extra">("barche");
   const [err, setErr] = useState("");
   const [lightbox, setLightbox] = useState<string | null>(null);
@@ -16,16 +20,25 @@ export default function FlottaPage() {
   const fileInput = useRef<HTMLInputElement>(null);
   const [extra, setExtra] = useState({ nome: "", prezzo: "" });
   const [skipper, setSkipper] = useState({ nome: "", telefono: "" });
+  const [editId, setEditId] = useState<string | null>(null);
+  const [edit, setEdit] = useState({ nome: "", tipo: "", capienza: 1, potenzaCv: 0, patenteRichiesta: false, portoId: "", modelloId: "" });
 
   const load = () => {
-    fetch("/api/v1/boats")
+    fetch(`/api/v1/boats${archiviate ? "?archiviate=1" : ""}`)
       .then((r) => r.json())
       .then((j) => { if (Array.isArray(j)) { setBoats(j); setErr(""); } else setErr("Serve login con azienda attiva."); })
       .catch(() => setErr("Serve login con azienda attiva."));
     fetch("/api/v1/skippers").then((r) => r.json()).then((j) => Array.isArray(j) && setSkippers(j)).catch(() => {});
     fetch("/api/v1/extras").then((r) => r.json()).then((j) => Array.isArray(j) && setExtras(j)).catch(() => {});
+    fetch("/api/v1/porti").then((r) => r.json()).then((j) => Array.isArray(j) && setPorti(j)).catch(() => {});
+    fetch("/api/v1/modelli").then((r) => r.json()).then((j) => Array.isArray(j) && setModelli(j)).catch(() => {});
   };
-  useEffect(load, []);
+  useEffect(load, [archiviate]);
+
+  const q = ricerca.trim().toLowerCase();
+  const barcheFiltrate = boats.filter((b) =>
+    !q || b.nome.toLowerCase().includes(q) || (b.tipo ?? "").toLowerCase().includes(q) || (b.porto?.nome ?? "").toLowerCase().includes(q),
+  );
 
   const upload = async (boatId: string, file: File) => {
     setUploading(boatId); setErr("");
@@ -110,8 +123,10 @@ export default function FlottaPage() {
               <button className="btn-primary w-full" type="submit">＋ Aggiungi imbarcazione</button>
             </div>
           </form>
+          <input className="rounded-2xl border border-line bg-white p-2.5 text-sm" placeholder="Cerca per nome, tipo o porto…" value={ricerca} onChange={(e) => setRicerca(e.target.value)} />
+          <label className="flex w-fit items-center gap-2 rounded-2xl border border-line bg-white px-3 py-2 text-sm"><input type="checkbox" checked={archiviate} onChange={(e) => setArchiviate(e.target.checked)} /> Mostra archiviate</label>
           <div className="grid gap-3 md:grid-cols-3">
-            {boats.map((b) => (
+            {barcheFiltrate.map((b) => (
               <article key={b.id} className="card overflow-hidden">
                 <div className="relative flex h-28 items-start justify-end bg-gradient-to-br from-foam to-[#e6f3f0] p-2">
                   {b.fotoCopertina && (
@@ -125,8 +140,14 @@ export default function FlottaPage() {
                   </select>
                 </div>
                 <div className="p-4">
-                  <p className="text-xs tracking-widest text-muted">{b.tipo ?? "BARCA"}{b.patenteRichiesta ? " · PATENTE" : ""}</p>
-                  <h2 className="mb-3">{b.nome}</h2>
+                  <p className="text-xs tracking-widest text-muted">{b.tipo ?? "BARCA"}{b.patenteRichiesta ? " · PATENTE" : ""}{b.porto?.nome ? ` · ${b.porto.nome}` : ""}</p>
+                  <h2 className="mb-2">{b.nome}</h2>
+                  <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+                    <span className={"rounded-full px-2 py-0.5 font-semibold " + (b.pubblicata ? "bg-[#d8f3ea] text-[#177469]" : "bg-[#efe9e3] text-muted")}>{b.pubblicata ? "Pubblicata" : "Bozza"}</span>
+                    {b.inPausa && <span className="rounded-full bg-[#fff0cc] px-2 py-0.5 font-semibold text-[#9a6406]">In pausa</span>}
+                    <button className="font-bold text-ocean" onClick={() => api(`/api/v1/boats/${b.id}`, "PATCH", { pubblicata: !b.pubblicata })}>{b.pubblicata ? "Ritira dal sito" : "Pubblica sul sito"}</button>
+                    {b.pubblicata && <button className="font-bold text-ocean" onClick={() => api(`/api/v1/boats/${b.id}`, "PATCH", { inPausa: !b.inPausa })}>{b.inPausa ? "Riprendi" : "Metti in pausa"}</button>}
+                  </div>
                   <dl className="grid grid-cols-2 text-sm">
                     <div><dt className="text-xs text-muted">Capienza</dt><dd className="font-bold">{b.capienza}</dd></div>
                     <div><dt className="text-xs text-muted">Potenza</dt><dd className="font-bold">{b.potenzaCv ? `${b.potenzaCv} CV` : "–"}</dd></div>
@@ -154,6 +175,8 @@ export default function FlottaPage() {
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img src={u} alt="" className="h-12 w-16 cursor-zoom-in rounded object-cover" onClick={() => setLightbox(u)} />
                           <span className="absolute bottom-0 left-0 flex gap-1 bg-white/90 p-0.5 text-[10px] font-bold">
+                            <button className="text-muted" title="Sposta indietro" onClick={() => { const g = [...b.fotoGallery]; const i = g.indexOf(u); const j = i - 1; if (j < 0) return; [g[i], g[j]] = [g[j], g[i]]; api(`/api/v1/boats/${b.id}`, "PATCH", { ordineFoto: g }); }}>◀</button>
+                            <button className="text-muted" title="Sposta avanti" onClick={() => { const g = [...b.fotoGallery]; const i = g.indexOf(u); const j = i + 1; if (j >= g.length) return; [g[i], g[j]] = [g[j], g[i]]; api(`/api/v1/boats/${b.id}`, "PATCH", { ordineFoto: g }); }}>▶</button>
                             {u !== b.fotoCopertina && <button className="text-ocean" title="Copertina" onClick={() => api(`/api/v1/boats/${b.id}`, "PATCH", { fotoCopertina: u })}>★</button>}
                             <button className="text-coral" title="Elimina" onClick={() => confirm("Eliminare foto?") && api(`/api/v1/boats/${b.id}`, "PATCH", { rimuoviFoto: u })}>✕</button>
                           </span>
@@ -165,15 +188,48 @@ export default function FlottaPage() {
                       </label>
                     </div>
                   </div>
-                  <div className="mt-3 flex gap-2 text-xs">
+                  <div className="mt-3 flex gap-3 text-xs">
+                    <button className="font-bold text-ocean" onClick={() => { setEditId(editId === b.id ? null : b.id); setEdit({ nome: b.nome, tipo: b.tipo ?? "", capienza: b.capienza, potenzaCv: b.potenzaCv ?? 0, patenteRichiesta: b.patenteRichiesta, portoId: b.portoId ?? "", modelloId: b.modelloId ?? "" }); }}>{editId === b.id ? "Chiudi" : "✎ Modifica"}</button>
                     <button className="font-bold text-ocean" onClick={() => api(`/api/v1/boats/${b.id}/duplicate`, "POST")}>Duplica</button>
+                    <button className="font-bold text-muted" onClick={() => api(`/api/v1/boats/${b.id}`, "PATCH", { archiviato: !archiviate })}>{archiviate ? "Ripristina" : "Archivia"}</button>
                     <button className="font-bold text-coral" onClick={() => confirm("Eliminare?") && api(`/api/v1/boats/${b.id}`, "DELETE")}>Elimina</button>
                   </div>
+
+                  {editId === b.id && (
+                    <div className="mt-3 grid gap-2 rounded-2xl border border-line bg-[#faf6f2] p-3 text-sm">
+                      <label className="grid gap-1">Nome<input className="rounded-2xl border border-line p-2.5" value={edit.nome} onChange={(e) => setEdit({ ...edit, nome: e.target.value })} /></label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="grid gap-1">Tipo<input className="rounded-2xl border border-line p-2.5" value={edit.tipo} onChange={(e) => setEdit({ ...edit, tipo: e.target.value })} /></label>
+                        <label className="grid gap-1">Capienza<input className="rounded-2xl border border-line p-2.5" type="number" min={1} value={edit.capienza} onChange={(e) => setEdit({ ...edit, capienza: Number(e.target.value) })} /></label>
+                        <label className="grid gap-1">Potenza (CV)<input className="rounded-2xl border border-line p-2.5" type="number" min={0} value={edit.potenzaCv} onChange={(e) => setEdit({ ...edit, potenzaCv: Number(e.target.value) })} /></label>
+                        <label className="flex items-end gap-2 pb-2"><input type="checkbox" checked={edit.patenteRichiesta} onChange={(e) => setEdit({ ...edit, patenteRichiesta: e.target.checked })} /> Patente richiesta</label>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="grid gap-1">Porto
+                          <select className="rounded-2xl border border-line p-2.5" value={edit.portoId} onChange={(e) => setEdit({ ...edit, portoId: e.target.value })}>
+                            <option value="">— nessuno —</option>
+                            {porti.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                          </select>
+                        </label>
+                        <label className="grid gap-1">Modello (catalogo)
+                          <select className="rounded-2xl border border-line p-2.5" value={edit.modelloId} onChange={(e) => setEdit({ ...edit, modelloId: e.target.value })}>
+                            <option value="">— libero —</option>
+                            {modelli.map((m) => <option key={m.id} value={m.id}>{m.marca ? `${m.marca} ` : ""}{m.modello}{m.stato !== "approvato" ? " (in verifica)" : ""}</option>)}
+                          </select>
+                        </label>
+                      </div>
+                      <div className="flex gap-2">
+                        <button className="btn-primary flex-1" onClick={async () => { await api(`/api/v1/boats/${b.id}`, "PATCH", { nome: edit.nome, tipo: edit.tipo || null, capienza: edit.capienza, potenzaCv: edit.potenzaCv, patenteRichiesta: edit.patenteRichiesta, portoId: edit.portoId || null, modelloId: edit.modelloId || null }); setEditId(null); }}>Salva modifiche</button>
+                        <button className="btn-soft" onClick={() => setEditId(null)}>Annulla</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </article>
             ))}
           </div>
           {boats.length === 0 && <p className="text-sm text-muted">Nessuna barca: aggiungi la prima dal modulo sopra.</p>}
+          {boats.length > 0 && barcheFiltrate.length === 0 && <p className="text-sm text-muted">Nessuna barca corrisponde alla ricerca.</p>}
         </>
       )}
       {lightbox && (

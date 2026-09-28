@@ -7,6 +7,7 @@ type Richiesta = {
   cognome: string;
   telefono: string;
   email: string;
+  tipo: string | null;
   messaggio: string | null;
   privacyAt: string;
   lettoAt: string | null;
@@ -70,6 +71,9 @@ export default function AdminContattiPage() {
               <span className="text-xs text-muted">{new Date(r.createdAt).toLocaleString("it-IT")}</span>
             </div>
             <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1">
+              <span className="rounded-full bg-foam px-3 py-0.5 text-xs font-semibold text-deep">
+                {r.tipo === "noleggiare" ? "Voglio noleggiare" : r.tipo === "noleggiatore" ? "Noleggiatore" : r.tipo === "altro" ? "Altro" : "Tipo non indicato"}
+              </span>
               <a className="font-bold text-ocean" href={`tel:${r.telefono.replace(/[^\d+]/g, "")}`}>
                 ☎ {r.telefono}
               </a>

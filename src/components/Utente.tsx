@@ -18,19 +18,23 @@ export type Utente = {
   twoFactorRequired: boolean;
 };
 
-let cache: Utente | null | undefined;
+// Si tiene in memoria solo un utente VALIDO. Se la sessione non è valida (null)
+// non si memorizza niente, così al prossimo mount si riprova invece di restare
+// con il menù vuoto per sempre.
+let cache: Utente | null = null;
 let inCorso: Promise<Utente | null> | null = null;
 
-async function carica(): Promise<Utente | null> {
-  if (cache !== undefined) return cache;
+async function carica(forza = false): Promise<Utente | null> {
+  if (!forza && cache) return cache;
   if (!inCorso) {
-    inCorso = fetch("/api/v1/auth/me")
+    inCorso = fetch("/api/v1/auth/me", { cache: "no-store" })
       .then((r) => r.json())
       .then((j) => {
-        cache = (j?.user ?? null) as Utente | null;
-        return cache;
+        const u = (j?.user ?? null) as Utente | null;
+        cache = u;
+        return u;
       })
-      .catch(() => null)
+      .catch(() => cache)
       .finally(() => {
         inCorso = null;
       });
@@ -38,11 +42,20 @@ async function carica(): Promise<Utente | null> {
   return inCorso;
 }
 
-export function useUtente() {
-  const [utente, setUtente] = useState<Utente | null | undefined>(cache);
+// Con { redirect: true } (solo nelle pagine riservate) una sessione assente o scaduta
+// riporta all'accesso, invece di lasciare le pagine vuote. Sulle pagine pubbliche no.
+export function useUtente(opts: { redirect?: boolean } = {}) {
+  const [utente, setUtente] = useState<Utente | null>(cache);
   useEffect(() => {
     let vivo = true;
-    carica().then((u) => vivo && setUtente(u));
+    carica().then((u) => {
+      if (!vivo) return;
+      if (!u) {
+        if (opts.redirect) window.location.href = "/login";
+        return;
+      }
+      setUtente(u);
+    });
     return () => {
       vivo = false;
     };
@@ -51,5 +64,10 @@ export function useUtente() {
 }
 
 export function dimenticaUtente() {
-  cache = undefined;
+  cache = null;
+  inCorso = null;
+}
+
+export async function ricaricaUtente() {
+  return carica(true);
 }

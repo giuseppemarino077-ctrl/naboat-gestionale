@@ -1,4 +1,5 @@
 import { fail, ok } from "@/lib/api";
+import { registraAzione } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import { requireOrmeggio } from "@/lib/ormeggio";
 import { z } from "zod";
@@ -53,6 +54,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       });
     }
   }
+  await registraAzione({ tenantId: t.tenantId, actorId: t.userId, azione: p.data.stato ? `ormeggio.attivita.${p.data.stato}` : "ormeggio.attivita.modifica", entita: "Attivita", entitaId: att.id, nota: aggiornata.tipo });
   return ok(aggiornata);
 }
 
@@ -65,5 +67,6 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   const addebiti = await prisma.addebito.count({ where: { tenantId: t.tenantId, attivitaId: att.id } });
   if (addebiti > 0) return fail("Attività con addebito collegato: non eliminabile", 409);
   await prisma.attivita.delete({ where: { id: att.id } });
+  await registraAzione({ tenantId: t.tenantId, actorId: t.userId, azione: "ormeggio.attivita.elimina", entita: "Attivita", entitaId: att.id, nota: att.tipo });
   return ok({ ok: true });
 }

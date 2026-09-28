@@ -1,11 +1,11 @@
 import { fail } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireOrmeggio } from "@/lib/ormeggio";
+import { requireImporti } from "@/lib/ormeggio";
 import { generaPdf, type PdfRiga } from "@/lib/pdf";
 
 // Riepilogo del conto in PDF, da scaricare e condividere con il proprietario.
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const t = await requireOrmeggio(req);
+  const t = await requireImporti(req);
   if ("error" in t) return t.error;
   const { id } = await params;
   const p = await prisma.permanenza.findFirst({

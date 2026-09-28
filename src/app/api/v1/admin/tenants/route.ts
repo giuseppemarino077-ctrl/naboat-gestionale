@@ -1,6 +1,7 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { requireSuperadmin } from "@/lib/guard";
+import { hashPassword } from "@/lib/password";
 import { rigeneraAzienda } from "@/lib/seo";
 import { z } from "zod";
 
@@ -18,6 +19,39 @@ const PatchSchema = z.object({
   id: z.string().uuid(),
   azione: z.enum(["approve", "suspend", "reactivate", "reject"]),
 });
+
+// Creazione manuale di un'azienda con il suo account titolare (per NaBoat).
+const PostSchema = z.object({
+  nome: z.string().trim().min(2).max(160),
+  tipoModulo: z.enum(["noleggio", "ormeggio", "entrambi"]).default("noleggio"),
+  ownerNome: z.string().trim().min(2).max(120),
+  ownerEmail: z.string().trim().email().max(160),
+  ownerPassword: z.string().min(10).max(128),
+});
+
+export async function POST(req: Request) {
+  const g = await requireSuperadmin();
+  if ("error" in g) return g.error;
+  const p = PostSchema.safeParse(await req.json().catch(() => null));
+  if (!p.success) return fail(p.error.issues[0]?.message ?? "Dati non validi", 422);
+  const email = p.data.ownerEmail.toLowerCase();
+  if (await prisma.user.findUnique({ where: { email } })) return fail("Email già registrata", 409);
+
+  const tenant = await prisma.tenant.create({
+    data: {
+      nome: p.data.nome,
+      status: "active",
+      tipoModulo: p.data.tipoModulo as any,
+      moduloOrmeggio: p.data.tipoModulo === "ormeggio" || p.data.tipoModulo === "entrambi",
+    },
+  });
+  await prisma.user.create({
+    data: { tenantId: tenant.id, email, passwordHash: await hashPassword(p.data.ownerPassword), nome: p.data.ownerNome, role: "owner", emailVerified: true },
+  });
+  await prisma.auditLog.create({ data: { tenantId: tenant.id, actorId: g.session.sub, azione: "tenant.creato.admin", entita: "Tenant", entitaId: tenant.id } });
+  await rigeneraAzienda(tenant.id).catch(() => {});
+  return ok({ id: tenant.id, status: tenant.status }, 201);
+}
 
 export async function PATCH(req: Request) {
   const g = await requireSuperadmin();

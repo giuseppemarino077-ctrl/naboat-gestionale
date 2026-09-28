@@ -11,7 +11,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (id === t.userId) return fail("Non puoi modificare il tuo ruolo", 422);
   const p = z.object({ nome: z.string().min(2).max(120).optional(), role: z.enum(["operatore", "skipper"]).optional(), vedeImporti: z.boolean().optional() }).safeParse(await req.json().catch(() => null));
   if (!p.success) return fail("Dati non validi", 422);
-  const r = await prisma.user.updateMany({ where: { id, tenantId: t.tenantId }, data: p.data as any });
+  // Cambiando ruolo si invalidano le sessioni già aperte di quell'utente.
+  const data: Record<string, unknown> = { ...p.data };
+  if (p.data.role) data.sessionVersion = { increment: 1 };
+  const r = await prisma.user.updateMany({ where: { id, tenantId: t.tenantId }, data });
   if (!r.count) return fail("Utente non trovato", 404);
   return ok({ ok: true });
 }

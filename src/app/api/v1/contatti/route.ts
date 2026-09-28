@@ -16,6 +16,7 @@ const Schema = z
     cognome: z.string().trim().min(2, "Scrivi il cognome").max(80, "Cognome troppo lungo"),
     telefono: z.string().trim().regex(/^[+0-9][0-9\s().\/-]{5,29}$/, "Numero di telefono non valido"),
     email: z.string().trim().email("Email non valida").max(160, "Email troppo lunga"),
+    tipo: z.enum(["noleggiare", "noleggiatore", "altro"], { errorMap: () => ({ message: "Indica il tipo di richiesta" }) }),
     messaggio: z.string().trim().max(1000, "Messaggio troppo lungo").optional(),
     privacy: z.literal(true, { errorMap: () => ({ message: "Serve il consenso al trattamento dei dati" }) }),
     azienda: z.string().max(200).optional(), // campo esca: deve restare vuoto
@@ -62,6 +63,7 @@ export async function POST(req: Request) {
       cognome: p.data.cognome,
       telefono: p.data.telefono,
       email: p.data.email,
+      tipo: p.data.tipo,
       messaggio: messaggio || null,
       privacyAt: new Date(),
       ip,
@@ -70,12 +72,15 @@ export async function POST(req: Request) {
   });
 
   const quando = new Date().toLocaleString("it-IT", { timeZone: "Europe/Rome" });
+  const TIPI: Record<string, string> = { noleggiare: "Voglio noleggiare", noleggiatore: "Sono un noleggiatore", altro: "Altro" };
+  const tipo = TIPI[p.data.tipo] ?? p.data.tipo;
   await sendMail(
     DESTINATARIO,
     `Contatto dal sito: ${p.data.nome} ${p.data.cognome}`,
     [
       "Nuova richiesta dal form dei contatti del sito.",
       "",
+      `Tipo: ${tipo}`,
       `Nome: ${p.data.nome} ${p.data.cognome}`,
       `Telefono: ${p.data.telefono}`,
       `Email: ${p.data.email}`,
@@ -86,6 +91,7 @@ export async function POST(req: Request) {
     ].join("\n"),
     `<p>Nuova richiesta dal form dei contatti del sito.</p>
 <ul>
+  <li><b>Tipo:</b> ${tipo}</li>
   <li><b>Nome:</b> ${p.data.nome} ${p.data.cognome}</li>
   <li><b>Telefono:</b> ${p.data.telefono}</li>
   <li><b>Email:</b> ${p.data.email}</li>

@@ -11,7 +11,7 @@ export async function GET() {
   const richieste = await prisma.richiestaContatto.findMany({
     orderBy: { createdAt: "desc" },
     take: 300,
-    select: { id: true, nome: true, cognome: true, telefono: true, email: true, messaggio: true, privacyAt: true, lettoAt: true, createdAt: true },
+    select: { id: true, nome: true, cognome: true, telefono: true, email: true, tipo: true, messaggio: true, privacyAt: true, lettoAt: true, createdAt: true },
   });
 
   return ok({ richieste, nonLette: richieste.filter((r) => !r.lettoAt).length });

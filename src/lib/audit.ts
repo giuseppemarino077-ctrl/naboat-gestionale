@@ -43,8 +43,7 @@ type Opzioni = {
 
 export async function traccia(o: Opzioni) {
   try {
-    if (!(await registroCompleto())) return;
-    const cambi = differenze(o.prima ?? null, o.dopo ?? null);
+    if (!(await registroCompleto())) return;    const cambi = differenze(o.prima ?? null, o.dopo ?? null);
     const dettagli = JSON.stringify({
       ...(o.nota ? { nota: o.nota } : {}),
       ...(o.prima === undefined ? {} : { prima: o.prima }),
@@ -63,5 +62,24 @@ export async function traccia(o: Opzioni) {
     });
   } catch {
     // il registro non deve mai bloccare l'operazione principale
+  }
+}
+
+// Storico operativo sempre attivo (a prescindere dall'interruttore «registro completo»):
+// serve a mostrare chi ha fatto cosa su prenotazioni e verbali.
+export async function registraAzione(o: { tenantId: string; actorId?: string | null; azione: string; entita: string; entitaId: string; nota?: string }) {
+  try {
+    await prisma.auditLog.create({
+      data: {
+        tenantId: o.tenantId,
+        actorId: o.actorId ?? null,
+        azione: o.azione,
+        entita: o.entita,
+        entitaId: o.entitaId,
+        ...(o.nota ? { dettagli: JSON.stringify({ nota: o.nota }).slice(0, 20000) } : {}),
+      },
+    });
+  } catch {
+    // non deve bloccare l'operazione
   }
 }

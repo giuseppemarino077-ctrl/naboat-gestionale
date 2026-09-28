@@ -1,4 +1,5 @@
 "use client";
+import { copiaTesto } from "@/lib/browser";
 import { useEffect, useState } from "react";
 
 type Impostazioni = {
@@ -124,7 +125,7 @@ export default function BackupPage() {
             <h2 className="text-lg">Cosa fare sul server (una volta sola)</h2>
             <p className="text-muted">Installa questa riga nel crontab del VPS. Da quel momento <b>gli interruttori qui sopra comandano davvero i backup</b>: lo script chiede al portale cosa è attivo e fa solo quello. Non serve più toccare il crontab quando cambi idea.</p>
             <pre className="overflow-x-auto rounded-md bg-[#3a2418] p-3 text-xs text-[#f6e3d5]">{stato.crontab.join("\n")}</pre>
-            <button className="w-fit font-bold text-ocean" onClick={() => navigator.clipboard.writeText(stato.crontab.join("\n"))}>Copia righe di cron</button>
+            <button className="w-fit font-bold text-ocean" onClick={() => copiaTesto(stato.crontab.join("\n"))}>Copia righe di cron</button>
 
             {imp.macchinaDelTempo && (
               <div className="rounded-md bg-[#fff8e6] p-3">

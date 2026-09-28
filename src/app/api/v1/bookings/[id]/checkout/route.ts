@@ -1,4 +1,5 @@
 import { fail, ok } from "@/lib/api";
+import { registraAzione } from "@/lib/audit";
 import { registraCheckout } from "@/lib/presenze";
 import { requireTenant } from "@/lib/tenant";
 import { z } from "zod";
@@ -20,5 +21,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const r = await registraCheckout(t.tenantId, t.userId, id, p.data);
   if (!r.ok) return fail(r.errore, r.stato);
+  await registraAzione({ tenantId: t.tenantId, actorId: t.userId, azione: "booking.checkout", entita: "Booking", entitaId: id });
   return ok(r.booking);
 }

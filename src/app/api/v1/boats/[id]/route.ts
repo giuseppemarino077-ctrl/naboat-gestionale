@@ -17,6 +17,19 @@ const Schema = z.object({
   rimuoviFoto: z.string().max(500).optional(),
   lat: z.number().min(-90).max(90).optional().nullable(),
   lon: z.number().min(-180).max(180).optional().nullable(),
+  portoId: z.string().uuid().optional().nullable(),
+  modelloId: z.string().uuid().optional().nullable(),
+  descrizione: z.string().max(3000).optional().nullable(),
+  lunghezzaM: z.number().min(0).max(200).optional().nullable(),
+  cabine: z.number().int().min(0).max(30).optional().nullable(),
+  dotazioni: z.array(z.string().max(60)).max(40).optional(),
+  carburante: z.string().max(80).optional().nullable(),
+  cauzioneCent: z.number().int().min(0).max(100000000).optional().nullable(),
+  etaMinima: z.number().int().min(0).max(99).optional().nullable(),
+  pubblicata: z.boolean().optional(),
+  inPausa: z.boolean().optional(),
+  archiviato: z.boolean().optional(),
+  ordineFoto: z.array(z.string().max(500)).max(60).optional(),
 });
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -35,9 +48,36 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (copertina === p.data.rimuoviFoto) copertina = gallery[0] ?? null;
     await deletePhoto(p.data.rimuoviFoto);
   }
+  // Riordino della galleria: si accettano solo foto già presenti; le mancanti restano in coda.
+  if (p.data.ordineFoto) {
+    const presenti = new Set(gallery);
+    const ordinate = p.data.ordineFoto.filter((u) => presenti.has(u));
+    const resto = gallery.filter((u) => !ordinate.includes(u));
+    gallery = [...ordinate, ...resto];
+  }
   if (copertina && !gallery.includes(copertina)) return fail("Copertina non in galleria", 422);
 
-  const { rimuoviFoto: _r, fotoCopertina: _c, ...rest } = p.data;
+  const { rimuoviFoto: _r, fotoCopertina: _c, ordineFoto: _o, ...rest } = p.data;
+
+  // Una barca diventa pubblica solo con almeno una foto e un prezzo attivo.
+  if (rest.pubblicata === true) {
+    if (gallery.length < 1) return fail("Per pubblicare serve almeno una foto", 422);
+    const prezzo = await prisma.tariffa.count({ where: { boatId: cur.id, tenantId: t.tenantId, attivo: true } });
+    if (prezzo < 1) return fail("Per pubblicare serve un prezzo nel listino", 422);
+    // Limiti del piano Free applicati dal server.
+    const [tenant, ps] = await Promise.all([
+      prisma.tenant.findUnique({ where: { id: t.tenantId }, select: { pianoTipo: true } }),
+      prisma.platformSettings.findUnique({ where: { id: "singleton" }, select: { pianoFreeMaxBarche: true, pianoFreeMaxFoto: true } }),
+    ]);
+    if ((tenant?.pianoTipo ?? "free") === "free") {
+      const maxBarche = ps?.pianoFreeMaxBarche ?? 3;
+      const altre = await prisma.boat.count({ where: { tenantId: t.tenantId, pubblicata: true, id: { not: cur.id } } });
+      if (altre + 1 > maxBarche) return fail(`Piano Free: massimo ${maxBarche} barche pubblicate`, 402);
+      const maxFoto = ps?.pianoFreeMaxFoto ?? 5;
+      if (gallery.length > maxFoto) return fail(`Piano Free: massimo ${maxFoto} foto per barca`, 402);
+    }
+  }
+
   const aggiornata = await prisma.boat.update({ where: { id: cur.id }, data: { ...rest, fotoGallery: gallery, fotoCopertina: copertina } });
   await traccia({
     tenantId: t.tenantId,

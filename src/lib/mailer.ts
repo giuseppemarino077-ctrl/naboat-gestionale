@@ -40,6 +40,22 @@ function mailer() {
   return transporter;
 }
 
+// I dati inseriti dagli utenti (nomi, battelli, destinazioni…) non devono poter
+// iniettare HTML nelle email di notifica.
+export function escapeHtml(v: unknown): string {
+  return String(v ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// Le intestazioni email non ammettono a capo: si neutralizzano per evitare header injection.
+export function subjectSicuro(v: unknown): string {
+  return String(v ?? "").replace(/[\r\n]+/g, " ").slice(0, 150);
+}
+
 export async function sendMail(to: string, subject: string, textBody: string, htmlBody?: string) {
   if (!smtpConfigured()) {
     console.log(`[mailer:dev] a=${to} oggetto="${subject}"\n${textBody}`);
@@ -95,19 +111,108 @@ export function promemoriaBody(d: DatiPromemoria) {
   if (d.telefono) righe.push("", `Per qualsiasi necessità: ${d.telefono}`);
   righe.push("", `A domani!`, d.azienda);
 
+  const cliente = escapeHtml(d.cliente);
+  const barca = escapeHtml(d.barca);
+  const destinazione = escapeHtml(d.destinazione);
+  const puntoPartenza = escapeHtml(d.puntoPartenza);
+  const telefono = escapeHtml(d.telefono);
+  const azienda = escapeHtml(d.azienda);
+  const contrattoUrl = d.contrattoUrl ? encodeURI(d.contrattoUrl) : null;
+
   return {
-    subject: `Promemoria: la tua uscita di domani con ${d.azienda}`,
+    subject: subjectSicuro(`Promemoria: la tua uscita di domani con ${d.azienda}`),
     text: righe.join("\n"),
-    html: `<p>Ciao ${d.cliente},</p><p>ti ricordiamo la tua uscita in mare di <b>domani</b>:</p>
+    html: `<p>Ciao ${cliente},</p><p>ti ricordiamo la tua uscita in mare di <b>domani</b>:</p>
 <ul>
-  <li>Imbarcazione: <b>${d.barca}</b></li>
-  <li>Quando: <b>${d.quando}</b></li>
-  <li>Passeggeri: <b>${d.passeggeri}</b></li>${d.destinazione ? `\n  <li>Destinazione: <b>${d.destinazione}</b></li>` : ""}${d.puntoPartenza ? `\n  <li>Punto di partenza: <b>${d.puntoPartenza}</b></li>` : ""}
+  <li>Imbarcazione: <b>${barca}</b></li>
+  <li>Quando: <b>${escapeHtml(d.quando)}</b></li>
+  <li>Passeggeri: <b>${escapeHtml(d.passeggeri)}</b></li>${d.destinazione ? `\n  <li>Destinazione: <b>${destinazione}</b></li>` : ""}${d.puntoPartenza ? `\n  <li>Punto di partenza: <b>${puntoPartenza}</b></li>` : ""}
 </ul>
 <p><b>Cosa portare:</b> documento d'identità, patente nautica se richiesta, crema solare e acqua.<br>
 Ti consigliamo di arrivare <b>15 minuti prima</b> della partenza.</p>
-${d.contrattoUrl ? `<p>Contratto da firmare online: <a href="${d.contrattoUrl}">${d.contrattoUrl}</a></p>` : ""}
-${d.telefono ? `<p>Per qualsiasi necessità: <b>${d.telefono}</b></p>` : ""}
-<p>A domani!<br><b>${d.azienda}</b></p>`,
+${contrattoUrl ? `<p>Contratto da firmare online: <a href="${escapeHtml(contrattoUrl)}">${escapeHtml(contrattoUrl)}</a></p>` : ""}
+${d.telefono ? `<p>Per qualsiasi necessità: <b>${telefono}</b></p>` : ""}
+<p>A domani!<br><b>${azienda}</b></p>`,
+  };
+}
+
+// Reset password: link monouso valido 1 ora.
+export function resetPasswordBody(token: string) {
+  const url = `${APP_URL}/reimposta-password?token=${encodeURIComponent(token)}`;
+  return {
+    subject: "Reimposta la password di NaBoat",
+    text: `Hai chiesto di reimpostare la password del tuo account NaBoat.\n\nApri questo link (valido 1 ora):\n${url}\n\nSe non hai richiesto tu il cambio, ignora questo messaggio: la password resta quella di prima.`,
+    html: `<p>Hai chiesto di reimpostare la password del tuo account NaBoat.</p><p>Apri questo link (valido <b>1 ora</b>):</p><p><a href="${url}">${url}</a></p><p>Se non hai richiesto tu il cambio, ignora questo messaggio: la password resta quella di prima.</p>`,
+  };
+}
+
+// Reset password del cliente finale.
+export function resetPasswordClienteBody(token: string) {
+  const url = `${APP_URL}/area/reset?token=${encodeURIComponent(token)}`;
+  return {
+    subject: "Reimposta la password del tuo account NaBoat",
+    text: `Hai chiesto di reimpostare la password del tuo account cliente NaBoat.\n\nApri questo link (valido 1 ora):\n${url}\n\nSe non hai richiesto tu il cambio, ignora questo messaggio.`,
+    html: `<p>Hai chiesto di reimpostare la password del tuo account cliente NaBoat.</p><p>Apri questo link (valido <b>1 ora</b>):</p><p><a href="${url}">${url}</a></p><p>Se non hai richiesto tu il cambio, ignora questo messaggio.</p>`,
+  };
+}
+
+type DatiRichiesta = {
+  azienda: string;
+  barca: string;
+  cliente: string;
+  telefono: string;
+  quando: string;
+  passeggeri: number;
+  note?: string | null;
+};
+
+// Al noleggiatore: è arrivata una richiesta dal sito.
+export function richiestaRicevutaBody(d: DatiRichiesta) {
+  const righe = [
+    "Hai ricevuto una nuova richiesta dal sito NaBoat.",
+    "",
+    `Barca: ${d.barca}`,
+    `Cliente: ${d.cliente} · ${d.telefono}`,
+    `Quando: ${d.quando}`,
+    `Passeggeri: ${d.passeggeri}`,
+  ];
+  if (d.note) righe.push("", "Note:", d.note);
+  righe.push("", `Aprila nel gestionale per confermarla o rifiutarla.`, d.azienda);
+  const esc = (v: unknown) => escapeHtml(v);
+  return {
+    subject: subjectSicuro(`Nuova richiesta di prenotazione — ${d.barca}`),
+    text: righe.join("\n"),
+    html: `<p>Hai ricevuto una <b>nuova richiesta</b> dal sito NaBoat.</p>
+<ul>
+  <li>Barca: <b>${esc(d.barca)}</b></li>
+  <li>Cliente: <b>${esc(d.cliente)}</b> · ${esc(d.telefono)}</li>
+  <li>Quando: <b>${esc(d.quando)}</b></li>
+  <li>Passeggeri: <b>${d.passeggeri}</b></li>
+</ul>${d.note ? `<p><b>Note:</b><br>${esc(d.note).replace(/\n/g, "<br>")}</p>` : ""}
+<p>Aprila nel gestionale per confermarla o rifiutarla.</p><p><b>${esc(d.azienda)}</b></p>`,
+  };
+}
+
+// Al cliente: esito della richiesta (confermata o rifiutata).
+export function richiestaEsitoBody(d: { cliente: string; barca: string; azienda: string; quando: string; confermata: boolean; telefono?: string | null }) {
+  const esc = (v: unknown) => escapeHtml(v);
+  const esito = d.confermata ? "confermata" : "non disponibile";
+  const righe = [
+    `Ciao ${d.cliente},`,
+    "",
+    d.confermata ? `la tua richiesta è stata confermata.` : `la tua richiesta purtroppo non è stata accettata.`,
+    `  • Barca: ${d.barca}`,
+    `  • Quando: ${d.quando}`,
+    `  • Azienda: ${d.azienda}`,
+  ];
+  if (d.confermata && d.telefono) righe.push("", `Per qualsiasi necessità contatta l'azienda: ${d.telefono}`);
+  righe.push("", "Grazie,", "NaBoat");
+  return {
+    subject: subjectSicuro(d.confermata ? `La tua richiesta è confermata — ${d.barca}` : `Esito della tua richiesta — ${d.barca}`),
+    text: righe.join("\n"),
+    html: `<p>Ciao ${esc(d.cliente)},</p><p>${d.confermata ? "la tua richiesta è stata <b>confermata</b>." : "la tua richiesta purtroppo <b>non è stata accettata</b>."}</p>
+<ul><li>Barca: <b>${esc(d.barca)}</b></li><li>Quando: <b>${esc(d.quando)}</b></li><li>Azienda: <b>${esc(d.azienda)}</b></li></ul>
+${d.confermata && d.telefono ? `<p>Per qualsiasi necessità contatta l'azienda: <b>${esc(d.telefono)}</b></p>` : ""}
+<p>Grazie,<br><b>NaBoat</b></p><p style="color:#888;font-size:12px">Esito: ${esito}</p>`,
   };
 }

@@ -28,15 +28,21 @@ const PRIVATE = [
   "/admin",
   "/anteprima",
   "/progetto",
+  "/registro",
+  "/ormeggio",
+  "/contratto-ormeggio/",
   "/login",
   "/registrazione",
   "/verifica-email",
+  "/password-dimenticata",
+  "/reimposta-password",
   "/paga/",
   "/contratto/",
+  "/area",
 ];
 
 // Pagine del sito pubblico che i motori possono visitare.
-const SITO_APERTE = ["/", "/chi-siamo", "/contatti"];
+const SITO_APERTE = ["/", "/chi-siamo", "/contatti", "/privacy", "/cookie", "/termini", "/noleggia", "/per-noleggiatori"];
 
 export default async function robots(): Promise<MetadataRoute.Robots> {
   const h = await headers();

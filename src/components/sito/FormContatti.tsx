@@ -8,6 +8,7 @@ const campo = "rounded-md border border-line p-2.5 text-sm";
 // Protezioni: campo esca nascosto, tempo minimo di compilazione, Turnstile e limiti lato server.
 export function FormContatti() {
   const [dati, setDati] = useState({ nome: "", cognome: "", telefono: "", email: "" });
+  const [tipo, setTipo] = useState("noleggiare");
   const [messaggio, setMessaggio] = useState("");
   const [privacy, setPrivacy] = useState(false);
   const [esca, setEsca] = useState("");
@@ -31,7 +32,7 @@ export function FormContatti() {
     const r = await fetch("/api/v1/contatti", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...dati, messaggio, privacy: true, azienda: esca, istante, turnstileToken: token }),
+      body: JSON.stringify({ ...dati, tipo, messaggio, privacy: true, azienda: esca, istante, turnstileToken: token }),
     });
     const j = await r.json().catch(() => ({}));
     setInvio(false);
@@ -55,6 +56,15 @@ export function FormContatti() {
 
   return (
     <form onSubmit={invia} className="grid gap-3">
+      <label className="grid gap-1 text-sm font-semibold text-deep">
+        Tipo di richiesta
+        <select className={campo} value={tipo} onChange={(e) => setTipo(e.target.value)}>
+          <option value="noleggiare">Voglio noleggiare una barca</option>
+          <option value="noleggiatore">Sono un noleggiatore</option>
+          <option value="altro">Altro</option>
+        </select>
+      </label>
+
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="grid gap-1 text-sm font-semibold text-deep">
           Nome

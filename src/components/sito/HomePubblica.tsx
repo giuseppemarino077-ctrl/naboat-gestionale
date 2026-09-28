@@ -1,6 +1,9 @@
 import { IntestazioneSito } from "@/components/sito/IntestazioneSito";
 import { PiedeSito } from "@/components/sito/PiedeSito";
 import type { ContenutiHome } from "@/lib/home";
+import type { NumeriPiattaforma, SchedaEvidenza } from "@/lib/marketplace";
+
+const euro = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
 
 const PASSI = [
   { n: "1", t: "Trova la barca giusta", d: "Sfoglia le aziende NaBoat: barche, prezzi e disponibilità in chiaro." },
@@ -53,7 +56,7 @@ const DOMANDE = [
 ];
 
 // Home del sito pubblico: si apre su naboat.it. Testi e foto arrivano dal pannello NaBoat.
-export function HomePubblica({ appBase, contenuti }: { appBase: string; contenuti: ContenutiHome }) {
+export function HomePubblica({ appBase, contenuti, numeri = { barche: 0, senzaPatente: 0, conSkipper: 0, localita: 0 }, evidenza = [] }: { appBase: string; contenuti: ContenutiHome; numeri?: NumeriPiattaforma; evidenza?: SchedaEvidenza[] }) {
   return (
     <div className="bg-white text-ink">
       <IntestazioneSito appBase={appBase} />
@@ -87,6 +90,44 @@ export function HomePubblica({ appBase, contenuti }: { appBase: string; contenut
           </p>
         </div>
       </section>
+
+      {(numeri.barche > 0 || evidenza.length > 0) && (
+        <section className="mx-auto max-w-6xl px-5 pt-14">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <div className="card p-4 text-center"><p className="font-display text-3xl font-extrabold text-deep">{numeri.barche}</p><p className="text-xs text-muted">barche disponibili</p></div>
+            <div className="card p-4 text-center"><p className="font-display text-3xl font-extrabold text-deep">{numeri.senzaPatente}</p><p className="text-xs text-muted">senza patente</p></div>
+            <div className="card p-4 text-center"><p className="font-display text-3xl font-extrabold text-deep">{numeri.conSkipper}</p><p className="text-xs text-muted">con skipper</p></div>
+            <div className="card p-4 text-center"><p className="font-display text-3xl font-extrabold text-deep">{numeri.localita}</p><p className="text-xs text-muted">località</p></div>
+          </div>
+
+          {evidenza.length > 0 && (
+            <div className="mt-12">
+              <div className="flex flex-wrap items-end justify-between gap-2">
+                <h2 className="font-display text-3xl font-extrabold text-deep">Le più apprezzate</h2>
+                <a className="text-sm font-bold text-ocean" href="/noleggia">Vedi tutte le barche →</a>
+              </div>
+              <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {evidenza.map((b) => (
+                  <a key={b.id} href={`/barca/${b.slug ?? b.id}`} className="card overflow-hidden transition hover:shadow-md">
+                    <div className="h-40 bg-sand">
+                      {b.fotoCopertina && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={b.fotoCopertina} alt={b.nome} className="h-full w-full object-cover" loading="lazy" />
+                      )}
+                    </div>
+                    <div className="p-4">
+                      <h3 className="font-display text-lg font-bold text-deep">{b.nome}</h3>
+                      <p className="mt-1 text-xs text-muted">{b.tipo ?? "Barca"} · {b.porto ?? "base da definire"}{b.voto > 0 ? ` · ★ ${b.voto.toFixed(1)} (${b.recensioni})` : ""}</p>
+                      <p className="mt-1 text-xs text-muted">{b.patenteRichiesta ? "Serve patente" : "Senza patente"}</p>
+                      <p className="mt-2 font-display text-lg font-extrabold text-ocean">{b.prezzoDaCent != null ? `da ${euro(b.prezzoDaCent)}` : "Su richiesta"}</p>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
 
       <section id="come-funziona" className="mx-auto max-w-6xl px-5 py-16">
         <h2 className="text-center font-display text-3xl font-extrabold text-deep">Come funziona</h2>

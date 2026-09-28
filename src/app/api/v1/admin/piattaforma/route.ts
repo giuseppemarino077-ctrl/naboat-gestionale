@@ -20,6 +20,14 @@ export async function GET() {
       manutenzioneAttiva: true,
       manutenzioneTitolo: true,
       manutenzioneTesto: true,
+      sogliaPatenteCv: true,
+      tempoPreparazioneMin: true,
+      finestraRecensioniGiorni: true,
+      pianoFreeMaxBarche: true,
+      pianoFreeMaxFoto: true,
+      pianoProPrezzoMensileCent: true,
+      pianoProPrezzoAnnualeCent: true,
+      pianoProvaGiorni: true,
     },
   });
   return ok({
@@ -32,6 +40,14 @@ export async function GET() {
     manutenzioneAttiva: s?.manutenzioneAttiva ?? false,
     manutenzioneTitolo: s?.manutenzioneTitolo ?? "",
     manutenzioneTesto: s?.manutenzioneTesto ?? "",
+    sogliaPatenteCv: s?.sogliaPatenteCv ?? 40,
+    tempoPreparazioneMin: s?.tempoPreparazioneMin ?? 0,
+    finestraRecensioniGiorni: s?.finestraRecensioniGiorni ?? 60,
+    pianoFreeMaxBarche: s?.pianoFreeMaxBarche ?? 3,
+    pianoFreeMaxFoto: s?.pianoFreeMaxFoto ?? 5,
+    pianoProPrezzoMensileCent: s?.pianoProPrezzoMensileCent ?? null,
+    pianoProPrezzoAnnualeCent: s?.pianoProPrezzoAnnualeCent ?? null,
+    pianoProvaGiorni: s?.pianoProvaGiorni ?? 0,
     predefinita: "/img/sfondo-login.jpg",
   });
 }
@@ -47,6 +63,14 @@ const Schema = z
     manutenzioneAttiva: z.boolean().optional(),
     manutenzioneTitolo: z.string().max(160).optional().nullable(),
     manutenzioneTesto: z.string().max(600).optional().nullable(),
+    sogliaPatenteCv: z.number().int().min(0).max(2000).optional(),
+    tempoPreparazioneMin: z.number().int().min(0).max(10080).optional(),
+    finestraRecensioniGiorni: z.number().int().min(1).max(365).optional(),
+    pianoFreeMaxBarche: z.number().int().min(0).max(10000).optional(),
+    pianoFreeMaxFoto: z.number().int().min(0).max(10000).optional(),
+    pianoProPrezzoMensileCent: z.number().int().min(0).max(100000000).optional().nullable(),
+    pianoProPrezzoAnnualeCent: z.number().int().min(0).max(100000000).optional().nullable(),
+    pianoProvaGiorni: z.number().int().min(0).max(3650).optional(),
   })
   .strict();
 

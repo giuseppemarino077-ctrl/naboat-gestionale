@@ -4,7 +4,7 @@ import { hostSito, percorsoPubblicoSito } from "@/lib/sito";
 
 // Le pagine del gestionale richiedono l'accesso: senza sessione si viene portati al login.
 // (La verifica vera del gettone resta nelle API: qui si evita solo di mostrare pagine vuote.)
-const PUBBLICHE = ["/login", "/registrazione", "/verifica-email", "/paga", "/contratto", "/contratto-ormeggio"];
+const PUBBLICHE = ["/login", "/registrazione", "/verifica-email", "/password-dimenticata", "/reimposta-password", "/paga", "/contratto", "/contratto-ormeggio", "/area"];
 const NON_PAGINE = ["/_next", "/api", "/uploads", "/img", "/icon", "/apple-touch-icon", "/manifest", "/robots", "/sitemap", "/favicon"];
 
 export function middleware(req: NextRequest) {

@@ -22,6 +22,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   if (!permanenza) return fail("Permanenza non trovata", 404);
   const totaleAddebitiCent = permanenza.addebiti.reduce((s, a) => s + a.importoCent, 0);
   const incassatoCent = permanenza.payments.filter((p) => p.stato === "pagato").reduce((s, p) => s + p.totaleCent, 0);
+  // Senza il permesso sugli importi la scheda resta consultabile, ma senza cifre.
+  if (t.vedeImporti === false) {
+    return ok({ ...permanenza, corrispettivoCent: null, addebiti: [], payments: [], conto: null });
+  }
   return ok({ ...permanenza, conto: { totaleAddebitiCent, incassatoCent, residuoCent: Math.max(0, totaleAddebitiCent - incassatoCent) } });
 }
 
@@ -33,6 +37,7 @@ const Patch = z.object({
   finePrevistaAt: z.string().nullable().optional(),
   corrispettivoCent: z.number().int().min(0).max(100000000).optional().nullable(),
   note: z.string().max(1000).optional().nullable(),
+  pronta: z.boolean().optional(),
 });
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -60,6 +65,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         finePrevistaAt: finePrev,
         ...(p.data.corrispettivoCent !== undefined ? { corrispettivoCent: p.data.corrispettivoCent } : {}),
         ...(p.data.note !== undefined ? { note: p.data.note?.trim() || null } : {}),
+        ...(p.data.pronta !== undefined ? { pronta: p.data.pronta } : {}),
       },
     });
     return ok(aggiornata);

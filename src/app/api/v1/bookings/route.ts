@@ -1,5 +1,6 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
+import { parseImportoEuro } from "@/lib/payments";
 import { requireAzienda } from "@/lib/tenant";
 import { z } from "zod";
 
@@ -37,7 +38,11 @@ const Schema = z.object({
   patenteOk: z.boolean().default(false),
   skipperId: z.string().optional(),
   extraIds: z.array(z.string()).max(20).default([]),
+  extraQuantita: z.record(z.string(), z.number().int().min(1).max(1000)).optional(),
   idempotencyKey: z.string().max(80).optional(),
+  stato: z.enum(["da_confermare", "prenotata"]).default("prenotata"),
+  prezzoEuro: z.string().max(20).optional().nullable(),
+  pagato: z.boolean().optional(),
 });
 
 export async function POST(req: Request) {
@@ -66,43 +71,89 @@ export async function POST(req: Request) {
     if (!sk) return fail("Skipper non valido", 422);
   }
 
-  const overlap = await prisma.booking.findFirst({
-    where: { boatId: v.boatId, tenantId: t.tenantId, stato: { in: ["prenotata", "in_mare"] }, startAt: { lt: end }, endAt: { gt: start } },
-    select: { id: true },
-  });
-  if (overlap) return fail("Sovrapposizione con altra prenotazione", 409);
-  const block = await prisma.block.findFirst({
-    where: { boatId: v.boatId, tenantId: t.tenantId, startAt: { lt: end }, endAt: { gt: start } },
-    select: { id: true, motivo: true },
-  });
-  if (block) return fail(`Risorsa bloccata${block.motivo ? `: ${block.motivo}` : ""}`, 409);
+  // Tempo di preparazione fra due noleggi della stessa barca (pulizia/rifornimento),
+  // configurabile da NaBoat. Si allarga la finestra di controllo su entrambi i lati.
+  const impostazioni = await prisma.platformSettings.findUnique({ where: { id: "singleton" }, select: { tempoPreparazioneMin: true } }).catch(() => null);
+  const prepMs = Math.max(0, impostazioni?.tempoPreparazioneMin ?? 0) * 60000;
+  const startAllargato = new Date(start.getTime() - prepMs);
+  const endAllargato = new Date(end.getTime() + prepMs);
 
   const dedupKey = normTel(v.telefono);
-  const customer = await prisma.customer.upsert({
-    where: { tenantId_dedupKey: { tenantId: t.tenantId, dedupKey } },
-    update: { nome: v.clienteNome, ...(v.email ? { email: v.email } : {}) },
-    create: { tenantId: t.tenantId, nome: v.clienteNome, telefono: v.telefono, email: v.email, dedupKey },
-  });
+  const prezzoCent = v.prezzoEuro ? parseImportoEuro(v.prezzoEuro) : null;
+  if (v.prezzoEuro && prezzoCent === null) return fail("Prezzo non valido", 422);
 
-  const booking = await prisma.booking.create({
-    data: {
-      tenantId: t.tenantId,
-      boatId: v.boatId,
-      customerId: customer.id,
-      startAt: start,
-      endAt: end,
-      passeggeri: v.passeggeri,
-      clienteNome: v.clienteNome,
-      telefono: v.telefono,
-      destinazione: v.destinazione,
-      formula: v.formula,
-      note: v.note,
-      patenteOk: v.patenteOk,
-      skipperId: v.skipperId || undefined,
-      idempotencyKey: v.idempotencyKey,
-      extras: { create: v.extraIds.map((id) => ({ extraId: id })) },
-    },
-    include: { boat: { select: { nome: true } }, skipper: { select: { nome: true } } },
-  });
-  return ok(booking, 201);
+  // Tutto in transazione, con un lock per barca: due addetti che salvano nello stesso
+  // istante non possono superare insieme il controllo (il trigger del database resta il secondo livello).
+  let risultato: { err?: string; booking?: any };
+  try {
+    risultato = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${v.boatId}))`;
+
+      const overlap = await tx.booking.findFirst({
+        where: { boatId: v.boatId, tenantId: t.tenantId, stato: { in: ["da_confermare", "prenotata", "in_mare"] }, startAt: { lt: endAllargato }, endAt: { gt: startAllargato } },
+        select: { id: true },
+      });
+      if (overlap) return { err: prepMs > 0 ? "Sovrapposizione con altra prenotazione (o troppo vicina: serve il tempo di preparazione)" : "Sovrapposizione con altra prenotazione" };
+      const block = await tx.block.findFirst({
+        where: { boatId: v.boatId, tenantId: t.tenantId, startAt: { lt: endAllargato }, endAt: { gt: startAllargato } },
+        select: { id: true, motivo: true },
+      });
+      if (block) return { err: `Risorsa bloccata${block.motivo ? `: ${block.motivo}` : ""}` };
+
+      const customer = await tx.customer.upsert({
+        where: { tenantId_dedupKey: { tenantId: t.tenantId, dedupKey } },
+        update: { nome: v.clienteNome, ...(v.email ? { email: v.email } : {}) },
+        create: { tenantId: t.tenantId, nome: v.clienteNome, telefono: v.telefono, email: v.email, dedupKey },
+      });
+
+      const booking = await tx.booking.create({
+        data: {
+          tenantId: t.tenantId,
+          boatId: v.boatId,
+          customerId: customer.id,
+          startAt: start,
+          endAt: end,
+          passeggeri: v.passeggeri,
+          clienteNome: v.clienteNome,
+          telefono: v.telefono,
+          destinazione: v.destinazione,
+          formula: v.formula,
+          note: v.note,
+          patenteOk: v.patenteOk,
+          stato: v.stato,
+          ...(prezzoCent !== null ? { prezzoCent } : {}),
+          skipperId: v.skipperId || undefined,
+          idempotencyKey: v.idempotencyKey,
+          extras: { create: v.extraIds.map((id) => ({ extraId: id, quantita: v.extraQuantita?.[id] ?? 1 })) },
+        },
+        include: { boat: { select: { nome: true } }, skipper: { select: { nome: true } } },
+      });
+      return { booking };
+    });
+  } catch (e) {
+    if (/Sovrapposizione/i.test(e instanceof Error ? e.message : String(e))) return fail("Sovrapposizione con altra prenotazione", 409);
+    throw e;
+  }
+
+  if (risultato.err) return fail(risultato.err, 409);
+
+  // Prenotazione manuale già pagata: si registra un incasso distinto dal noleggio online.
+  if (v.pagato && prezzoCent !== null && risultato.booking) {
+    await prisma.payment.create({
+      data: {
+        tenantId: t.tenantId,
+        bookingId: risultato.booking.id,
+        provider: "manuale",
+        tipo: "saldo",
+        importoCent: prezzoCent,
+        totaleCent: prezzoCent,
+        stato: "pagato",
+        metodo: "manuale",
+        descrizione: "Incasso registrato a mano (prenotazione rapida)",
+        paidAt: new Date(),
+      },
+    });
+  }
+
+  return ok(risultato.booking, 201);
 }

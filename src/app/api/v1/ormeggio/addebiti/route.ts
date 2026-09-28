@@ -1,10 +1,11 @@
 import { fail, ok } from "@/lib/api";
+import { registraAzione } from "@/lib/audit";
 import { prisma } from "@/lib/db";
-import { requireOrmeggio } from "@/lib/ormeggio";
+import { requireImporti } from "@/lib/ormeggio";
 import { z } from "zod";
 
 export async function GET(req: Request) {
-  const t = await requireOrmeggio(req);
+  const t = await requireImporti(req);
   if ("error" in t) return t.error;
   const permanenzaId = new URL(req.url).searchParams.get("permanenzaId");
   const addebiti = await prisma.addebito.findMany({
@@ -24,7 +25,7 @@ const Schema = z.object({
 });
 
 export async function POST(req: Request) {
-  const t = await requireOrmeggio(req);
+  const t = await requireImporti(req);
   if ("error" in t) return t.error;
   const p = Schema.safeParse(await req.json().catch(() => null));
   if (!p.success) return fail("Dati addebito non validi", 422);
@@ -40,5 +41,6 @@ export async function POST(req: Request) {
       ...(p.data.data ? { data: new Date(p.data.data) } : {}),
     },
   });
+  await registraAzione({ tenantId: t.tenantId, actorId: t.userId, azione: "ormeggio.addebito.crea", entita: "Addebito", entitaId: addebito.id, nota: addebito.descrizione });
   return ok(addebito, 201);
 }

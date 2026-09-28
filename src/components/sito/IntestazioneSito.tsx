@@ -4,8 +4,11 @@ import { LINK_PROGETTO, LINK_SONDAGGIO } from "@/lib/sito";
 
 const VOCI = [
   { href: "/", label: "Home" },
+  { href: "/noleggia", label: "Noleggia una barca" },
+  { href: "/per-noleggiatori", label: "Per i noleggiatori" },
   { href: "/chi-siamo", label: "Chi siamo" },
   { href: "/contatti", label: "Contatti" },
+  { href: "/area", label: "Area cliente" },
 ];
 
 // Barra del sito pubblico: voci di navigazione e pulsanti di accesso al portale.

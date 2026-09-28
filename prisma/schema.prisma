@@ -32,9 +32,11 @@ enum BoatStatus {
 }
 
 enum BookingStatus {
+  da_confermare
   prenotata
   in_mare
   rientrata
+  no_show
   cancellata
 }
 
@@ -92,6 +94,33 @@ model Tenant {
   prezzoAttivazioneCent Int? // override del listino per questa azienda (null = listino di piattaforma)
   canoneMensileCent     Int? // override del canone mensile
   canoneStagionaleCent  Int? // override del canone stagionale
+
+  // --- Profilo pubblico del noleggiatore (marketplace) ---
+  slug                   String?  @unique
+  verificata             Boolean  @default(false) // indicatore verificato gestito da NaBoat
+  copertinaUrl           String?
+  citta                  String?
+  annoFondazione         Int?
+  descrizione            String?
+  lingue                 String?
+  orarioImbarco          String?
+  orarioRientro          String?
+  politicaCancellazione  String?
+  sito                   String?
+  social                 String?
+  mostraEmail            Boolean  @default(true)
+  mostraTelefono         Boolean  @default(true)
+  mostraSocial           Boolean  @default(true)
+  mostraRecensioni       Boolean  @default(true)
+  mostraChiSiamo         Boolean  @default(true)
+  mostraPorti            Boolean  @default(true)
+
+  // --- Piano Free/Pro del noleggiatore ---
+  pianoTipo       String    @default("free") // free | pro
+  pianoScadenzaAt DateTime?
+
+  porti      Porto[]
+  recensioni Recensione[]
 }
 
 enum PaymentStato {
@@ -151,6 +180,12 @@ model User {
   emailVerified Boolean @default(false)
   verifyToken   String?
   verifyExpires DateTime?
+  // Reset password: token monouso con scadenza.
+  resetToken    String?  @unique
+  resetExpires  DateTime?
+  // Versione della sessione: incrementandola si invalidano i gettoni gia emessi
+  // (cambio password, cambio ruolo, disattivazione 2FA, sospensione...).
+  sessionVersion Int     @default(0)
   createdAt    DateTime @default(now())
 
   // Se questo utente è anche uno skipper in anagrafica, da qui si sa quale.
@@ -186,8 +221,26 @@ model Boat {
   tariffe          Tariffa[]
   permanenze       Permanenza[]
 
+  // --- Catalogo pubblico e scheda imbarcazione ---
+  descrizione  String?
+  lunghezzaM   Float?
+  cabine       Int?
+  dotazioni    String[] @default([]) // prendisole, tendalino, doccia, audio, snorkeling…
+  carburante   String?
+  cauzioneCent Int?
+  etaMinima    Int?
+  pubblicata   Boolean  @default(false) // visibile nel marketplace
+  inPausa      Boolean  @default(false) // es. manutenzione: resta ma non si pubblica
+  archiviato   Boolean  @default(false) // archiviata: conserva storia, non compare in elenco
+  portoId      String?
+  porto        Porto?   @relation(fields: [portoId], references: [id], onDelete: SetNull)
+  modelloId    String?
+  modello      ModelloBarca? @relation(fields: [modelloId], references: [id], onDelete: SetNull)
+
   @@index([tenantId])
   @@index([proprietarioId])
+  @@index([portoId])
+  @@index([modelloId])
 }
 
 // Proprietario della barca in custodia (anagrafica dell'ormeggio, distinta dai clienti del noleggio).
@@ -279,6 +332,11 @@ model Booking {
   // --- Promemoria al cliente ---
   promemoriaInviatoAt DateTime?
 
+  clienteAccountId String?
+  clienteAccount   ClienteAccount? @relation(fields: [clienteAccountId], references: [id], onDelete: SetNull)
+
+  recensione Recensione?
+
   @@index([tenantId, boatId, startAt])
 }
 
@@ -327,14 +385,17 @@ model Skipper {
 
 // Extra / servizi opzionali (carburante, tender, ecc.)
 model Extra {
-  id        String         @id @default(uuid())
-  tenantId  String
-  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  nome      String
-  prezzo    Float?
-  attivo    Boolean        @default(true)
-  createdAt DateTime       @default(now())
-  bookings  BookingExtra[]
+  id          String         @id @default(uuid())
+  tenantId    String
+  tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  nome        String
+  prezzo      Float?
+  unita       String         @default("noleggio") // persona | giorno | noleggio | fisso
+  quantitaMax Int? // quantità massima acquistabile (null = nessun limite)
+  boatIds     String[]       @default([]) // barche su cui è disponibile (vuoto = tutte)
+  attivo      Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  bookings    BookingExtra[]
 
   @@index([tenantId])
 }
@@ -432,6 +493,18 @@ model PlatformSettings {
   // --- Listino del modulo Ormeggio (prezzi di NaBoat per gli ormeggiatori) ---
   prezzoAttivazioneOrmeggioCent Int?
   canoneOrmeggioMensileCent     Int?
+
+  // --- Parametri di prodotto configurabili da NaBoat ---
+  sogliaPatenteCv          Int @default(40) // sopra questa potenza scatta l'obbligo di patente (regola da validare)
+  tempoPreparazioneMin     Int @default(0)  // preparazione fra due noleggi della stessa barca (pulizia/rifornimento)
+  finestraRecensioniGiorni Int @default(60) // tempo entro cui il cliente può recensire/modificare
+
+  // --- Piani Free/Pro dei noleggiatori (importi e limiti da definire) ---
+  pianoFreeMaxBarche        Int @default(3)
+  pianoFreeMaxFoto          Int @default(5)
+  pianoProPrezzoMensileCent Int?
+  pianoProPrezzoAnnualeCent Int?
+  pianoProvaGiorni          Int @default(0)
 }
 
 // Messaggi dal form «Contatti» del sito pubblico: non appartengono a un'azienda,
@@ -442,6 +515,7 @@ model RichiestaContatto {
   cognome   String
   telefono  String
   email     String
+  tipo      String? // noleggiare | noleggiatore | altro
   messaggio String? // testo libero facoltativo (i link vengono rimossi in ingresso)
   privacyAt DateTime // quando il visitatore ha dato il consenso
   ip        String?
@@ -607,6 +681,7 @@ model BookingExtra {
   booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   extraId   String
   extra     Extra   @relation(fields: [extraId], references: [id], onDelete: Cascade)
+  quantita  Int     @default(1)
 
   @@id([bookingId, extraId])
 }
@@ -714,6 +789,7 @@ model Permanenza {
   finePrevistaAt    DateTime? // null = permanenza indeterminata
   fineAt            DateTime? // chiusura effettiva (null = ancora in corso)
   stato             PermanenzaStato      @default(attiva)
+  pronta            Boolean              @default(false) // conferma di un addetto dopo i lavori; non deriva dal rientro
   corrispettivoCent Int? // importo pattuito per la custodia
   note              String?
   movimenti         Movimento[]
@@ -822,4 +898,114 @@ model ContrattoOrmeggio {
   firmaIp        String?
 
   @@index([tenantId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Marketplace e catalogo condiviso (Fase piattaforma)
+// ─────────────────────────────────────────────────────────────
+
+// Base operativa / porto dell'azienda. Alimenta calendario, profilo pubblico,
+// schede barca e dettagli prenotazione.
+model Porto {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  nome      String
+  indirizzo String?
+  lat       Float?
+  lon       Float?
+  note      String? // indicazioni per il punto d'incontro
+  orari     String?
+  createdAt DateTime @default(now())
+  boats     Boat[]
+
+  @@index([tenantId])
+}
+
+// Catalogo dei modelli condiviso sulla piattaforma: scegliendo un modello già
+// presente si propongono i dati tecnici. I modelli inseriti dai noleggiatori
+// passano dal controllo dello staff NaBoat.
+model ModelloBarca {
+  id               String   @id @default(uuid())
+  marca            String?
+  modello          String
+  tipo             String?
+  capienza         Int?
+  lunghezzaM       Float?
+  potenzaCv        Int?
+  cabine           Int?
+  dotazioni        String[] @default([])
+  stato            String   @default("in_verifica") // in_verifica | approvato | rifiutato
+  creatoDaTenantId String?
+  verificatoAt     DateTime?
+  createdAt        DateTime @default(now())
+  boats            Boat[]
+
+  @@index([stato])
+  @@index([creatoDaTenantId])
+}
+
+// Recensione verificata: solo il cliente di un'uscita conclusa, una per prenotazione.
+model Recensione {
+  id                String    @id @default(uuid())
+  tenantId          String
+  tenant            Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  bookingId         String    @unique
+  booking           Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  customerId        String?
+  clienteAccountId  String?
+  clienteAccount    ClienteAccount? @relation(fields: [clienteAccountId], references: [id], onDelete: SetNull)
+  voto              Int
+  commento          String?
+  risposta          String? // risposta pubblica del noleggiatore
+  rispostaAt        DateTime?
+  stato             String    @default("pubblicata") // pubblicata | nascosta
+  moderazioneMotivo String?
+  moderataAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([tenantId, stato])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Area del cliente finale (marketplace)
+// ─────────────────────────────────────────────────────────────
+
+// Account del cliente finale: è di piattaforma (non di una singola azienda),
+// così la stessa persona ritrova prenotazioni, patente e recensioni su NaBoat.
+model ClienteAccount {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String
+  nome          String
+  telefono      String?
+  emailVerified Boolean   @default(false)
+  verifyToken   String?   @unique
+  verifyExpires DateTime?
+  resetToken    String?   @unique
+  resetExpires  DateTime?
+  sessionVersion Int      @default(0)
+  createdAt     DateTime  @default(now())
+
+  patente    PatenteNautica?
+  bookings   Booking[]
+  recensioni Recensione[]
+}
+
+// Patente nautica del cliente: foto in archivio privato e numero cifrato a riposo.
+model PatenteNautica {
+  id            String         @id @default(uuid())
+  accountId     String         @unique
+  account       ClienteAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  numeroCifrato String
+  fotoUrl       String
+  stato         String         @default("in_verifica") // in_verifica | approvata | rifiutata
+  motivoRifiuto String?
+  verificataAt  DateTime?
+  verificatoDa  String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([stato])
 }

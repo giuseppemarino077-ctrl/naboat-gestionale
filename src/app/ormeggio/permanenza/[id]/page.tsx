@@ -18,6 +18,7 @@ export default function SchedaPermanenzaPage() {
   const [nuovaAtt, setNuovaAtt] = useState({ tipo: "", dataPrevista: "", quantita: "", unita: "", prezzoEuro: "", incluso: false, addettoId: "" });
   const [nuovoIncasso, setNuovoIncasso] = useState({ importoEuro: "", metodo: "contanti", descrizione: "" });
   const [nuovoAddebito, setNuovoAddebito] = useState({ descrizione: "", importoEuro: "", origine: "altro" });
+  const [vedeImporti, setVedeImporti] = useState(true);
 
   const carica = useCallback(() => {
     fetch(`/api/v1/ormeggio/permanenze/${id}`).then((r) => r.json()).then((j) => { if (j?.id) setDati(j); else setErr(j?.error ?? "Non trovata"); }).catch(() => setErr("Errore"));
@@ -27,6 +28,7 @@ export default function SchedaPermanenzaPage() {
     fetch("/api/v1/ormeggio/servizi").then((r) => r.json()).then((j) => Array.isArray(j) && setServizi(j)).catch(() => {});
     fetch("/api/v1/users").then((r) => r.json()).then((j) => Array.isArray(j) && setAddetti(j)).catch(() => {});
     fetch("/api/v1/ormeggio/aree").then((r) => r.json()).then((j) => Array.isArray(j) && setPosti(j.flatMap((a: any) => a.posti))).catch(() => {});
+    fetch("/api/v1/auth/me").then((r) => r.json()).then((j) => { if (j?.user?.vedeImporti === false) setVedeImporti(false); }).catch(() => {});
   }, []);
 
   const api = async (url: string, method: string, body?: any) => {
@@ -107,9 +109,10 @@ export default function SchedaPermanenzaPage() {
           <button className="rounded-[7px] border border-line px-3 py-2 font-bold text-ocean" onClick={() => movimento("uscita")}>↗ Registra uscita</button>
           <button className="rounded-[7px] border border-line px-3 py-2 font-bold text-ocean" onClick={() => movimento("rientro")}>↙ Registra rientro</button>
           <button className="rounded-[7px] border border-line px-3 py-2 font-bold text-ocean" onClick={sposta}>⇄ Sposta</button>
+          <button className={"rounded-[7px] border px-3 py-2 font-bold " + (dati.pronta ? "border-[#a9e0d0] bg-[#d8f3ea] text-[#177469]" : "border-line text-ocean")} onClick={() => api(`/api/v1/ormeggio/permanenze/${id}`, "PATCH", { azione: "aggiorna", pronta: !dati.pronta })}>{dati.pronta ? "✓ Pronta" : "Segna pronta"}</button>
           <button className="rounded-[7px] border border-line px-3 py-2 font-bold text-ocean" onClick={generaContratto}>📄 Contratto</button>
           <button className="rounded-[7px] border border-line px-3 py-2 font-bold text-ocean" onClick={apriWhatsapp}>✆ WhatsApp</button>
-          <a className="rounded-[7px] border border-line px-3 py-2 font-bold text-ocean" href={`/api/v1/ormeggio/permanenze/${id}/riepilogo`}>⬇ Riepilogo PDF</a>
+          {vedeImporti && <a className="rounded-[7px] border border-line px-3 py-2 font-bold text-ocean" href={`/api/v1/ormeggio/permanenze/${id}/riepilogo`}>⬇ Riepilogo PDF</a>}
           {dati.stato === "attiva" && <button className="rounded-[7px] border border-line px-3 py-2 font-bold text-coral" onClick={chiudi}>Chiudi sosta</button>}
         </div>
       </div>
@@ -118,7 +121,7 @@ export default function SchedaPermanenzaPage() {
       {msg && <p className="card p-3 text-sm font-semibold text-[#177469]">{msg}</p>}
 
       <div className="flex gap-2 text-sm">
-        {(["scheda", "attivita", "conto"] as const).map((t) => (
+        {(["scheda", "attivita", "conto"] as const).filter((t) => t !== "conto" || vedeImporti).map((t) => (
           <button key={t} onClick={() => setTab(t)} className={`rounded-full px-4 py-1.5 font-bold ${tab === t ? "bg-deep text-white" : "border border-line bg-white text-muted"}`}>
             {t === "scheda" ? "Scheda" : t === "attivita" ? "Attività" : "Conto"}
           </button>
@@ -135,7 +138,8 @@ export default function SchedaPermanenzaPage() {
             <p>Tipo: <b>{dati.tipo === "rimessaggio_custodia" ? "Rimessaggio (custodia)" : "Ormeggio (custodia)"}</b></p>
             <p>Inizio: <b>{dataIt(dati.inizioAt)}</b></p>
             <p>Fine prevista: <b>{dati.finePrevistaAt ? dataIt(dati.finePrevistaAt) : "indeterminata"}</b>{dati.fineAt ? ` · chiusa il ${dataIt(dati.fineAt)}` : ""}</p>
-            <p>Corrispettivo: <b>{dati.corrispettivoCent != null ? euro(dati.corrispettivoCent) : "da definire"}</b></p>
+            <p>Corrispettivo: <b>{vedeImporti ? (dati.corrispettivoCent != null ? euro(dati.corrispettivoCent) : "da definire") : "importi non visibili"}</b></p>
+            <p>Stato lavori: <b>{dati.pronta ? "pronta (confermata)" : "in lavorazione / da confermare"}</b></p>
             <p>Contratto: <b>{dati.contratto ? (dati.contratto.firmatoAt ? `firmato da ${dati.contratto.firmaNome} il ${dataIt(dati.contratto.firmatoAt)}` : "in attesa di firma") : "non ancora generato"}</b></p>
           </div>
           <div className="card grid gap-2 p-4 text-sm">

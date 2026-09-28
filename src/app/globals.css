@@ -17,8 +17,11 @@
 
 body { @apply bg-[#faf6f2] text-ink font-sans antialiased; }
 h1,h2,h3,h4 { @apply font-display; }
-.btn-primary { @apply inline-flex items-center justify-center rounded-[7px] bg-ocean px-4 py-2.5 text-sm font-bold text-white hover:brightness-110; }
-.card { @apply rounded-[10px] border border-line bg-white; }
-.badge-ready { @apply rounded-full bg-[#e1f5f1] px-2 py-1 text-xs font-semibold text-[#177469]; }
-.badge-pending { @apply rounded-full bg-[#fff0cc] px-2 py-1 text-xs font-semibold text-[#9a6406]; }
-.badge-block { @apply rounded-full bg-[#e8ecec] px-2 py-1 text-xs font-semibold text-[#5d696b]; }
+.btn-primary { @apply inline-flex items-center justify-center rounded-full bg-ocean px-5 py-2.5 text-sm font-bold text-white shadow-[0_8px_20px_-10px_rgba(194,65,12,0.85)] hover:brightness-110; }
+.btn-soft { @apply inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-2 text-sm font-bold text-ocean hover:bg-foam; }
+.card { @apply rounded-2xl border border-line bg-white shadow-sm; }
+.card-soft { @apply rounded-2xl border border-line bg-[#faf6f2]; }
+.chip { @apply inline-flex items-center gap-1 rounded-full border border-line bg-white px-3 py-1 text-xs font-semibold; }
+.badge-ready { @apply rounded-full bg-[#e1f5f1] px-2.5 py-1 text-xs font-semibold text-[#177469]; }
+.badge-pending { @apply rounded-full bg-[#fff0cc] px-2.5 py-1 text-xs font-semibold text-[#9a6406]; }
+.badge-block { @apply rounded-full bg-[#e8ecec] px-2.5 py-1 text-xs font-semibold text-[#5d696b]; }

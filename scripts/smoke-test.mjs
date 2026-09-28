@@ -61,6 +61,8 @@ const run = async () => {
   const tA = list.find((t) => t.nome === "Smoke A" && t.status === "pending");
   const ap = await adm.fetch("/api/v1/admin/tenants", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: tA.id, azione: "approve" }) });
   T("approve A", (await ap.json()).status === "active");
+  // Extra e collaboratori sono del piano Pro: lo assegniamo per proseguire i test.
+  await adm.fetch("/api/v1/admin/piani", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tenantId: tA.id, piano: "pro" }) });
   T("superadmin senza tenantId 400", (await adm.fetch("/api/v1/boats")).status === 400);
 
   // owner A active
@@ -541,7 +543,7 @@ const run = async () => {
 
   // ---- Form «Contatti» del sito pubblico ----
   const ctPrima = (await (await adm.fetch("/api/v1/admin/contatti")).json()).richieste.length;
-  const ctOk = await json("", "/api/v1/contatti", "POST", { nome: "Mario", cognome: "Prova", telefono: "333 1234567", email: `contatti${Date.now()}@test.local`, messaggio: "Cerco una barca per 8 persone il 15 agosto. Guardate www.pubblicita.example", privacy: true, istante: Date.now() - 5000 });
+  const ctOk = await json("", "/api/v1/contatti", "POST", { nome: "Mario", cognome: "Prova", tipo: "noleggiare", telefono: "333 1234567", email: `contatti${Date.now()}@test.local`, messaggio: "Cerco una barca per 8 persone il 15 agosto. Guardate www.pubblicita.example", privacy: true, istante: Date.now() - 5000 });
   T("contatti: invio valido -> 201", ctOk.status === 201, `${ctOk.status} ${JSON.stringify(ctOk.data?.error)}`);
   T("contatti: senza consenso -> 422", (await json("", "/api/v1/contatti", "POST", { nome: "Mario", cognome: "Prova", telefono: "3331234567", email: "noprivacy@test.local", privacy: false, istante: Date.now() - 5000 })).status === 422);
   T("contatti: telefono non valido -> 422", (await json("", "/api/v1/contatti", "POST", { nome: "Mario", cognome: "Prova", telefono: "abc", email: "tel@test.local", privacy: true, istante: Date.now() - 5000 })).status === 422);
@@ -550,9 +552,9 @@ const run = async () => {
   T("contatti: il messaggio valido entra nel pannello", ctElenco1.length === ctPrima + 1, `${ctPrima} -> ${ctElenco1.length}`);
   const ctTesto = ctElenco1[0]?.messaggio ?? "";
   T("contatti: il testo resta e il link viene tolto", ctTesto.includes("Cerco una barca per 8 persone") && !ctTesto.includes("www."), JSON.stringify(ctTesto));
-  const ctEsca = await json("", "/api/v1/contatti", "POST", { nome: "Robot", cognome: "Spam", telefono: "3331234567", email: "robot@test.local", privacy: true, istante: Date.now() - 5000, azienda: "spam spa" });
+  const ctEsca = await json("", "/api/v1/contatti", "POST", { nome: "Robot", cognome: "Spam", tipo: "altro", telefono: "3331234567", email: "robot@test.local", privacy: true, istante: Date.now() - 5000, azienda: "spam spa" });
   T("contatti: campo esca -> risposta finta senza salvare", ctEsca.status === 200, `${ctEsca.status}`);
-  const ctSoloLink = await json("", "/api/v1/contatti", "POST", { nome: "Robot", cognome: "Link", telefono: "3331234567", email: `sololink${Date.now()}@test.local`, messaggio: "https://spam.example/promo", privacy: true, istante: Date.now() - 5000 });
+  const ctSoloLink = await json("", "/api/v1/contatti", "POST", { nome: "Robot", cognome: "Link", tipo: "altro", telefono: "3331234567", email: `sololink${Date.now()}@test.local`, messaggio: "https://spam.example/promo", privacy: true, istante: Date.now() - 5000 });
   T("contatti: testo fatto solo di link -> risposta finta", ctSoloLink.status === 200, `${ctSoloLink.status}`);
   const ctElenco2 = (await (await adm.fetch("/api/v1/admin/contatti")).json()).richieste;
   T("contatti: esca e solo-link non entrano nel pannello", ctElenco2.length === ctElenco1.length, `${ctElenco1.length} -> ${ctElenco2.length}`);
