@@ -1,6 +1,6 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { calcolaRimborso, paymentConfig, stripeClient, rimborsoAmmesso } from "@/lib/payments";
+import { calcolaRimborso, feeNaBoatApplicabile, parseImportoEuro, paymentConfig, snapshotCondizioni, stripeClient, rimborsoAmmesso } from "@/lib/payments";
 import { requireAzienda } from "@/lib/tenant";
 import { z } from "zod";
 
@@ -40,19 +40,24 @@ export async function POST(req: Request) {
   const v = p.data;
 
   const cfg = await paymentConfig(t.tenantId);
-  const feeNaboatPct = cfg?.feeNaboatPct ?? 0;
-  const feeProviderPct = cfg?.feeProviderPct ?? 0;
-  const feeProviderFixedCent = cfg?.feeProviderFixedCent ?? 0;
 
-  const importoCent = Math.round(Number(v.importoEuro.replace(",", ".")) * 100);
-  if (!Number.isFinite(importoCent) || importoCent <= 0 || importoCent > 100000000) return fail("Importo non valido", 422);
+  const importoCent = parseImportoEuro(v.importoEuro);
+  if (importoCent === null) return fail("Importo non valido", 422);
 
+  let origineCanale = "diretto";
   if (v.bookingId) {
-    const b = await prisma.booking.findFirst({ where: { id: v.bookingId, tenantId: t.tenantId }, select: { id: true } });
+    const b = await prisma.booking.findFirst({
+      where: { id: v.bookingId, tenantId: t.tenantId },
+      select: { id: true, origineCanale: true },
+    });
     if (!b) return fail("Prenotazione non trovata", 404);
+    origineCanale = b.origineCanale;
   }
 
-  const feeNaboatCent = Math.round((importoCent * feeNaboatPct) / 100);
+  // L'origine si legge dalla prenotazione: un incasso su canale diretto non genera fee NaBoat.
+  const feeNaboatCent = feeNaBoatApplicabile(origineCanale, cfg)
+    ? Math.round((importoCent * (cfg?.feeNaboatPct ?? 0)) / 100)
+    : 0;
   const payment = await prisma.payment.create({
     data: {
       tenantId: t.tenantId,
@@ -67,6 +72,8 @@ export async function POST(req: Request) {
       metodo: v.metodo,
       descrizione: v.descrizione,
       paidAt: new Date(),
+      origineCanale,
+      condizioniSnapshot: snapshotCondizioni(cfg, origineCanale),
     },
   });
   await prisma.auditLog.create({
@@ -116,8 +123,8 @@ export async function PATCH(req: Request) {
   if (p.data.completo) {
     rimborsoCent = residuo;
   } else if (p.data.importoEuro) {
-    const richiesto = Math.round(Number(p.data.importoEuro.replace(",", ".")) * 100);
-    if (!Number.isFinite(richiesto) || richiesto <= 0) return fail("Importo rimborso non valido", 422);
+    const richiesto = parseImportoEuro(p.data.importoEuro);
+    if (richiesto === null) return fail("Importo rimborso non valido", 422);
     rimborsoCent = Math.min(richiesto, residuo);
   } else {
     rimborsoCent = Math.min(calcolaRimborso(pay.importoCent, cfg?.rimborsoPct ?? 100), residuo);

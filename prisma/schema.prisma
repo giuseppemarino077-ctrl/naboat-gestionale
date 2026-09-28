@@ -159,11 +159,32 @@ model Payment {
   paymentIntentId String?
   rimborsoCent    Int          @default(0)
   descrizione     String?
+  // Snapshot delle condizioni applicate al momento dell'incasso (origine e percentuali
+  // di fee/commissione): modifiche successive non riscrivono lo storico.
+  origineCanale      String?
+  condizioniSnapshot Json?
   createdAt       DateTime     @default(now())
   paidAt          DateTime?
 
   @@index([tenantId, createdAt])
   @@index([bookingId])
+}
+
+// Registro degli eventi webhook Stripe: garantisce idempotenza e rende recuperabili
+// gli eventi arrivati prima che il record locale (Payment/Subscription) esista.
+model StripeEvent {
+  id          String   @id @default(uuid())
+  eventId     String   @unique // event.id di Stripe (evt_…)
+  tenantId    String? // azienda dell'evento (null per gli eventi della piattaforma)
+  tipo        String
+  stato       String   @default("ricevuto") // ricevuto | elaborato | ignorato | in_attesa_record | errore
+  motivo      String? // spiegazione dell'esito, senza segreti
+  payload     Json? // copia dell'evento, per il recupero
+  createdAt   DateTime @default(now())
+  elaboratoAt DateTime?
+
+  @@index([tenantId, createdAt])
+  @@index([stato])
 }
 
 model User {

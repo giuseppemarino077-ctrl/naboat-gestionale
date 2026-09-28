@@ -130,6 +130,9 @@ const run = async () => {
     body: JSON.stringify({ azione: "condizioniAzienda", id: tA.id, moduloMarketplace: true, feeNaboatPct: 10 }),
   });
   T("NaBoat imposta la fee dell'azienda", condA.status === 200 && (await condA.json()).feeNaboatPct === 10, `${condA.status}`);
+  // Solo NaBoat decide il canale: la prenotazione di prova arriva da NaBoat (da qui matura la fee).
+  const canaleBk = await adm.fetch("/api/v1/admin/bookings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bookingId: bk.data.id, origineCanale: "naboat" }) });
+  T("NaBoat imposta il canale NaBoat della prenotazione", canaleBk.status === 200 && (await canaleBk.json()).origineCanale === "naboat", `${canaleBk.status}`);
   const pset2 = await json("A", "/api/v1/payments/settings");
   T("chiavi non esposte", pset2.data?.stripeSecretKey === undefined && pset2.data?.stripeConfigurato === true);
 
@@ -146,6 +149,8 @@ const run = async () => {
   const pubData = await pub.json().catch(() => ({}));
   T("pagina pubblica accessibile senza login", pub.status === 200 && pubData?.prezzoCent === 50000, `status=${pub.status}`);
   T("link pubblico inesistente -> 404", (await fetch(`${BASE}/api/v1/payments/public/tokentinvalido12345`)).status === 404);
+  T("webhook pagamenti: firma mancante -> 400", (await fetch(`${BASE}/api/v1/payments/webhook`, { method: "POST", body: "{}" })).status === 400);
+  T("webhook abbonamenti: firma mancante -> 400", (await fetch(`${BASE}/api/v1/subscription/webhook`, { method: "POST", body: "{}" })).status === 400);
 
   const man = await json("A", "/api/v1/payments", "POST", { bookingId: bk.data.id, importoEuro: "500", metodo: "contanti", tipo: "totale" });
   T("incasso manuale registrato", man.status === 201 && man.data?.importoCent === 50000 && man.data?.feeNaboatCent === 5000, `${man.status} ${JSON.stringify(man.data)}`);
@@ -157,6 +162,41 @@ const run = async () => {
   const rim2 = await json("A", `/api/v1/payments?id=${man.data.id}`, "PATCH", { azione: "rimborso", completo: true });
   T("rimborso totale completa il residuo", rim2.status === 200 && rim2.data?.rimborsoCent === 55000 && rim2.data?.stato === "rimborsato", JSON.stringify(rim2.data));
   T("non rimborsabile due volte", (await json("A", `/api/v1/payments?id=${man.data.id}`, "PATCH", { azione: "rimborso" })).status === 422);
+
+  // ---- Canale diretto: niente fee NaBoat, residuo sul prezzo effettivo (P01/P03) ----
+  const bDir = await json("A", "/api/v1/boats", "POST", { nome: "Smoke Diretta", capienza: 4 });
+  const bkDir = await json("A", "/api/v1/bookings", "POST", {
+    boatId: bDir.data.id,
+    startAt: "2028-07-10T09:00:00.000Z",
+    endAt: "2028-07-10T18:00:00.000Z",
+    clienteNome: "Cliente Diretto",
+    telefono: "333777999",
+    idempotencyKey: key + "-dir",
+    prezzoEuro: "300",
+  });
+  T("prenotazione canale diretto con prezzo", bkDir.status === 201 && bkDir.data?.prezzoCent === 30000, `${bkDir.status} ${JSON.stringify(bkDir.data?.prezzoCent)}`);
+  const manDir = await json("A", "/api/v1/payments", "POST", { bookingId: bkDir.data.id, importoEuro: "100", metodo: "contanti", tipo: "acconto" });
+  T("incasso su canale diretto: nessuna fee NaBoat", manDir.status === 201 && manDir.data?.feeNaboatCent === 0, `${manDir.status} ${JSON.stringify(manDir.data?.feeNaboatCent)}`);
+  const linkDir = await json("A", "/api/v1/payments/checkout", "POST", { bookingId: bkDir.data.id });
+  const tokenDir = String(linkDir.data?.url ?? "").split("/paga/")[1] ?? "";
+  const pubDir = await (await fetch(`${BASE}/api/v1/payments/public/${tokenDir}`)).json().catch(() => ({}));
+  T("residuo 300 - 100 = 200", pubDir?.residuoCent === 20000 && pubDir?.capitaleIncassatoCent === 10000, JSON.stringify({ residuo: pubDir?.residuoCent, capitale: pubDir?.capitaleIncassatoCent }));
+  const coDir = await json("A", "/api/v1/payments/checkout", "PUT", { bookingId: bkDir.data.id, tipo: "saldo" });
+  T("Checkout con chiave finta gestito (422, non 500)", coDir.status === 422, `${coDir.status} ${JSON.stringify(coDir.data?.error)}`);
+  const saldoDir = await json("A", "/api/v1/payments", "POST", { bookingId: bkDir.data.id, importoEuro: "200", metodo: "contanti", tipo: "saldo" });
+  T("saldo diretto registrato", saldoDir.status === 201, `${saldoDir.status}`);
+  T("residuo zero: nessun Checkout (422)", (await json("A", "/api/v1/payments/checkout", "PUT", { bookingId: bkDir.data.id, tipo: "totale" })).status === 422);
+  const bkCanc = await json("A", "/api/v1/bookings", "POST", {
+    boatId: bDir.data.id,
+    startAt: "2028-08-10T09:00:00.000Z",
+    endAt: "2028-08-10T18:00:00.000Z",
+    clienteNome: "Cliente Annullato",
+    telefono: "333888111",
+    idempotencyKey: key + "-canc",
+    prezzoEuro: "150",
+  });
+  await json("A", `/api/v1/bookings/${bkCanc.data.id}`, "PATCH", { stato: "cancellata" });
+  T("prenotazione annullata: nessun nuovo addebito", (await json("A", "/api/v1/payments/checkout", "PUT", { bookingId: bkCanc.data.id, tipo: "totale" })).status === 422);
 
   const now = Date.now();
   const bOggi = await json("A", "/api/v1/boats", "POST", { nome: "Smoke Oggi", capienza: 4 });

@@ -1,6 +1,6 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { paymentConfig, stripeClient } from "@/lib/payments";
+import { calcolaResiduoPrezzo, paymentConfig, stripeClient } from "@/lib/payments";
 
 // Pagamento online del corrispettivo di permanenza: lo paga il proprietario dal link riservato.
 // L'incasso va all'ormeggiatore; nessuna fee NaBoat sul modulo ormeggio.
@@ -18,11 +18,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     return fail("Pagamento online non disponibile: contatta l'ormeggiatore per il pagamento", 422);
   }
 
+  // Il corrispettivo iniziale NON è un fallback: si incassa solo il residuo effettivo.
   const totale = p.addebiti.reduce((s, a) => s + a.importoCent, 0);
-  const incassato = p.payments.filter((x) => x.stato === "pagato").reduce((s, x) => s + x.totaleCent, 0);
-  const residuo = Math.max(0, totale - incassato);
-  const importoCent = residuo > 0 ? residuo : p.corrispettivoCent ?? 0;
-  if (importoCent <= 0) return fail("Nessun importo da pagare", 422);
+  const residuo = calcolaResiduoPrezzo(totale, p.payments);
+  if (residuo.residuoCent <= 0) return fail("Il corrispettivo risulta già saldato", 422);
+  const importoCent = residuo.residuoCent;
 
   const base = (process.env.APP_URL || new URL(req.url).origin).replace(/\/$/, "");
   const stripe = stripeClient(cfg.stripeSecretKey);
