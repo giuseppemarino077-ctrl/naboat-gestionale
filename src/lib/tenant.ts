@@ -68,6 +68,12 @@ export async function requireAzienda(req: Request, opts: { ignoraAbbonamento?: b
   return t;
 }
 
+// Il permesso sugli importi vale in tutte le aree (azienda): chi non lo ha non legge
+// né scrive cifre economiche.
+export function puoVedereImporti(t: { vedeImporti?: boolean | null }): boolean {
+  return t.vedeImporti !== false;
+}
+
 // Con REQUIRE_2FA=true owner e superadmin devono avere la 2FA attiva.
 export function mustTwoFa(role: string, twofaDone: boolean) {
   return process.env.REQUIRE_2FA === "true" && isOwnerOrSuperadmin(role) && !twofaDone;

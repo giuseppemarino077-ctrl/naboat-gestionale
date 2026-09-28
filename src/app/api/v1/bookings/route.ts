@@ -7,6 +7,21 @@ import { z } from "zod";
 
 const normTel = (s: string) => s.replace(/\D/g, "").slice(-15);
 
+// Chi non ha il permesso importi riceve la prenotazione senza cifre economiche
+// (né sul noleggio né sugli extra), mantenendo la stessa forma dei campi.
+function prenotazioneSenzaImporti(b: any) {
+  return {
+    ...b,
+    prezzoCent: null,
+    cauzioneCent: null,
+    cauzioneIntentId: null,
+    danniCent: null,
+    extras: Array.isArray(b.extras)
+      ? b.extras.map((e: any) => ({ ...e, extra: e.extra ? { ...e.extra, prezzo: null } : e.extra }))
+      : b.extras,
+  };
+}
+
 export async function GET(req: Request) {
   const t = await requireAzienda(req);
   if ("error" in t) return t.error;
@@ -22,6 +37,7 @@ export async function GET(req: Request) {
     take: 200,
     include: { boat: { select: { nome: true } }, skipper: { select: { nome: true } }, extras: { include: { extra: true } } },
   });
+  if (t.vedeImporti === false) return ok(list.map(prenotazioneSenzaImporti));
   return ok(list);
 }
 
@@ -52,6 +68,8 @@ export async function POST(req: Request) {
   const p = Schema.safeParse(await req.json().catch(() => null));
   if (!p.success) return fail("Dati prenotazione non validi", 422);
   const v = p.data;
+  // Prezzo o incasso indicati da chi non ha il permesso importi: rifiutati.
+  if (t.vedeImporti === false && (v.prezzoEuro || v.pagato)) return fail("Permesso negato: non hai l'accesso agli importi", 403);
   const start = new Date(v.startAt);
   const end = new Date(v.endAt);
   if (start >= end) return fail("Orari incoerenti", 422);

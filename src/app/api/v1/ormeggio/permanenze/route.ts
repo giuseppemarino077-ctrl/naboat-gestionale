@@ -41,7 +41,9 @@ export async function GET(req: Request) {
     },
     orderBy: { inizioAt: "asc" },
   });
-  return ok(permanenze);
+  // Senza il permesso sugli importi il corrispettivo non compare.
+  const lista = t.vedeImporti === false ? permanenze.map((p) => ({ ...p, corrispettivoCent: null })) : permanenze;
+  return ok(lista);
 }
 
 const Schema = z.object({
@@ -65,6 +67,8 @@ export async function POST(req: Request) {
   const p = Schema.safeParse(await req.json().catch(() => null));
   if (!p.success) return fail("Dati permanenza non validi", 422);
   const d = p.data;
+  // Scrivere un corrispettivo è un'operazione economica: serve il permesso importi.
+  if (d.corrispettivoCent != null && t.vedeImporti === false) return fail("Permesso negato: non hai l'accesso agli importi", 403);
   if (!d.proprietarioId && !d.nuovoProprietario) return fail("Indicare il proprietario", 422);
   if (!d.boatId && !d.nuovaBarca) return fail("Indicare la barca", 422);
 

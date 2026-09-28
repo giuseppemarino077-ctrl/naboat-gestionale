@@ -20,6 +20,14 @@ export async function requireImporti(req: Request) {
   return t;
 }
 
+// Guardia per il modulo Ormeggio: oltre al modulo attivo serve il permesso importi.
+export async function requireImportiOrmeggio(req: Request) {
+  const t = await requireOrmeggio(req);
+  if ("error" in t) return t;
+  if (t.vedeImporti === false) return { error: fail("Permesso negato: non hai l'accesso agli importi", 403) };
+  return t;
+}
+
 // Codice del posto in stile battaglia navale: riga 1 -> A, colonna 1 -> 1 (es. B3).
 export function codicePosto(riga: number, colonna: number) {
   return `${String.fromCharCode(64 + riga)}${colonna}`;

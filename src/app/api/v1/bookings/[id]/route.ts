@@ -6,6 +6,23 @@ import { parseImportoEuro } from "@/lib/payments";
 import { requireAzienda } from "@/lib/tenant";
 import { z } from "zod";
 
+// Chi non ha il permesso importi non vede cifre su noleggio, extra e incassi.
+function prenotazioneSenzaImporti(b: any) {
+  return {
+    ...b,
+    prezzoCent: null,
+    cauzioneCent: null,
+    cauzioneIntentId: null,
+    danniCent: null,
+    extras: Array.isArray(b.extras)
+      ? b.extras.map((e: any) => ({ ...e, extra: e.extra ? { ...e.extra, prezzo: null } : e.extra }))
+      : b.extras,
+    payments: Array.isArray(b.payments)
+      ? b.payments.map((p: any) => ({ ...p, importoCent: null, totaleCent: null, feeNaboatCent: null, feeProviderCent: null, rimborsoCent: null }))
+      : b.payments,
+  };
+}
+
 // Dettaglio di una prenotazione: barca, cliente, skipper, extra e incassi.
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const t = await requireAzienda(req);
@@ -30,6 +47,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     : [];
   const perId = new Map(autori.map((u) => [u.id, u]));
   const storico = righe.map((r) => ({ ...r, autore: r.actorId ? perId.get(r.actorId) ?? null : null }));
+  if (t.vedeImporti === false) return ok({ ...prenotazioneSenzaImporti(b), storico });
   return ok({ ...b, storico });
 }
 
@@ -69,6 +87,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const { id } = await params;
   const p = PatchSchema.safeParse(await req.json().catch(() => null));
   if (!p.success) return fail("Dati non validi", 422);
+
+  // Modificare il prezzo è un'operazione economica: serve il permesso importi.
+  if (t.vedeImporti === false && p.data.prezzoEuro !== undefined) return fail("Permesso negato: non hai l'accesso agli importi", 403);
 
   const cur = await prisma.booking.findFirst({ where: { id, tenantId: t.tenantId } });
   if (!cur) return fail("Prenotazione non trovata", 404);

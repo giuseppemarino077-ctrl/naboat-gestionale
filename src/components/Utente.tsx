@@ -14,6 +14,7 @@ export type Utente = {
   tenantModulo: string | null;
   tenantOrmeggio: boolean;
   vedeImporti: boolean;
+  emailVerified: boolean;
   twoFactorEnabled: boolean;
   twoFactorRequired: boolean;
 };
@@ -44,21 +45,36 @@ async function carica(forza = false): Promise<Utente | null> {
 
 // Con { redirect: true } (solo nelle pagine riservate) una sessione assente o scaduta
 // riporta all'accesso, invece di lasciare le pagine vuote. Sulle pagine pubbliche no.
+// Il contesto si riaggiorna al ritorno sulla scheda e periodicamente, così approvazioni,
+// sospensioni e cambi di permesso diventano visibili senza ricaricare a mano (B07).
 export function useUtente(opts: { redirect?: boolean } = {}) {
   const [utente, setUtente] = useState<Utente | null>(cache);
   useEffect(() => {
     let vivo = true;
-    carica().then((u) => {
+    const aggiorna = async (forza: boolean) => {
+      const u = await carica(forza);
       if (!vivo) return;
       if (!u) {
         if (opts.redirect) window.location.href = "/login";
         return;
       }
       setUtente(u);
-    });
+    };
+    aggiorna(false);
+    const alFocus = () => aggiorna(true);
+    const allaVisibilita = () => {
+      if (document.visibilityState === "visible") aggiorna(true);
+    };
+    const intervallo = window.setInterval(alFocus, 10000);
+    window.addEventListener("focus", alFocus);
+    document.addEventListener("visibilitychange", allaVisibilita);
     return () => {
       vivo = false;
+      window.removeEventListener("focus", alFocus);
+      document.removeEventListener("visibilitychange", allaVisibilita);
+      window.clearInterval(intervallo);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return utente;
 }

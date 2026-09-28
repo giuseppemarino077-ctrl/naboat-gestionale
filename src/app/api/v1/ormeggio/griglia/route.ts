@@ -45,9 +45,11 @@ export async function GET(req: Request) {
     if (p.boat.stato === "non_disponibile") motivi.push("barca non disponibile");
     if (p.attivita.some((a) => a.stato === "da_fare")) motivi.push("attività da fare");
     if (!p.contratto?.firmatoAt) motivi.push("contratto da firmare");
-    const totale = p.addebiti.reduce((s, a) => s + a.importoCent, 0);
-    const incassato = p.payments.filter((x) => x.stato === "pagato").reduce((s, x) => s + x.totaleCent, 0);
-    if (totale - incassato > 0) motivi.push("conto da saldare");
+    if (t.vedeImporti !== false) {
+      const totale = p.addebiti.reduce((s, a) => s + a.importoCent, 0);
+      const incassato = p.payments.filter((x) => x.stato === "pagato").reduce((s, x) => s + x.totaleCent, 0);
+      if (totale - incassato > 0) motivi.push("conto da saldare");
+    }
     return { colore: bloccata ? "rosso" : motivi.length ? "giallo" : "verde", motivi };
   }
 

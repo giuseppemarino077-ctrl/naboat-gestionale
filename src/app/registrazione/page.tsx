@@ -41,7 +41,8 @@ export default function RegistrazionePage() {
     }
     setDone(true);
     dimenticaUtente();
-    r.push("/oggi");
+    // L'azienda è appena stata creata come "pending": si attende l'approvazione NaBoat.
+    r.push("/in-attesa");
     r.refresh();
   };
 

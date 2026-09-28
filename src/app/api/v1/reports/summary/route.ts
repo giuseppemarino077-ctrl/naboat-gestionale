@@ -7,6 +7,7 @@ import { requireAzienda } from "@/lib/tenant";
 export async function GET(req: Request) {
   const t = await requireAzienda(req);
   if ("error" in t) return t.error;
+  if (t.vedeImporti === false) return fail("Permesso negato: non hai l'accesso agli importi", 403);
   const url = new URL(req.url);
 
   let periodo;

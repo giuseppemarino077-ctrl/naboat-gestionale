@@ -23,8 +23,17 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const totaleAddebitiCent = permanenza.addebiti.reduce((s, a) => s + a.importoCent, 0);
   const incassatoCent = permanenza.payments.filter((p) => p.stato === "pagato").reduce((s, p) => s + p.totaleCent, 0);
   // Senza il permesso sugli importi la scheda resta consultabile, ma senza cifre.
+  // Il contratto porta snapshot con importi, quindi non va restituito.
   if (t.vedeImporti === false) {
-    return ok({ ...permanenza, corrispettivoCent: null, addebiti: [], payments: [], conto: null });
+    return ok({
+      ...permanenza,
+      corrispettivoCent: null,
+      attivita: permanenza.attivita.map((a) => ({ ...a, prezzoCent: null })),
+      addebiti: [],
+      payments: [],
+      contratto: null,
+      conto: null,
+    });
   }
   return ok({ ...permanenza, conto: { totaleAddebitiCent, incassatoCent, residuoCent: Math.max(0, totaleAddebitiCent - incassatoCent) } });
 }
@@ -58,6 +67,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
 
   if (p.data.azione === "aggiorna") {
+    // Modificare il corrispettivo è un'operazione economica: serve il permesso importi.
+    if (p.data.corrispettivoCent !== undefined && t.vedeImporti === false) return fail("Permesso negato: non hai l'accesso agli importi", 403);
     const finePrev = p.data.finePrevistaAt ? new Date(p.data.finePrevistaAt) : p.data.finePrevistaAt === null ? null : cur.finePrevistaAt;
     const aggiornata = await prisma.permanenza.update({
       where: { id: cur.id },

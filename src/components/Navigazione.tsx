@@ -3,6 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useUtente, dimenticaUtente } from "@/components/Utente";
+import { aziendaNonAttiva, percorsoConsentitoInAttesa } from "@/lib/accesso";
 
 // Voci di navigazione, ognuna con i ruoli che possono vederla e il gruppo a cui appartiene.
 // Il menù si adatta al ruolo e ai moduli attivi: niente voci che poi darebbero errore.
@@ -62,8 +63,10 @@ function ePaginaSito(path: string) {
   return path === "/" || SENZA_MENU.some((p) => path === p || path.startsWith(`${p}/`));
 }
 
-function vociVisibili(role: string | undefined, ormeggio: boolean, modulo: string | null) {
+function vociVisibili(role: string | undefined, ormeggio: boolean, modulo: string | null, statoAzienda?: string | null) {
   if (!role) return [];
+  // Azienda non ancora attiva: si può solo gestire la sicurezza e consultare lo stato.
+  if (aziendaNonAttiva(statoAzienda)) return VOCI.filter((v) => v.href === "/sicurezza");
   const noleggioAttivo = !ormeggio || modulo === "entrambi";
   return VOCI.filter((v) => {
     if (!v.ruoli.includes(role)) return false;
@@ -99,7 +102,7 @@ function VoceLink({ v, attiva, onClick }: { v: Voce; attiva: boolean; onClick?: 
 export function NavLaterale({ chiuso, onChiudi }: { chiuso: boolean; onChiudi: () => void }) {
   const path = usePathname();
   const utente = useUtente({ redirect: true });
-  const voci = vociVisibili(utente?.role, utente?.tenantOrmeggio ?? false, utente?.tenantModulo ?? null);
+  const voci = vociVisibili(utente?.role, utente?.tenantOrmeggio ?? false, utente?.tenantModulo ?? null, utente?.tenantStatus);
 
   if (chiuso) {
     return (
@@ -131,7 +134,7 @@ export function NavMobile() {
   const path = usePathname();
   const utente = useUtente({ redirect: true });
   const [aperto, setAperto] = useState(false);
-  const voci = vociVisibili(utente?.role, utente?.tenantOrmeggio ?? false, utente?.tenantModulo ?? null);
+  const voci = vociVisibili(utente?.role, utente?.tenantOrmeggio ?? false, utente?.tenantModulo ?? null, utente?.tenantStatus);
   const principali = voci.slice(0, 4);
 
   return (
@@ -201,6 +204,13 @@ export function Struttura({ children }: { children: React.ReactNode }) {
     setChiuso(localStorage.getItem("nb_menu_chiuso") === "1");
   }, []);
 
+  // Azienda non ancora attiva: fuori dalle sezioni operative si torna alla pagina di stato.
+  useEffect(() => {
+    if (utente && aziendaNonAttiva(utente.tenantStatus) && !percorsoConsentitoInAttesa(path)) {
+      window.location.href = "/in-attesa";
+    }
+  }, [utente, path]);
+
   const cambiaChiusura = (valore: boolean) => {
     setChiuso(valore);
     localStorage.setItem("nb_menu_chiuso", valore ? "1" : "0");
@@ -214,6 +224,10 @@ export function Struttura({ children }: { children: React.ReactNode }) {
 
   if (ePaginaSito(path)) {
     return <>{children}</>;
+  }
+
+  if (path === "/in-attesa") {
+    return <div className="grid min-h-screen place-items-center">{children}</div>;
   }
 
   if (ePaginaPubblica(path)) {

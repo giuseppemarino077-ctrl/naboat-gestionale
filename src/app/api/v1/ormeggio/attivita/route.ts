@@ -25,7 +25,9 @@ export async function GET(req: Request) {
     },
     take: 200,
   });
-  return ok(attivita);
+  // Senza il permesso importi il prezzo dell'attività non compare.
+  const lista = t.vedeImporti === false ? attivita.map((a) => ({ ...a, prezzoCent: null })) : attivita;
+  return ok(lista);
 }
 
 const Schema = z.object({
@@ -45,6 +47,8 @@ export async function POST(req: Request) {
   if ("error" in t) return t.error;
   const p = Schema.safeParse(await req.json().catch(() => null));
   if (!p.success) return fail("Dati attività non validi", 422);
+  // Indicare un prezzo è un'operazione economica: serve il permesso importi.
+  if (p.data.prezzoCent !== undefined && t.vedeImporti === false) return fail("Permesso negato: non hai l'accesso agli importi", 403);
   const perm = await prisma.permanenza.findFirst({ where: { id: p.data.permanenzaId, tenantId: t.tenantId } });
   if (!perm) return fail("Permanenza non trovata", 404);
   if (p.data.addettoId && !(await addettoDelTenant(t.tenantId, p.data.addettoId))) return fail("Addetto non valido per questa azienda", 422);

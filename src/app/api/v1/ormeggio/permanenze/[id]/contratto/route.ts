@@ -1,10 +1,10 @@
 import { randomBytes } from "crypto";
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireOrmeggio } from "@/lib/ormeggio";
+import { requireImportiOrmeggio } from "@/lib/ormeggio";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const t = await requireOrmeggio(req);
+  const t = await requireImportiOrmeggio(req);
   if ("error" in t) return t.error;
   const { id } = await params;
   const perm = await prisma.permanenza.findFirst({

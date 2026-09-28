@@ -24,6 +24,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!att) return fail("Attività non trovata", 404);
   if (p.data.addettoId && !(await addettoDelTenant(t.tenantId, p.data.addettoId))) return fail("Addetto non valido per questa azienda", 422);
 
+  // Senza il permesso importi non si scrivono prezzi né si generano addebiti al completamento.
+  if (t.vedeImporti === false) {
+    if (p.data.prezzoCent !== undefined) return fail("Permesso negato: non hai l'accesso agli importi", 403);
+    const prezzoFinale = att.prezzoCent;
+    const inclusoFinale = p.data.incluso !== undefined ? p.data.incluso : att.incluso;
+    if (p.data.stato === "completato" && !inclusoFinale && prezzoFinale) return fail("Permesso negato: non hai l'accesso agli importi", 403);
+  }
+
   const completato = p.data.stato === "completato";
   const aggiornata = await prisma.attivita.update({
     where: { id: att.id },

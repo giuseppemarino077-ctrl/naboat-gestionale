@@ -8,6 +8,7 @@ import { z } from "zod";
 export async function GET(req: Request) {
   const t = await requireAzienda(req);
   if ("error" in t) return t.error;
+  if (t.vedeImporti === false) return fail("Permesso negato: non hai l'accesso agli importi", 403);
   const q = new URL(req.url).searchParams;
   const where: Record<string, unknown> = { tenantId: t.tenantId };
   if (q.get("bookingId")) where.bookingId = q.get("bookingId");
@@ -33,6 +34,7 @@ const ManualeSchema = z.object({
 export async function POST(req: Request) {
   const t = await requireAzienda(req);
   if ("error" in t) return t.error;
+  if (t.vedeImporti === false) return fail("Permesso negato: non hai l'accesso agli importi", 403);
   const p = ManualeSchema.safeParse(await req.json().catch(() => null));
   if (!p.success) return fail("Dati incasso non validi", 422);
   const v = p.data;
@@ -89,6 +91,7 @@ const RimborsoSchema = z.object({
 export async function PATCH(req: Request) {
   const t = await requireAzienda(req);
   if ("error" in t) return t.error;
+  if (t.vedeImporti === false) return fail("Permesso negato: non hai l'accesso agli importi", 403);
   const id = new URL(req.url).searchParams.get("id");
   if (!id) return fail("Parametro id obbligatorio", 422);
   const p = RimborsoSchema.safeParse(await req.json().catch(() => null));

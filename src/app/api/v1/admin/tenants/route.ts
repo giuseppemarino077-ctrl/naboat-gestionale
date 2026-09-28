@@ -72,6 +72,11 @@ export async function PATCH(req: Request) {
   const status = p.data.azione === "approve" || p.data.azione === "reactivate" ? "active" : "suspended";
   const tenant = await prisma.tenant.update({ where: { id: p.data.id }, data: { status } }).catch(() => null);
   if (!tenant) return fail("Tenant non trovato", 404);
+  // Sospensione: oltre al controllo per richiesta, si revocano le sessioni già aperte
+  // di quell'azienda, così nessun gettone precedente resta utilizzabile.
+  if (status === "suspended") {
+    await prisma.user.updateMany({ where: { tenantId: tenant.id }, data: { sessionVersion: { increment: 1 } } });
+  }
   await prisma.auditLog.create({
     data: { tenantId: tenant.id, actorId: g.session.sub, azione: `tenant.${p.data.azione}`, entita: "Tenant", entitaId: tenant.id },
   });

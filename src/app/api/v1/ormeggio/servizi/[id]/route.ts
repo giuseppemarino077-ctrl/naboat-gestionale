@@ -15,6 +15,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const { id } = await params;
   const p = Schema.safeParse(await req.json().catch(() => null));
   if (!p.success) return fail("Dati servizio non validi", 422);
+  if (p.data.prezzoCent !== undefined && t.vedeImporti === false) return fail("Permesso negato: non hai l'accesso agli importi", 403);
   const s = await prisma.servizioCatalogo.findFirst({ where: { id, tenantId: t.tenantId } });
   if (!s) return fail("Servizio non trovato", 404);
   const aggiornato = await prisma.servizioCatalogo.update({ where: { id: s.id }, data: p.data });
