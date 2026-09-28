@@ -5,7 +5,8 @@ import { sendMail, verifyEmailBody } from "@/lib/mailer";
 import { hashPassword } from "@/lib/password";
 import { clientIp, rateLimit } from "@/lib/ratelimit";
 import { createSession } from "@/lib/session";
-import { isOwnerOrSuperadmin, mustTwoFa } from "@/lib/tenant";
+import { mustTwoFa } from "@/lib/tenant";
+import { TERMINI_VERSIONE } from "@/lib/termini";
 import { verifyTurnstile } from "@/lib/turnstile";
 import { z } from "zod";
 
@@ -15,6 +16,8 @@ const Schema = z.object({
   email: z.string().email().max(160),
   password: z.string().min(10).max(128),
   modulo: z.enum(["noleggio", "ormeggio", "entrambi"]).optional(),
+  // I testi si accettano esplicitamente: niente registrazione senza consenso.
+  accettaTermini: z.literal(true),
   turnstileToken: z.string().max(4000).optional(),
 });
 
@@ -37,22 +40,30 @@ export async function POST(req: Request) {
   const verifyToken = saltHex(24);
   // La scelta fatta in registrazione decide il modulo attivo: noleggio, ormeggio o entrambi.
   const modulo = p.data.modulo ?? "noleggio";
-  const tenant = await prisma.tenant.create({
-    data: { nome: p.data.azienda.trim(), status: "pending", tipoModulo: modulo, moduloOrmeggio: modulo !== "noleggio" },
-  });
-  const user = await prisma.user.create({
-    data: {
-      tenantId: tenant.id,
-      email,
-      passwordHash: await hashPassword(p.data.password),
-      role: "owner",
-      nome: p.data.nome.trim(),
-      verifyToken,
-      verifyExpires: new Date(Date.now() + 48 * 60 * 60 * 1000),
-    },
-  });
-  await prisma.auditLog.create({
-    data: { tenantId: tenant.id, actorId: user.id, azione: "tenant.register", entita: "Tenant", entitaId: tenant.id },
+  const passwordHash = await hashPassword(p.data.password);
+
+  // Azienda + titolare nascono insieme: o entrambi o nessuno.
+  const { tenant, user } = await prisma.$transaction(async (tx) => {
+    const tenant = await tx.tenant.create({
+      data: { nome: p.data.azienda.trim(), status: "pending", tipoModulo: modulo, moduloOrmeggio: modulo !== "noleggio" },
+    });
+    const user = await tx.user.create({
+      data: {
+        tenantId: tenant.id,
+        email,
+        passwordHash,
+        role: "owner",
+        nome: p.data.nome.trim(),
+        verifyToken,
+        verifyExpires: new Date(Date.now() + 48 * 60 * 60 * 1000),
+        terminiAccettatiAt: new Date(),
+        terminiVersione: TERMINI_VERSIONE,
+      },
+    });
+    await tx.auditLog.create({
+      data: { tenantId: tenant.id, actorId: user.id, azione: "tenant.register", entita: "Tenant", entitaId: tenant.id },
+    });
+    return { tenant, user };
   });
 
   const mail = verifyEmailBody(verifyToken);

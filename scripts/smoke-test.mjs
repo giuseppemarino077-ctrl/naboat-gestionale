@@ -57,7 +57,7 @@ async function json(prefix, path, method = "GET", body) {
   let data = null; try { data = await res.json(); } catch {}
   return { status: res.status, data };
 }
-const reg = (name, email) => ({ azienda: name, nome: "Owner " + name, email, password: "password-smoke-123" });
+const reg = (name, email) => ({ azienda: name, nome: "Owner " + name, email, password: "password-smoke-123", accettaTermini: true });
 
 const run = async () => {
   const h = await json("", "/api/healthz"); T("healthz", h.data?.ok === true);

@@ -10,13 +10,14 @@ export default function RegistrazionePage() {
   const [modulo, setModulo] = useState<"noleggio" | "ormeggio" | "entrambi">("noleggio");
   const [ripeti, setRipeti] = useState("");
   const [token, setToken] = useState("");
+  const [accetta, setAccetta] = useState(false);
   const [err, setErr] = useState("");
   const [done, setDone] = useState(false);
 
   // Le due password devono coincidere: il controllo si fa mentre si scrive e all'invio.
   const nonCoincidono = ripeti.length > 0 && f.password !== ripeti;
   const passwordCorta = f.password.length > 0 && f.password.length < 10;
-  const bloccato = nonCoincidono || passwordCorta || done;
+  const bloccato = nonCoincidono || passwordCorta || !accetta || done;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,10 +30,14 @@ export default function RegistrazionePage() {
       setErr("Le due password non coincidono");
       return;
     }
+    if (!accetta) {
+      setErr("Devi accettare i termini e la privacy per registrarti");
+      return;
+    }
     const res = await fetch("/api/v1/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...f, modulo, turnstileToken: token || undefined }),
+      body: JSON.stringify({ ...f, modulo, accettaTermini: accetta ? true : undefined, turnstileToken: token || undefined }),
     });
     const j = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -113,6 +118,13 @@ export default function RegistrazionePage() {
           />
           {nonCoincidono && <span className="text-xs text-coral">Le due password non coincidono.</span>}
           {!nonCoincidono && ripeti.length > 0 && <span className="text-xs text-[#177469]">Le password coincidono.</span>}
+        </label>
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-1" checked={accetta} onChange={(e) => setAccetta(e.target.checked)} required />
+          <span>
+            Ho letto e accetto i <a href="/termini" target="_blank" rel="noreferrer" className="font-bold text-ocean">termini</a> e la{" "}
+            <a href="/privacy" target="_blank" rel="noreferrer" className="font-bold text-ocean">privacy</a>.
+          </span>
         </label>
         <Turnstile onToken={setToken} />
         {err && <p className="text-sm font-semibold text-coral">{err}</p>}

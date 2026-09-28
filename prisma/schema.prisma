@@ -183,6 +183,9 @@ model User {
   emailVerified Boolean @default(false)
   verifyToken   String?
   verifyExpires DateTime?
+  // Accettazione versionata dei testi (termini e privacy) al momento della registrazione.
+  terminiAccettatiAt DateTime?
+  terminiVersione    String?
   // Reset password: token monouso con scadenza.
   resetToken    String?  @unique
   resetExpires  DateTime?

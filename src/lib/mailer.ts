@@ -80,6 +80,26 @@ export function verifyEmailBody(token: string) {
   };
 }
 
+// Invito a un collaboratore: sceglie la password e conferma l'email in un solo passaggio.
+export function invitoBody(link: string) {
+  const url = escapeHtml(link);
+  return {
+    subject: "Il tuo invito a NaBoat",
+    text: `Sei stato invitato a collaborare su NaBoat.\n\nScegli la password del tuo account aprendo questo link (valido 72 ore):\n${link}\n\nSe non riconosci questo invito, ignora questo messaggio.`,
+    html: `<p>Sei stato invitato a collaborare su <b>NaBoat</b>.</p><p>Scegli la password del tuo account aprendo questo link (valido <b>72 ore</b>):</p><p><a href="${url}">${url}</a></p><p>Se non riconosci questo invito, ignora questo messaggio.</p>`,
+  };
+}
+
+// Conferma dell'email dell'account cliente finale.
+export function clienteVerificaBody(link: string) {
+  const url = escapeHtml(link);
+  return {
+    subject: "Conferma il tuo indirizzo email NaBoat",
+    text: `Benvenuto in NaBoat.\n\nConferma la tua email aprendo questo link (valido 48 ore):\n${link}\n\nSe non hai richiesto tu la registrazione, ignora questo messaggio.`,
+    html: `<p>Benvenuto in NaBoat.</p><p>Conferma la tua email aprendo questo link (valido <b>48 ore</b>):</p><p><a href="${url}">${url}</a></p><p>Se non hai richiesto tu la registrazione, ignora questo messaggio.</p>`,
+  };
+}
+
 export type DatiPromemoria = {
   azienda: string;
   cliente: string;

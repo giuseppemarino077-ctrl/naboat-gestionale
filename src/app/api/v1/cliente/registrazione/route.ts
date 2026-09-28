@@ -1,5 +1,7 @@
 import { fail, ok } from "@/lib/api";
+import { saltHex } from "@/lib/crypto";
 import { prisma } from "@/lib/db";
+import { clienteVerificaBody, sendMail } from "@/lib/mailer";
 import { hashPassword } from "@/lib/password";
 import { clientIp, rateLimit } from "@/lib/ratelimit";
 import { createSession } from "@/lib/session";
@@ -23,9 +25,24 @@ export async function POST(req: Request) {
   const esiste = await prisma.clienteAccount.findUnique({ where: { email }, select: { id: true } });
   if (esiste) return fail("Esiste già un account con questa email", 409);
 
+  // L'email non è ancora confermata: si verifica con un link monouso (48 ore).
+  const verifyToken = saltHex(24);
   const account = await prisma.clienteAccount.create({
-    data: { email, nome: p.data.nome, telefono: p.data.telefono ?? null, passwordHash: await hashPassword(p.data.password), emailVerified: true },
+    data: {
+      email,
+      nome: p.data.nome,
+      telefono: p.data.telefono ?? null,
+      passwordHash: await hashPassword(p.data.password),
+      emailVerified: false,
+      verifyToken,
+      verifyExpires: new Date(Date.now() + 48 * 60 * 60 * 1000),
+    },
   });
+
+  const base = process.env.APP_URL || new URL(req.url).origin;
+  const mail = clienteVerificaBody(`${base}/area/verifica-email?token=${encodeURIComponent(verifyToken)}`);
+  await sendMail(email, mail.subject, mail.text, mail.html).catch(() => {});
+
   await createSession({ sub: account.id, tenantId: null, role: "cliente", tenantStatus: null, twofa: true, ver: account.sessionVersion });
   return ok({ id: account.id, nome: account.nome, email: account.email }, 201);
 }
