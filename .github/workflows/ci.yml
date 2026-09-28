@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  qualita:
+    name: Lint, typecheck, build
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: naboat
+          POSTGRES_PASSWORD: naboat
+          POSTGRES_DB: naboat
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U naboat"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://naboat:naboat@localhost:5432/naboat?schema=public
+      AUTH_SECRET: ci-auth-secret-0123456789ABCDEFGHIJKLMNOP
+      NODE_ENV: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - name: Applica le migrazioni su un database vuoto
+        run: npx prisma migrate deploy
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build

@@ -4,6 +4,8 @@ node_modules
 .env.local
 backups
 public/uploads
+uploads
+uploads-privati
 *.log
 
 .DS_Store

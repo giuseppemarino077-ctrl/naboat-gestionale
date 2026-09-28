@@ -8,6 +8,9 @@
 // incassi, spese, manutenzioni, tariffe, skipper, extra e abbonamenti.
 // Le voci di AuditLog non hanno legame a cascata: vengono rimosse a parte.
 import { PrismaClient } from "@prisma/client";
+import { assicuraAmbienteDemo } from "./_guardia-ambiente.mjs";
+
+assicuraAmbienteDemo("scripts/demo-pulisci.mjs");
 
 const prisma = new PrismaClient();
 

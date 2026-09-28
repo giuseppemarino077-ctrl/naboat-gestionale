@@ -2,9 +2,26 @@
 //   node scripts/smoke-test.mjs [baseUrl]
 // Richiede un DB con dati demo (npm run db:seed). Non tocca i dati esistenti
 // se non per creare/eliminare tenant di test (li lascia, sono pending/active isolati).
+import { readFileSync } from "fs";
+
+// Carica le variabili da .env.local / .env (come fa Next) senza dipendenze esterne.
+for (const file of [".env.local", ".env"]) {
+  try {
+    for (const riga of readFileSync(file, "utf8").split("\n")) {
+      const m = riga.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/);
+      if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].trim().replace(/^['"]|['"]$/g, "");
+    }
+  } catch { /* file assente */ }
+}
+
 const BASE = process.argv[2] || process.env.SMOKE_BASE || "http://localhost:3000";
 import sharp from "sharp";
-const SUPERADMIN = { email: process.env.SUPERADMIN_EMAIL || "admin@naboat.it", password: process.env.SUPERADMIN_PASSWORD || "NaBoat-Admin-12345" };
+// Nessuna password predefinita: il test rifiuta di partire senza credenziali esplicite.
+if (!process.env.SUPERADMIN_EMAIL || !process.env.SUPERADMIN_PASSWORD) {
+  console.error("Imposta SUPERADMIN_EMAIL e SUPERADMIN_PASSWORD (es. in .env.local) prima di eseguire lo smoke test.");
+  process.exit(1);
+}
+const SUPERADMIN = { email: process.env.SUPERADMIN_EMAIL, password: process.env.SUPERADMIN_PASSWORD };
 
 let pass = 0, fail = 0;
 const issues = [];

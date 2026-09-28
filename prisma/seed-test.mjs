@@ -2,6 +2,9 @@
 // Pulisce bookings/blocks/customers/boats/skippers/extras del tenant demo e ricrea
 // una flotta realistica con prenotazioni relative a OGGI (così Oggi/Calendario si popolano).
 import { PrismaClient } from "@prisma/client";
+import { assicuraAmbienteDemo } from "../scripts/_guardia-ambiente.mjs";
+
+assicuraAmbienteDemo("prisma/seed-test.mjs");
 
 const prisma = new PrismaClient();
 const OWNER_EMAIL = (process.env.SEED_OWNER_EMAIL || "marco@golfo.test").toLowerCase();

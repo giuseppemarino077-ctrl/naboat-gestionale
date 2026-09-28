@@ -1,5 +1,6 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
+import { portoDelTenant, modelloValido } from "@/lib/riferimenti";
 import { rigeneraBarca } from "@/lib/seo";
 import { requireAzienda } from "@/lib/tenant";
 import { z } from "zod";
@@ -48,6 +49,8 @@ export async function POST(req: Request) {
   if ("error" in t) return t.error;
   const p = Schema.safeParse(await req.json().catch(() => null));
   if (!p.success) return fail("Dati barca non validi", 422);
+  if (p.data.portoId && !(await portoDelTenant(t.tenantId, p.data.portoId))) return fail("Porto non valido per questa azienda", 422);
+  if (p.data.modelloId && !(await modelloValido(p.data.modelloId))) return fail("Modello non valido", 422);
   const boat = await prisma.boat.create({ data: { tenantId: t.tenantId, ...p.data } });
   await prisma.auditLog.create({
     data: { tenantId: t.tenantId, actorId: t.userId, azione: "boat.create", entita: "Boat", entitaId: boat.id },

@@ -67,7 +67,7 @@ export async function traccia(o: Opzioni) {
 
 // Storico operativo sempre attivo (a prescindere dall'interruttore «registro completo»):
 // serve a mostrare chi ha fatto cosa su prenotazioni e verbali.
-export async function registraAzione(o: { tenantId: string; actorId?: string | null; azione: string; entita: string; entitaId: string; nota?: string }) {
+export async function registraAzione(o: { tenantId: string | null; actorId?: string | null; azione: string; entita: string; entitaId: string; nota?: string }) {
   try {
     await prisma.auditLog.create({
       data: {

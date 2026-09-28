@@ -1,7 +1,7 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { promemoriaBody, sendMail } from "@/lib/mailer";
-import { getSession } from "@/lib/session";
+import { identitaCorrente } from "@/lib/identita";
 import { mustTwoFa } from "@/lib/tenant";
 
 // Invia i promemoria ai clienti con uscita il giorno indicato (default: domani).
@@ -14,17 +14,22 @@ export async function POST(req: Request) {
 
   let tenantId: string | null = null;
   if (!dallCron) {
-    const s = await getSession();
-    if (!s) return fail("Non autenticato", 401);
-    if (s.role === "superadmin") {
-      if (mustTwoFa(s.role, s.twofa)) return fail("2FA obbligatoria: abilitala da /sicurezza", 403);
+    const id = await identitaCorrente();
+    if (!id.ok) {
+      if (id.motivo === "no-session") return fail("Non autenticato", 401);
+      return fail("Sessione non più valida: accedi di nuovo", 401);
+    }
+    const { session: s, user: u } = id;
+    if (u.role === "superadmin") {
+      if (mustTwoFa(u.role, s.twofa)) return fail("2FA obbligatoria: abilitala da /sicurezza", 403);
       tenantId = new URL(req.url).searchParams.get("tenantId");
       if (!tenantId) return fail("Superadmin: specificare ?tenantId=", 400);
     } else {
-      if (!s.tenantId) return fail("Nessuna azienda associata", 403);
-      if (s.tenantStatus !== "active") return fail("Azienda non attiva (in attesa/sospesa)", 403);
-      if (s.role !== "owner" && s.role !== "operatore") return fail("Permesso negato", 403);
-      tenantId = s.tenantId;
+      if (!u.tenantId) return fail("Nessuna azienda associata", 403);
+      if (u.tenantStatus !== "active") return fail("Azienda non attiva (in attesa/sospesa)", 403);
+      if (u.role !== "owner" && u.role !== "operatore") return fail("Permesso negato", 403);
+      if (mustTwoFa(u.role, s.twofa)) return fail("2FA obbligatoria: abilitala da /sicurezza", 403);
+      tenantId = u.tenantId;
     }
   }
 

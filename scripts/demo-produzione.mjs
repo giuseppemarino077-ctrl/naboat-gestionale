@@ -6,6 +6,9 @@
 // Prima di andare online con clienti veri: lanciare --elimina.
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { assicuraAmbienteDemo } from "./_guardia-ambiente.mjs";
+
+assicuraAmbienteDemo("scripts/demo-produzione.mjs");
 
 const prisma = new PrismaClient();
 const DOMINIO = "demo.naboat.it";

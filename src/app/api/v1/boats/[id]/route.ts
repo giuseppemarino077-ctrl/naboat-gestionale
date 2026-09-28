@@ -2,6 +2,7 @@ import { fail, ok } from "@/lib/api";
 import { traccia } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import { deletePhoto } from "@/lib/storage";
+import { portoDelTenant, modelloValido } from "@/lib/riferimenti";
 import { rigeneraBarca } from "@/lib/seo";
 import { requireAzienda } from "@/lib/tenant";
 import { z } from "zod";
@@ -40,13 +41,19 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!p.success) return fail("Dati non validi", 422);
   const cur = await prisma.boat.findFirst({ where: { id, tenantId: t.tenantId } });
   if (!cur) return fail("Barca non trovata", 404);
+  if (p.data.portoId && !(await portoDelTenant(t.tenantId, p.data.portoId))) return fail("Porto non valido per questa azienda", 422);
+  if (p.data.modelloId && !(await modelloValido(p.data.modelloId))) return fail("Modello non valido", 422);
 
   let gallery = cur.fotoGallery;
   let copertina = p.data.fotoCopertina !== undefined ? p.data.fotoCopertina : cur.fotoCopertina;
   if (p.data.rimuoviFoto) {
-    gallery = gallery.filter((u) => u !== p.data.rimuoviFoto);
-    if (copertina === p.data.rimuoviFoto) copertina = gallery[0] ?? null;
-    await deletePhoto(p.data.rimuoviFoto);
+    // Si cancella solo un file realmente associato a questa barca: un percorso
+    // arbitrario inviato dal client non deve raggiungere il cancellatore.
+    if (gallery.includes(p.data.rimuoviFoto)) {
+      gallery = gallery.filter((u) => u !== p.data.rimuoviFoto);
+      if (copertina === p.data.rimuoviFoto) copertina = gallery[0] ?? null;
+      await deletePhoto(p.data.rimuoviFoto);
+    }
   }
   // Riordino della galleria: si accettano solo foto già presenti; le mancanti restano in coda.
   if (p.data.ordineFoto) {

@@ -1,6 +1,7 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { ePro, pianoDelTenant } from "@/lib/piani";
+import { barcheDelTenant } from "@/lib/riferimenti";
 import { requireAzienda } from "@/lib/tenant";
 import { z } from "zod";
 
@@ -26,5 +27,9 @@ export async function POST(req: Request) {
   if (!ePro(await pianoDelTenant(t.tenantId))) return fail("La gestione dei servizi extra è del piano Pro", 402);
   const p = Schema.safeParse(await req.json().catch(() => null));
   if (!p.success) return fail("Dati non validi", 422);
+  if (p.data.boatIds) {
+    const check = await barcheDelTenant(t.tenantId, p.data.boatIds);
+    if (!check.ok) return fail("Alcune barche non appartengono a questa azienda", 422);
+  }
   return ok(await prisma.extra.create({ data: { tenantId: t.tenantId, ...p.data } }), 201);
 }

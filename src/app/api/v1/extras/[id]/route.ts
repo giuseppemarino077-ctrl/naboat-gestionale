@@ -1,6 +1,7 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { ePro, pianoDelTenant } from "@/lib/piani";
+import { barcheDelTenant } from "@/lib/riferimenti";
 import { requireAzienda } from "@/lib/tenant";
 import { z } from "zod";
 
@@ -22,6 +23,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!p.success) return fail("Dati non validi", 422);
   const cur = await prisma.extra.findFirst({ where: { id, tenantId: t.tenantId } });
   if (!cur) return fail("Servizio non trovato", 404);
+  if (p.data.boatIds) {
+    const check = await barcheDelTenant(t.tenantId, p.data.boatIds);
+    if (!check.ok) return fail("Alcune barche non appartengono a questa azienda", 422);
+  }
   return ok(await prisma.extra.update({ where: { id: cur.id }, data: p.data }));
 }
 

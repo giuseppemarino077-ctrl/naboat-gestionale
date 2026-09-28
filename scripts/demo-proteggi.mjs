@@ -8,6 +8,9 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { randomBytes } from "crypto";
+import { assicuraAmbienteDemo } from "./_guardia-ambiente.mjs";
+
+assicuraAmbienteDemo("scripts/demo-proteggi.mjs");
 
 const prisma = new PrismaClient();
 

@@ -7,6 +7,9 @@ import sharp from "sharp";
 import { mkdir, writeFile, readFile } from "fs/promises";
 import { join } from "path";
 import { randomUUID, createHash, createCipheriv } from "crypto";
+import { assicuraAmbienteDemo } from "./_guardia-ambiente.mjs";
+
+assicuraAmbienteDemo("scripts/demo-ready.mjs");
 
 const prisma = new PrismaClient();
 

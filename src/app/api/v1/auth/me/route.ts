@@ -1,12 +1,12 @@
 import { ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { getSession } from "@/lib/session";
+import { identitaCorrente } from "@/lib/identita";
 
 export async function GET() {
-  const s = await getSession();
-  if (!s) return ok({ user: null });
+  const id = await identitaCorrente();
+  if (!id.ok) return ok({ user: null });
   const user = await prisma.user.findUnique({
-    where: { id: s.sub },
+    where: { id: id.user.id },
     include: { tenant: true },
   });
   if (!user) return ok({ user: null });

@@ -2,6 +2,7 @@ import { fail, ok } from "@/lib/api";
 import { registraAzione } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import { requireOrmeggio } from "@/lib/ormeggio";
+import { addettoDelTenant } from "@/lib/riferimenti";
 import { z } from "zod";
 
 const Schema = z.object({
@@ -21,6 +22,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!p.success) return fail("Dati attività non validi", 422);
   const att = await prisma.attivita.findFirst({ where: { id, tenantId: t.tenantId } });
   if (!att) return fail("Attività non trovata", 404);
+  if (p.data.addettoId && !(await addettoDelTenant(t.tenantId, p.data.addettoId))) return fail("Addetto non valido per questa azienda", 422);
 
   const completato = p.data.stato === "completato";
   const aggiornata = await prisma.attivita.update({

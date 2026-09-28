@@ -1,6 +1,7 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { parseImportoEuro } from "@/lib/payments";
+import { extrasDelTenant } from "@/lib/riferimenti";
 import { requireAzienda } from "@/lib/tenant";
 import { z } from "zod";
 
@@ -70,6 +71,9 @@ export async function POST(req: Request) {
     const sk = await prisma.skipper.findFirst({ where: { id: v.skipperId, tenantId: t.tenantId, attivo: true } });
     if (!sk) return fail("Skipper non valido", 422);
   }
+  // Gli extra devono appartenere alla stessa azienda: il solo id non è garanzia.
+  const extraCheck = await extrasDelTenant(t.tenantId, v.extraIds);
+  if (!extraCheck.ok) return fail("Extra non validi per questa azienda", 422);
 
   // Tempo di preparazione fra due noleggi della stessa barca (pulizia/rifornimento),
   // configurabile da NaBoat. Si allarga la finestra di controllo su entrambi i lati.

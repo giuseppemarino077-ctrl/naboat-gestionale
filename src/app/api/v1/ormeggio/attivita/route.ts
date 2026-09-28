@@ -2,6 +2,7 @@ import { fail, ok } from "@/lib/api";
 import { registraAzione } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import { requireOrmeggio } from "@/lib/ormeggio";
+import { addettoDelTenant } from "@/lib/riferimenti";
 import { z } from "zod";
 
 // Elenco attività: per permanenza (scheda) oppure trasversale (pagina «Da fare»).
@@ -46,6 +47,7 @@ export async function POST(req: Request) {
   if (!p.success) return fail("Dati attività non validi", 422);
   const perm = await prisma.permanenza.findFirst({ where: { id: p.data.permanenzaId, tenantId: t.tenantId } });
   if (!perm) return fail("Permanenza non trovata", 404);
+  if (p.data.addettoId && !(await addettoDelTenant(t.tenantId, p.data.addettoId))) return fail("Addetto non valido per questa azienda", 422);
   const attivita = await prisma.attivita.create({
     data: {
       tenantId: t.tenantId,

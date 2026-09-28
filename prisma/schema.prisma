@@ -177,6 +177,9 @@ model User {
   vedeImporti  Boolean  @default(true) // il titolare può nascondere gli importi a un collaboratore
   totpSecret   String?
   totpEnabled  Boolean  @default(false)
+  // Nuovo segreto in attesa di verifica: consente di riconfigurare la 2FA
+  // senza disattivare il fattore già funzionante finché il codice non è confermato.
+  totpPendingSecret String?
   emailVerified Boolean @default(false)
   verifyToken   String?
   verifyExpires DateTime?
