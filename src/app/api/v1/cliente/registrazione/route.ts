@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { clienteVerificaBody, sendMail } from "@/lib/mailer";
 import { hashPassword } from "@/lib/password";
 import { clientIp, rateLimit } from "@/lib/ratelimit";
-import { createSession } from "@/lib/session";
+import { createClienteSession } from "@/lib/session";
 import { z } from "zod";
 
 // Registrazione del cliente finale (account di piattaforma, non di una singola azienda).
@@ -43,6 +43,7 @@ export async function POST(req: Request) {
   const mail = clienteVerificaBody(`${base}/area/verifica-email?token=${encodeURIComponent(verifyToken)}`);
   await sendMail(email, mail.subject, mail.text, mail.html).catch(() => {});
 
-  await createSession({ sub: account.id, tenantId: null, role: "cliente", tenantStatus: null, twofa: true, ver: account.sessionVersion });
+  // Cookie dedicato al cliente (nb_cliente): non tocca la sessione operatore.
+  await createClienteSession({ sub: account.id, tenantId: null, role: "cliente", tenantStatus: null, twofa: true, ver: account.sessionVersion });
   return ok({ id: account.id, nome: account.nome, email: account.email }, 201);
 }

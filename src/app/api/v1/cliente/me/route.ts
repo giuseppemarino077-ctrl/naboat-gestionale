@@ -1,5 +1,5 @@
 import { ok } from "@/lib/api";
-import { requireCliente } from "@/lib/clienti";
+import { patenteValida, requireCliente } from "@/lib/clienti";
 import { prisma } from "@/lib/db";
 import { calcolaResiduoPrezzo } from "@/lib/payments";
 
@@ -9,7 +9,7 @@ export async function GET() {
   if ("error" in g) return g.error;
 
   const [patente, bookings] = await Promise.all([
-    prisma.patenteNautica.findUnique({ where: { accountId: g.account.id }, select: { stato: true, motivoRifiuto: true, fotoUrl: true, updatedAt: true } }),
+    prisma.patenteNautica.findUnique({ where: { accountId: g.account.id }, select: { stato: true, motivoRifiuto: true, fotoUrl: true, scadenzaAt: true, updatedAt: true } }),
     prisma.booking.findMany({
       where: { clienteAccountId: g.account.id },
       orderBy: { startAt: "desc" },
@@ -59,7 +59,8 @@ export async function GET() {
 
   return ok({
     account: { id: g.account.id, nome: g.account.nome, email: g.account.email, telefono: g.account.telefono },
-    patente,
+    // "valida" è calcolata: approvata e non scaduta. L'attestazione manuale non compare qui.
+    patente: patente ? { ...patente, valida: patenteValida(patente) } : null,
     future: prenotazioni.filter((p) => new Date(p.endAt) >= ora && p.stato !== "cancellata"),
     passate: prenotazioni.filter((p) => new Date(p.endAt) < ora || p.stato === "cancellata"),
   });

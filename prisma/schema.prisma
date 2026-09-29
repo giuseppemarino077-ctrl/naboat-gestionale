@@ -1103,6 +1103,7 @@ model PatenteNautica {
   account       ClienteAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
   numeroCifrato String
   fotoUrl       String
+  scadenzaAt    DateTime? // scadenza del documento: se passata la verifica non è più valida
   stato         String         @default("in_verifica") // in_verifica | approvata | rifiutata
   motivoRifiuto String?
   verificataAt  DateTime?

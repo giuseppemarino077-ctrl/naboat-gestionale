@@ -19,7 +19,7 @@ function AreaPage() {
   const [msg, setMsg] = useState("");
   const [modo, setModo] = useState<"login" | "registrazione">("login");
   const [auth, setAuth] = useState({ nome: "", email: "", telefono: "", password: "" });
-  const [pat, setPat] = useState({ numero: "" });
+  const [pat, setPat] = useState({ numero: "", scadenza: "" });
   const [patFile, setPatFile] = useState<File | null>(null);
   const [rec, setRec] = useState<{ bookingId: string; voto: number; commento: string }>({ bookingId: "", voto: 5, commento: "" });
   // Link monouso ricevuto per email: collega una richiesta fatta da ospite a questo account.
@@ -91,10 +91,11 @@ function AreaPage() {
     const fd = new FormData();
     fd.append("file", patFile);
     fd.append("numero", pat.numero);
+    if (pat.scadenza) fd.append("scadenza", pat.scadenza);
     const r = await fetch("/api/v1/cliente/patente", { method: "POST", body: fd });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { setErr(j.error ?? "Errore"); return; }
-    setMsg("Patente inviata: la verifichiamo a breve."); setPatFile(null); setPat({ numero: "" }); carica();
+    setMsg("Patente inviata: la verifichiamo a breve."); setPatFile(null); setPat({ numero: "", scadenza: "" }); carica();
   };
 
   const inviaRecensione = async (e: React.FormEvent) => {
@@ -205,10 +206,15 @@ function AreaPage() {
         {me.patente ? (
           <div className="text-sm">
             <p>Stato: <b>{me.patente.stato === "approvata" ? "approvata" : me.patente.stato === "rifiutata" ? "rifiutata" : "in verifica"}</b></p>
+            {me.patente.scadenzaAt && <p>Scadenza documento: <b>{new Date(me.patente.scadenzaAt).toLocaleDateString("it-IT")}</b></p>}
+            {me.patente.stato === "approvata" && me.patente.valida === false && <p className="text-coral">Documento scaduto: aggiorna la patente per continuare a usarla.</p>}
             {me.patente.motivoRifiuto && <p className="text-coral">Motivo: {me.patente.motivoRifiuto}</p>}
-            <p className="mt-2 text-xs text-muted">La foto resta in archivio privato e il numero è cifrato.</p>
+            <p className="mt-2 text-xs text-muted">La foto resta in archivio privato e il numero è cifrato. La verifica vale solo se approvata e non scaduta.</p>
             <form className="mt-3 grid gap-2" onSubmit={caricaPatente}>
-              <input className={campo} placeholder="Nuovo numero (per aggiornare)" value={pat.numero} onChange={(e) => setPat({ numero: e.target.value })} />
+              <input className={campo} placeholder="Nuovo numero (per aggiornare)" value={pat.numero} onChange={(e) => setPat({ ...pat, numero: e.target.value })} />
+              <label className="grid gap-1 text-xs text-muted">Nuova scadenza (facoltativa)
+                <input className={campo} type="date" value={pat.scadenza} onChange={(e) => setPat({ ...pat, scadenza: e.target.value })} />
+              </label>
               <input className="rounded-2xl border border-line p-2 text-sm" type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => setPatFile(e.target.files?.[0] ?? null)} />
               <button className="btn-soft w-fit" type="submit">Aggiorna</button>
             </form>
@@ -216,7 +222,10 @@ function AreaPage() {
         ) : (
           <form className="grid gap-2" onSubmit={caricaPatente}>
             <p className="text-sm text-muted">Carica foto e numero: serve per noleggiare senza patente in banchina? No, serve solo quando la barca la richiede. La verifica NaBoat resta in archivio privato.</p>
-            <input className={campo} placeholder="Numero della patente *" value={pat.numero} onChange={(e) => setPat({ numero: e.target.value })} required />
+            <input className={campo} placeholder="Numero della patente *" value={pat.numero} onChange={(e) => setPat({ ...pat, numero: e.target.value })} required />
+            <label className="grid gap-1 text-xs text-muted">Scadenza del documento
+              <input className={campo} type="date" value={pat.scadenza} onChange={(e) => setPat({ ...pat, scadenza: e.target.value })} />
+            </label>
             <input className="rounded-2xl border border-line p-2 text-sm" type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => setPatFile(e.target.files?.[0] ?? null)} />
             <button className="btn-primary w-fit" type="submit">Invia la patente</button>
           </form>

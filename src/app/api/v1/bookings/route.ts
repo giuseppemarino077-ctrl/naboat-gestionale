@@ -1,7 +1,8 @@
 import { fail, ok } from "@/lib/api";
 import { chiaveDedup, normalizzaEmail } from "@/lib/anagrafica";
+import { esitoPatente } from "@/lib/clienti";
 import { prisma } from "@/lib/db";
-import { bloccaRisorse, validaBarcaNoleggio, validaPatente, verificaDisponibilita } from "@/lib/disponibilita";
+import { bloccaRisorse, validaBarcaNoleggio, verificaDisponibilita } from "@/lib/disponibilita";
 import { parseImportoEuro } from "@/lib/payments";
 import { extrasDelTenant } from "@/lib/riferimenti";
 import { requireAzienda } from "@/lib/tenant";
@@ -67,6 +68,9 @@ const Schema = z.object({
   note: z.string().max(2000).optional(),
   patenteOk: z.boolean().default(false),
   skipperId: z.string().optional(),
+  // Collegamento esplicito a un cliente registrato: se presente, il requisito patente
+  // si valuta sulla patente verificata dell'account (non sull'attestazione manuale).
+  clienteAccountId: z.string().uuid().optional().nullable(),
   extraIds: z.array(z.string()).max(20).default([]),
   extraQuantita: z.record(z.string(), z.number().int().min(1).max(1000)).optional(),
   idempotencyKey: z.string().max(80).optional(),
@@ -91,6 +95,7 @@ function improntaPayload(v: z.infer<typeof Schema>): string {
     note: v.note ?? null,
     patenteOk: v.patenteOk,
     skipperId: v.skipperId ?? null,
+    clienteAccountId: v.clienteAccountId ?? null,
     extraIds: [...v.extraIds].sort(),
     extraQuantita: Object.fromEntries(Object.entries(v.extraQuantita ?? {}).sort(([a], [b]) => a.localeCompare(b))),
     stato: v.stato,
@@ -132,6 +137,13 @@ export async function POST(req: Request) {
   const prezzoCent = v.prezzoEuro ? parseImportoEuro(v.prezzoEuro) : null;
   if (v.prezzoEuro && prezzoCent === null) return fail("Prezzo non valido", 422);
 
+  // Un collegamento a un cliente registrato deve puntare a un account esistente.
+  const clienteAccountId = v.clienteAccountId ?? null;
+  if (clienteAccountId) {
+    const account = await prisma.clienteAccount.findUnique({ where: { id: clienteAccountId }, select: { id: true } });
+    if (!account) return fail("Cliente registrato non trovato", 422);
+  }
+
   // Tutto in transazione, con i lock per barca (e skipper): due addetti che salvano nello
   // stesso istante non possono superare insieme il controllo (il trigger del database resta
   // il secondo livello). La stessa chiave di idempotenza serializza i retry.
@@ -158,7 +170,11 @@ export async function POST(req: Request) {
       if (!boat) return { err: "Barca non trovata", status: 404 };
       const errBarca = validaBarcaNoleggio(boat, v.passeggeri);
       if (errBarca) return { err: errBarca, status: 422 };
-      const errPatente = validaPatente(boat, { patenteOk: v.patenteOk, skipperId: v.skipperId });
+      // Requisito patente: cliente registrato -> patente verificata; ospite -> patenteOk.
+      const patente = clienteAccountId
+        ? await tx.patenteNautica.findUnique({ where: { accountId: clienteAccountId }, select: { stato: true, scadenzaAt: true } })
+        : null;
+      const errPatente = esitoPatente(boat, { patenteOk: v.patenteOk, skipperId: v.skipperId, clienteAccountId, patente });
       if (errPatente) return { err: errPatente, status: 422 };
 
       if (v.skipperId) {
@@ -203,6 +219,7 @@ export async function POST(req: Request) {
           stato: v.stato,
           ...(prezzoCent !== null ? { prezzoCent } : {}),
           skipperId: v.skipperId || undefined,
+          clienteAccountId: clienteAccountId ?? undefined,
           idempotencyKey: v.idempotencyKey,
           idempotencyHash: impronta,
           extras: { create: v.extraIds.map((id) => ({ extraId: id, quantita: v.extraQuantita?.[id] ?? 1 })) },

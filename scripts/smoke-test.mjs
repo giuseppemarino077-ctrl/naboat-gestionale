@@ -802,6 +802,98 @@ const run = async () => {
   T("riepilogo: la barca sbloccata rientra", (await (await adm.fetch("/api/v1/admin/riepilogo")).json()).barchePubblicate === riePrima);
   T("sbloccata torna nel catalogo", (await leggiCatalogo()).includes("Smoke Catalogo"));
 
+  // ---- M07: sessioni separate cliente/operatore ----
+  const emailCli = `cliente${Date.now()}@test.local`;
+  const passCli = "cliente-password-123";
+  const jarCli = new Jar();
+  const regCli = await jarCli.fetch("/api/v1/cliente/registrazione", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nome: "Cliente Smoke M07", email: emailCli, password: passCli }) });
+  const regCliDati = await regCli.json().catch(() => ({}));
+  T("M07 registrazione cliente", regCli.status === 201 && !!regCliDati.id, `${regCli.status} ${JSON.stringify(regCliDati)}`);
+  T("M07 area cliente accessibile", (await jarCli.fetch("/api/v1/cliente/me")).status === 200);
+
+  // Lo stesso browser autentica l'operatore A: il login cliente è su un cookie separato
+  // (nb_cliente) e non deve cancellare la sessione operatore (nb_session).
+  const jarOp = new Jar();
+  await jarOp.fetch("/api/v1/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: ea, password: "password-smoke-123" }) });
+  T("M07 operatore A attivo", (await jarOp.fetch("/api/v1/boats")).status === 200);
+  const loginCli = await jarOp.fetch("/api/v1/cliente/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: emailCli, password: passCli }) });
+  T("M07 login cliente riuscito", loginCli.status === 200, `${loginCli.status}`);
+  T("M07 login cliente non cancella la sessione operatore", (await jarOp.fetch("/api/v1/boats")).status === 200);
+  T("M07 sessione cliente presente nello stesso browser", (await jarOp.fetch("/api/v1/cliente/me")).status === 200);
+  // Anche il contrario: un nuovo accesso operatore non spegne la sessione cliente.
+  await jarOp.fetch("/api/v1/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: ea, password: "password-smoke-123" }) });
+  T("M07 login operatore non cancella la sessione cliente", (await jarOp.fetch("/api/v1/cliente/me")).status === 200);
+  await jarOp.fetch("/api/v1/cliente/logout", { method: "POST" });
+  T("M07 logout cliente spegne solo il cliente", (await jarOp.fetch("/api/v1/cliente/me")).status === 401 && (await jarOp.fetch("/api/v1/boats")).status === 200);
+
+  // ---- M07: la patente reale guida il requisito operativo ----
+  const bPat = await json("A", "/api/v1/boats", "POST", { nome: "Smoke Patente", capienza: 4, patenteRichiesta: true });
+  T("M07 barca che richiede la patente", bPat.status === 201, `${bPat.status}`);
+
+  const fdPat = new FormData();
+  fdPat.append("file", new Blob([new Uint8Array(png)], { type: "image/png" }), "patente.png");
+  fdPat.append("numero", "IT1234567");
+  fdPat.append("scadenza", "2035-06-30");
+  const upPat = await jarCli.fetch("/api/v1/cliente/patente", { method: "POST", body: fdPat });
+  const upPatDati = await upPat.json().catch(() => ({}));
+  T("M07 patente caricata in verifica", upPat.status === 201 && upPatDati.stato === "in_verifica", `${upPat.status} ${JSON.stringify(upPatDati)}`);
+
+  const apprPat = await adm.fetch("/api/v1/admin/patenti", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accountId: regCliDati.id, azione: "approva" }) });
+  T("M07 NaBoat approva la patente", apprPat.status === 200 && (await apprPat.json()).stato === "approvata", `${apprPat.status}`);
+
+  const bkPat = await json("A", "/api/v1/bookings", "POST", { boatId: bPat.data.id, startAt: "2028-12-10T09:00:00.000Z", endAt: "2028-12-10T18:00:00.000Z", clienteNome: "Cliente Smoke M07", telefono: "333123456", clienteAccountId: regCliDati.id, idempotencyKey: key + "-m07-pat" });
+  T("M07 patente verificata soddisfa il requisito", bkPat.status === 201, `${bkPat.status} ${JSON.stringify(bkPat.data?.error)}`);
+
+  const apprScad = await adm.fetch("/api/v1/admin/patenti", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accountId: regCliDati.id, azione: "approva", scadenza: "2020-01-01" }) });
+  T("M07 non si approva una patente scaduta -> 422", apprScad.status === 422, `${apprScad.status}`);
+
+  // Patente approvata ma scaduta: il requisito non è soddisfatto, nemmeno con patenteOk.
+  const ptM07 = new PrismaClient();
+  await ptM07.patenteNautica.update({ where: { accountId: regCliDati.id }, data: { scadenzaAt: new Date("2020-01-01T00:00:00.000Z") } });
+  const bkPatScad = await json("A", "/api/v1/bookings", "POST", { boatId: bPat.data.id, startAt: "2028-12-11T09:00:00.000Z", endAt: "2028-12-11T18:00:00.000Z", clienteNome: "Cliente Smoke M07", telefono: "333123456", clienteAccountId: regCliDati.id, idempotencyKey: key + "-m07-scad" });
+  T("M07 patente scaduta non soddisfa il requisito -> 422", bkPatScad.status === 422, `${bkPatScad.status}`);
+  const bkPatScadOk = await json("A", "/api/v1/bookings", "POST", { boatId: bPat.data.id, startAt: "2028-12-12T09:00:00.000Z", endAt: "2028-12-12T18:00:00.000Z", clienteNome: "Cliente Smoke M07", telefono: "333123456", clienteAccountId: regCliDati.id, patenteOk: true, idempotencyKey: key + "-m07-scad-ok" });
+  T("M07 l'attestazione manuale non sostituisce la verifica -> 422", bkPatScadOk.status === 422, `${bkPatScadOk.status}`);
+
+  const bkOsp = await json("A", "/api/v1/bookings", "POST", { boatId: bPat.data.id, startAt: "2028-12-13T09:00:00.000Z", endAt: "2028-12-13T18:00:00.000Z", clienteNome: "Ospite M07", telefono: "333987654", patenteOk: true, idempotencyKey: key + "-m07-osp" });
+  T("M07 cliente occasionale con attestazione manuale", bkOsp.status === 201, `${bkOsp.status} ${JSON.stringify(bkOsp.data?.error)}`);
+  T("M07 cliente occasionale senza attestazione -> 422", (await json("A", "/api/v1/bookings", "POST", { boatId: bPat.data.id, startAt: "2028-12-14T09:00:00.000Z", endAt: "2028-12-14T18:00:00.000Z", clienteNome: "Ospite M07", telefono: "333987655", idempotencyKey: key + "-m07-osp-no" })).status === 422);
+
+  await ptM07.patenteNautica.update({ where: { accountId: regCliDati.id }, data: { scadenzaAt: new Date("2035-06-30T00:00:00.000Z") } });
+
+  // ---- M07: recensioni solo su un'uscita conclusa, una per prenotazione, entro la finestra ----
+  const bRec = await json("A", "/api/v1/boats", "POST", { nome: "Smoke Recensioni", capienza: 4 });
+  const recPost = async (bookingId, extra = {}) => {
+    const r = await jarCli.fetch("/api/v1/cliente/recensioni", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bookingId, voto: 5, ...extra }) });
+    return { status: r.status, data: await r.json().catch(() => null) };
+  };
+  const bkRec = await json("A", "/api/v1/bookings", "POST", { boatId: bRec.data.id, startAt: "2028-12-20T09:00:00.000Z", endAt: "2028-12-20T18:00:00.000Z", clienteNome: "Cliente Smoke M07", telefono: "333123456", clienteAccountId: regCliDati.id, idempotencyKey: key + "-m07-rec" });
+  T("M07 prenotazione per recensione creata", bkRec.status === 201, `${bkRec.status}`);
+  T("M07 recensione su uscita non conclusa -> 422", (await recPost(bkRec.data.id)).status === 422);
+
+  await json("A", `/api/v1/bookings/${bkRec.data.id}/checkin`, "POST", { carburantePct: 90 });
+  const coRec = await json("A", `/api/v1/bookings/${bkRec.data.id}/checkout`, "POST", { carburantePct: 80 });
+  T("M07 uscita conclusa (rientrata)", coRec.status === 200 && coRec.data?.stato === "rientrata", `${coRec.status}`);
+  const recOk = await recPost(bkRec.data.id, { commento: "Uscita ottima" });
+  T("M07 recensione dopo il rientro -> 201", recOk.status === 201, `${recOk.status} ${JSON.stringify(recOk.data?.error)}`);
+  T("M07 una sola recensione per prenotazione -> 409", (await recPost(bkRec.data.id, { voto: 1 })).status === 409);
+  T("M07 non si recensisce un'uscita di altri -> 404", (await recPost("00000000-0000-0000-0000-000000000000")).status === 404);
+
+  const bkRecVecchia = await json("A", "/api/v1/bookings", "POST", { boatId: bRec.data.id, startAt: "2028-12-22T09:00:00.000Z", endAt: "2028-12-22T18:00:00.000Z", clienteNome: "Cliente Smoke M07", telefono: "333123456", clienteAccountId: regCliDati.id, idempotencyKey: key + "-m07-rec-vecchia" });
+  await json("A", `/api/v1/bookings/${bkRecVecchia.data.id}/checkin`, "POST", {});
+  await json("A", `/api/v1/bookings/${bkRecVecchia.data.id}/checkout`, "POST", {});
+  await ptM07.booking.update({ where: { id: bkRecVecchia.data.id }, data: { checkoutAt: new Date(Date.now() - 200 * 86400000) } });
+  T("M07 recensione fuori finestra -> 422", (await recPost(bkRecVecchia.data.id)).status === 422);
+
+  // Reset password del cliente: la sessione aperta viene invalidata (sessionVersion).
+  await jarCli.fetch("/api/v1/cliente/password-reset", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: emailCli }) });
+  const accReset = await ptM07.clienteAccount.findUnique({ where: { email: emailCli }, select: { resetToken: true } });
+  const confReset = await jarCli.fetch("/api/v1/cliente/password-reset/conferma", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: accReset?.resetToken, password: "cliente-password-456" }) });
+  T("M07 reset password cliente", confReset.status === 200, `${confReset.status}`);
+  T("M07 reset password invalida la sessione cliente aperta", (await jarCli.fetch("/api/v1/cliente/me")).status === 401);
+  await ptM07.$disconnect();
+
+
   // Accordi personalizzati per azienda
   const condPers = await adm.fetch("/api/v1/admin/subscriptions", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ azione: "condizioniAzienda", id: tA.id, moduloMarketplace: true, feeNaboatPct: 10, canoneMensileEuro: "49,00", prezzoAttivazioneEuro: "", canoneStagionaleEuro: "" }) });
   T("NaBoat imposta un canone personalizzato", condPers.status === 200 && (await condPers.json()).canoneMensileCent === 4900);

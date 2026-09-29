@@ -18,6 +18,8 @@ export async function POST(req: Request) {
 
   await prisma.clienteAccount.update({
     where: { id: account.id },
+    // L'aumento della versione invalida le sessioni cliente già aperte (anche il cookie
+    // nb_cliente): requireCliente le rifiuta finché non si accede di nuovo.
     data: { passwordHash: await hashPassword(p.data.password), resetToken: null, resetExpires: null, sessionVersion: account.sessionVersion + 1 },
   });
   return ok({ reimpostata: true });
