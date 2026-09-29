@@ -22,10 +22,9 @@ async function authSecret() {
   try {
     const t = await readFile(join(process.cwd(), ".env.local"), "utf8");
     const m = t.match(/^AUTH_SECRET=(.*)$/m);
-    return m ? m[1].trim().replace(/^['"]|['"]$/g, "") : "locale-dev-auth-secret-0123456789ABCDEF";
-  } catch {
-    return "locale-dev-auth-secret-0123456789ABCDEF";
-  }
+    if (m) return m[1].trim().replace(/^['"]|['"]$/g, "");
+  } catch { /* file assente */ }
+  throw new Error("AUTH_SECRET non impostata: definisci un segreto, non esiste un valore predefinito");
 }
 async function cifra(testo) {
   const key = createHash("sha256").update(await authSecret()).digest();

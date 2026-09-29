@@ -52,9 +52,10 @@ npm run dev
 ```
 
 ## Accessi demo (in locale)
-- NaBoat: `admin@naboat.it` / `NaBoat-Admin-12345`
-- Azienda noleggio: `titolare@demo.naboat.it` / `Demo-Titolare-2026!`
-- Ormeggiatore: `ormeggiatore@demo.naboat.it` / `Demo-Ormeggio-2026!`
+- NaBoat: `admin@naboat.it` / la password scelta in `.env.local` (`SUPERADMIN_PASSWORD`)
+- Gli account demo (azienda e ormeggio) si creano con `npm run db:seed:test` e
+  `node scripts/demo-ready.mjs`: gli script stampano a video le credenziali usate.
+  In alternativa, per proteggere account già esistenti, usa `npm run demo:proteggi`.
 
 ## Verifica salute
 ```powershell
