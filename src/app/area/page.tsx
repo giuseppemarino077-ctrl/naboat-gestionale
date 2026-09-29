@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { IntestazioneSito } from "@/components/sito/IntestazioneSito";
 import { PiedeSito } from "@/components/sito/PiedeSito";
 
@@ -22,6 +22,9 @@ function AreaPage() {
   const [pat, setPat] = useState({ numero: "" });
   const [patFile, setPatFile] = useState<File | null>(null);
   const [rec, setRec] = useState<{ bookingId: string; voto: number; commento: string }>({ bookingId: "", voto: 5, commento: "" });
+  // Link monouso ricevuto per email: collega una richiesta fatta da ospite a questo account.
+  const [collegaToken, setCollegaToken] = useState("");
+  const claimInCorso = useRef(false);
 
   const carica = useCallback(async () => {
     setCarico(true);
@@ -36,6 +39,39 @@ function AreaPage() {
     if (!me) return;
     fetch("/api/v1/cliente/recensioni").then((r) => r.json()).then((j) => Array.isArray(j) && setRecensioni(j)).catch(() => {});
   }, [me]);
+  // Token dal collegamento email (letto dal browser, non dal server).
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get("collega") ?? "";
+    if (t) setCollegaToken(t);
+  }, []);
+  // Con l'accesso attivo il link viene consumato subito: una volta sola.
+  useEffect(() => {
+    if (!me || !collegaToken || claimInCorso.current) return;
+    claimInCorso.current = true;
+    let attivo = true;
+    (async () => {
+      const r = await fetch("/api/v1/richieste", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ azione: "collega", token: collegaToken }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!attivo) return;
+      setCollegaToken("");
+      if (r.ok) { setMsg("Richiesta collegata: la trovi qui sotto tra le tue prenotazioni."); setErr(""); }
+      else setErr(j.error ?? "Non è stato possibile collegare la richiesta.");
+      carica();
+    })();
+    return () => { attivo = false; };
+  }, [me, collegaToken, carica]);
+
+  const rinviaCollegamento = async () => {
+    setErr(""); setMsg("");
+    const r = await fetch("/api/v1/richieste", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ azione: "rinvia" }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { setErr(j.error ?? "Non è stato possibile inviare il link."); return; }
+    setMsg(j.inviate > 0 ? "Ti abbiamo inviato per email un nuovo link di collegamento." : "Non troviamo richieste fatte con questa email.");
+  };
 
   const autentica = async (e: React.FormEvent) => {
     e.preventDefault(); setErr(""); setMsg("");
@@ -81,6 +117,11 @@ function AreaPage() {
           <h1 className="font-display text-3xl font-extrabold text-deep">Area personale</h1>
           <p className="mt-1 text-sm text-muted">Le tue prenotazioni, la patente e le recensioni.</p>
         </div>
+        {collegaToken && (
+          <p className="rounded-2xl border border-[#a9e0d0] bg-[#eafaf5] p-3 text-sm text-[#177469]">
+            Hai una richiesta da collegare. Accedi o registrati con <b>l'email su cui hai ricevuto il link</b>: la richiesta comparirà qui tra le tue prenotazioni.
+          </p>
+        )}
         <div className="flex justify-center gap-2 text-sm">
           <button onClick={() => setModo("login")} className={"rounded-full px-4 py-1.5 font-bold " + (modo === "login" ? "bg-ocean text-white" : "border border-line text-ocean")}>Accedi</button>
           <button onClick={() => setModo("registrazione")} className={"rounded-full px-4 py-1.5 font-bold " + (modo === "registrazione" ? "bg-ocean text-white" : "border border-line text-ocean")}>Registrati</button>
@@ -151,6 +192,12 @@ function AreaPage() {
           </div>
         ))}
         {(me.future ?? []).length === 0 && <p className="text-sm text-muted">Nessuna prenotazione futura. <a className="font-bold text-ocean" href="/noleggia">Cerca una barca →</a></p>}
+        {(me.future ?? []).length === 0 && (me.passate ?? []).length === 0 && (
+          <div className="rounded-2xl border border-line p-3 text-sm">
+            <p className="text-muted">Hai prenotato <b>come ospite</b>, senza account? Apri l'email che ti abbiamo inviato al momento della richiesta e usa il link per collegarla qui.</p>
+            <button className="btn-soft mt-2" onClick={rinviaCollegamento}>Rinvia il link alla mia email</button>
+          </div>
+        )}
       </section>
 
       <section className="card grid gap-3 p-5">

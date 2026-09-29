@@ -1,4 +1,5 @@
 import { fail, ok } from "@/lib/api";
+import { chiaveDedup, normalizzaEmail } from "@/lib/anagrafica";
 import { prisma } from "@/lib/db";
 import { bloccaRisorse, validaBarcaNoleggio, validaPatente, verificaDisponibilita } from "@/lib/disponibilita";
 import { parseImportoEuro } from "@/lib/payments";
@@ -7,7 +8,14 @@ import { requireAzienda } from "@/lib/tenant";
 import { createHash } from "crypto";
 import { z } from "zod";
 
-const normTel = (s: string) => s.replace(/\D/g, "").slice(-15);
+// Il link monouso di collegamento ospite non esce mai dalle liste.
+function senzaLinkOspite<T extends Record<string, any>>(b: T): T {
+  const c = { ...b };
+  delete c.clienteToken;
+  delete c.clienteTokenExpires;
+  delete c.clienteTokenUsatoAt;
+  return c;
+}
 
 // Chi non ha il permesso importi riceve la prenotazione senza cifre economiche
 // (né sul noleggio né sugli extra), mantenendo la stessa forma dei campi.
@@ -39,8 +47,9 @@ export async function GET(req: Request) {
     take: 200,
     include: { boat: { select: { nome: true } }, skipper: { select: { nome: true } }, extras: { include: { extra: true } } },
   });
-  if (t.vedeImporti === false) return ok(list.map(prenotazioneSenzaImporti));
-  return ok(list);
+  const pulita = list.map(senzaLinkOspite);
+  if (t.vedeImporti === false) return ok(pulita.map(prenotazioneSenzaImporti));
+  return ok(pulita);
 }
 
 const Schema = z.object({
@@ -117,7 +126,7 @@ export async function POST(req: Request) {
   const extraCheck = await extrasDelTenant(t.tenantId, v.extraIds);
   if (!extraCheck.ok) return fail("Extra non validi per questa azienda", 422);
 
-  const dedupKey = normTel(v.telefono);
+  const dedupKey = chiaveDedup(v.telefono);
   const prezzoCent = v.prezzoEuro ? parseImportoEuro(v.prezzoEuro) : null;
   if (v.prezzoEuro && prezzoCent === null) return fail("Prezzo non valido", 422);
 
@@ -164,10 +173,14 @@ export async function POST(req: Request) {
       });
       if (!disp.ok) return { err: disp.messaggio, status: 409 };
 
+      // L'anagrafica non si sovrascrive da una prenotazione: se il cliente esiste
+      // già (stesso telefono) resta com'è; altrimenti lo si crea. Il contatto della
+      // singola prenotazione è comunque conservato sui campi della prenotazione.
       const customer = await tx.customer.upsert({
         where: { tenantId_dedupKey: { tenantId: t.tenantId, dedupKey } },
-        update: { nome: v.clienteNome, ...(v.email ? { email: v.email } : {}) },
-        create: { tenantId: t.tenantId, nome: v.clienteNome, telefono: v.telefono, email: v.email, dedupKey },
+        update: {},
+        create: { tenantId: t.tenantId, nome: v.clienteNome, telefono: v.telefono, email: normalizzaEmail(v.email), dedupKey },
+        select: { id: true },
       });
 
       const booking = await tx.booking.create({
@@ -180,6 +193,7 @@ export async function POST(req: Request) {
           passeggeri: v.passeggeri,
           clienteNome: v.clienteNome,
           telefono: v.telefono,
+          email: normalizzaEmail(v.email),
           destinazione: v.destinazione,
           formula: v.formula,
           note: v.note,

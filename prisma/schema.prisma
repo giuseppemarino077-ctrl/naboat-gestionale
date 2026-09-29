@@ -395,6 +395,16 @@ model Booking {
   // --- Promemoria al cliente ---
   promemoriaInviatoAt DateTime?
 
+  // Contatto della singola prenotazione: resta qui anche quando non esiste
+  // un'anagrafica Customer (richieste ospiti). Non sovrascrive mai il Customer.
+  email String?
+
+  // Collegamento sicuro della richiesta ospite all'area personale: link monouso
+  // con scadenza, inviato all'email indicata nella richiesta.
+  clienteToken        String?   @unique
+  clienteTokenExpires DateTime?
+  clienteTokenUsatoAt DateTime?
+
   clienteAccountId String?
   clienteAccount   ClienteAccount? @relation(fields: [clienteAccountId], references: [id], onDelete: SetNull)
 

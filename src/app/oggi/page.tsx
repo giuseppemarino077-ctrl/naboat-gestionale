@@ -1,5 +1,6 @@
 "use client";
 import { copiaTesto } from "@/lib/browser";
+import { etichettaGiorno, oggi as giornoOggi } from "@/lib/calendario";
 import { useEffect, useState } from "react";
 
 type Partenza = {
@@ -71,12 +72,12 @@ export default function OggiPage() {
   };
 
   const promemoriaOggi = async () => {
-    const oggi = new Date().toISOString().slice(0, 10);
-    const r = await api("/api/v1/promemoria/invia", "POST", { data: oggi });
+    // Il giorno è quello civile di Europe/Rome, non quello UTC (vicino a mezzanotte differiscono).
+    const r = await api("/api/v1/promemoria/invia", "POST", { data: giornoOggi() });
     if (r) setMsg(`Promemoria: ${r.inviati} inviati, ${r.senzaEmail} senza email, ${r.falliti} non inviati.`);
   };
 
-  const dataOggi = new Date().toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
+  const dataOggi = etichettaGiorno(giornoOggi(), { weekday: "long", day: "numeric", month: "long" });
 
   const kpi = [
     { nome: "Uscite oggi", valore: data?.uscite, icona: "⛵", colore: "text-ocean" },

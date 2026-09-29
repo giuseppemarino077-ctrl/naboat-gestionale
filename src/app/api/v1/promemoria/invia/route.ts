@@ -1,4 +1,5 @@
 import { fail, ok } from "@/lib/api";
+import { aggiungiGiorni, inizioGiorno, oggi } from "@/lib/calendario";
 import { prisma } from "@/lib/db";
 import { promemoriaBody, sendMail } from "@/lib/mailer";
 import { identitaCorrente } from "@/lib/identita";
@@ -34,13 +35,12 @@ export async function POST(req: Request) {
   }
 
   const body = await req.json().catch(() => ({}));
-  const giorno = body?.data ? new Date(`${body.data}T00:00:00.000Z`) : null;
-  if (body?.data && Number.isNaN(giorno!.getTime())) return fail("Data non valida", 422);
-
-  const inizio = giorno ?? new Date(Date.now() + 86400000);
-  const da = new Date(inizio);
-  da.setUTCHours(0, 0, 0, 0);
-  const a = new Date(da.getTime() + 86400000);
+  const data = typeof body?.data === "string" ? body.data.trim() : null;
+  if (data && !/^\d{4}-\d{2}-\d{2}$/.test(data)) return fail("Data non valida", 422);
+  // Il giorno indicato (default: domani) è un giorno civile di Europe/Rome.
+  const g = data ?? aggiungiGiorni(oggi(), 1);
+  const da = inizioGiorno(g);
+  const a = inizioGiorno(aggiungiGiorni(g, 1));
 
   const prenotazioni = await prisma.booking.findMany({
     where: {
@@ -62,7 +62,8 @@ export async function POST(req: Request) {
   let falliti = 0;
 
   for (const b of prenotazioni) {
-    const email = b.customer?.email;
+    // Il contatto della prenotazione vale anche senza anagrafica (richieste ospiti).
+    const email = b.email ?? b.customer?.email;
     if (!email) {
       senzaEmail++;
       continue;
@@ -89,7 +90,7 @@ export async function POST(req: Request) {
   }
 
   return ok({
-    giorno: da.toISOString().slice(0, 10),
+    giorno: g,
     trovate: prenotazioni.length,
     inviati,
     senzaEmail,

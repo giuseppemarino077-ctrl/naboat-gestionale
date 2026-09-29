@@ -16,7 +16,9 @@ type Sel =
   | null;
 
 const euro = (c: number | null) => (c == null ? "—" : (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" }));
-const codice = (b: any) => `NB-${new Date(b.startAt).getFullYear()}-${String(b.id).slice(0, 6).toUpperCase()}`;
+const codice = (b: any) => `NB-${giornoDi(b.startAt).slice(0, 4)}-${String(b.id).slice(0, 6).toUpperCase()}`;
+// Minuti dalla mezzanotte civile di Roma, indipendenti dal fuso del browser.
+const minutiRoma = (iso: string) => { const [hh, mm] = oreDi(iso).split(":").map(Number); return hh * 60 + mm; };
 const waLink = (tel: string | null | undefined, testo: string) => {
   const n = (tel ?? "").replace(/\D/g, "");
   return n ? `https://wa.me/${n.startsWith("39") ? n : `39${n}`}?text=${encodeURIComponent(testo)}` : null;
@@ -46,9 +48,11 @@ export default function CalendarioPage() {
   const [busy, setBusy] = useState(false);
 
   // form
-  const [crea, setCrea] = useState({ dalle: "09:00", alle: "17:00", passeggeri: 1, formula: "", clienteNome: "", telefono: "", email: "", destinazione: "", patenteOk: false, skipperId: "", note: "", prezzoEuro: "" });
+  const [crea, setCrea] = useState({ inizioData: "", dalle: "09:00", fineData: "", alle: "17:00", passeggeri: 1, formula: "", clienteNome: "", telefono: "", email: "", destinazione: "", patenteOk: false, skipperId: "", note: "", prezzoEuro: "" });
   const [blocco, setBlocco] = useState({ motivo: "" });
-  const [mod, setMod] = useState({ clienteNome: "", telefono: "", boatId: "", giorno: "", dalle: "", alle: "" });
+  // Inizio e fine hanno data e ora distinte: una prenotazione su più giorni non
+  // viene ricondotta allo stesso giorno quando la si modifica.
+  const [mod, setMod] = useState({ clienteNome: "", telefono: "", boatId: "", inizioData: "", inizioOra: "", fineData: "", fineOra: "" });
   const [partenza, setPartenza] = useState({ carburante: "100", note: "" });
   const [rientro, setRientro] = useState({ carburante: "", danni: "", note: "" });
   const [linkContratto, setLinkContratto] = useState("");
@@ -99,7 +103,7 @@ export default function CalendarioPage() {
 
   const apriNuovo = (boatId: string, giorno: Giorno) => {
     setErr(""); setMsg(""); setLinkContratto(""); setLinkPagamento("");
-    setCrea({ dalle: "09:00", alle: "17:00", passeggeri: 1, formula: "", clienteNome: "", telefono: "", email: "", destinazione: "", patenteOk: false, skipperId: "", note: "", prezzoEuro: "" });
+    setCrea({ inizioData: giorno, dalle: "09:00", fineData: giorno, alle: "17:00", passeggeri: 1, formula: "", clienteNome: "", telefono: "", email: "", destinazione: "", patenteOk: false, skipperId: "", note: "", prezzoEuro: "" });
     setBlocco({ motivo: "" });
     setSez("crea");
     setSel({ modo: "nuovo", boatId, giorno });
@@ -109,7 +113,7 @@ export default function CalendarioPage() {
     const b = (data?.bookings ?? []).find((x) => x.id === id);
     if (!b) return;
     setErr(""); setMsg(""); setLinkContratto(""); setLinkPagamento(""); setSez("sposta");
-    setMod({ clienteNome: b.clienteNome ?? "", telefono: b.telefono ?? "", boatId: b.boatId, giorno: giornoDi(b.startAt), dalle: oreDi(b.startAt), alle: oreDi(b.endAt) });
+    setMod({ clienteNome: b.clienteNome ?? "", telefono: b.telefono ?? "", boatId: b.boatId, inizioData: giornoDi(b.startAt), inizioOra: oreDi(b.startAt), fineData: giornoDi(b.endAt), fineOra: oreDi(b.endAt) });
     setPartenza({ carburante: b.checkinCarburantePct != null ? String(b.checkinCarburantePct) : "100", note: "" });
     setRientro({ carburante: "", danni: "", note: "" });
     setSel({ modo: "prenotazione", id });
@@ -127,8 +131,8 @@ export default function CalendarioPage() {
   const creaPrenotazione = async () => {
     if (sel?.modo !== "nuovo") return;
     if (!crea.clienteNome.trim() || crea.telefono.trim().length < 4) { setErr("Indica nome cliente e telefono."); return; }
-    const start = istante(sel.giorno, crea.dalle);
-    const end = istante(sel.giorno, crea.alle);
+    const start = istante(crea.inizioData || sel.giorno, crea.dalle);
+    const end = istante(crea.fineData || crea.inizioData || sel.giorno, crea.alle);
     if (!(start < end)) { setErr("Il rientro deve essere dopo la partenza."); return; }
     const j = await chiama("Prenotazione creata.", "/api/v1/bookings", "POST", {
       boatId: sel.boatId, startAt: start.toISOString(), endAt: end.toISOString(),
@@ -152,7 +156,8 @@ export default function CalendarioPage() {
   const rientroOra = async (b: any) => azionePren(b, "Rientro registrato.", "checkout", { carburantePct: rientro.carburante === "" ? null : Number(rientro.carburante), danniEuro: rientro.danni || null, note: rientro.note || null });
   const azionePren = async (b: any, ok: string, az: string, body: any) => { await chiama(ok, `/api/v1/bookings/${b.id}/${az}`, "POST", body); };
   const salvaMod = async (b: any) => {
-    const start = istante(mod.giorno, mod.dalle); const end = istante(mod.giorno, mod.alle);
+    if (!mod.inizioData || !mod.fineData) { setErr("Indica data e ora di inizio e fine."); return; }
+    const start = istante(mod.inizioData, mod.inizioOra); const end = istante(mod.fineData, mod.fineOra);
     if (!(start < end)) { setErr("Orari incoerenti."); return; }
     await chiama("Prenotazione aggiornata.", `/api/v1/bookings/${b.id}`, "PATCH", { boatId: mod.boatId, startAt: start.toISOString(), endAt: end.toISOString(), clienteNome: mod.clienteNome, telefono: mod.telefono });
   };
@@ -295,9 +300,8 @@ export default function CalendarioPage() {
                     <div className="relative h-16 border-b border-l border-line" style={{ gridColumn: "2 / span 24" }}>
                       {ore.map((h) => <div key={h} className="absolute top-0 h-full border-l border-line/50" style={{ left: `calc(${(h / 24) * 100}% )` }} />)}
                       {fTipo !== "blocchi" && bks.map((k) => {
-                        const s = new Date(k.startAt), e = new Date(k.endAt);
-                        const l = (s.getHours() + s.getMinutes() / 60) / 24 * 100;
-                        const w = Math.max(2, ((e.getTime() - s.getTime()) / 3600000) / 24 * 100);
+                        const l = (minutiRoma(k.startAt) / 60) / 24 * 100;
+                        const w = Math.max(2, ((new Date(k.endAt).getTime() - new Date(k.startAt).getTime()) / 3600000) / 24 * 100);
                         return (
                           <button key={k.id} onClick={() => apriPrenotazione(k.id)} className={"absolute top-2 h-12 overflow-hidden rounded-lg border px-2 py-1 text-left text-[11px] font-semibold hover:brightness-105 " + coloreEvento(k)} style={{ left: `${l}%`, width: `${Math.min(100 - l, w)}%` }}>
                             {oreDi(k.startAt)}–{oreDi(k.endAt)} {k.clienteNome}
@@ -414,8 +418,10 @@ export default function CalendarioPage() {
                 </div>
                 {sez === "crea" ? (
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="grid gap-1 text-sm">Partenza<input className="rounded-2xl border border-line p-3" type="time" value={crea.dalle} onChange={(e) => setCrea({ ...crea, dalle: e.target.value })} /></label>
-                    <label className="grid gap-1 text-sm">Rientro<input className="rounded-2xl border border-line p-3" type="time" value={crea.alle} onChange={(e) => setCrea({ ...crea, alle: e.target.value })} /></label>
+                    <label className="grid gap-1 text-sm">Data partenza<input className="rounded-2xl border border-line p-3" type="date" value={crea.inizioData} onChange={(e) => setCrea({ ...crea, inizioData: e.target.value })} /></label>
+                    <label className="grid gap-1 text-sm">Ora partenza<input className="rounded-2xl border border-line p-3" type="time" value={crea.dalle} onChange={(e) => setCrea({ ...crea, dalle: e.target.value })} /></label>
+                    <label className="grid gap-1 text-sm">Data rientro<input className="rounded-2xl border border-line p-3" type="date" value={crea.fineData} onChange={(e) => setCrea({ ...crea, fineData: e.target.value })} /></label>
+                    <label className="grid gap-1 text-sm">Ora rientro<input className="rounded-2xl border border-line p-3" type="time" value={crea.alle} onChange={(e) => setCrea({ ...crea, alle: e.target.value })} /></label>
                     <label className="grid gap-1 text-sm">Passeggeri<input className="rounded-2xl border border-line p-3" type="number" min={1} value={crea.passeggeri} onChange={(e) => setCrea({ ...crea, passeggeri: Number(e.target.value) })} /></label>
                     <label className="grid gap-1 text-sm">Formula<input className="rounded-2xl border border-line p-3" value={crea.formula} onChange={(e) => setCrea({ ...crea, formula: e.target.value })} /></label>
                     <label className="grid gap-1 text-sm">Nome cliente *<input className="rounded-2xl border border-line p-3" value={crea.clienteNome} onChange={(e) => setCrea({ ...crea, clienteNome: e.target.value })} /></label>
@@ -492,9 +498,10 @@ export default function CalendarioPage() {
                   <p className="font-bold text-ocean">Modifica</p>
                   <div className="mt-2 grid gap-2 sm:grid-cols-2">
                     <select className="rounded-2xl border border-line p-3" value={mod.boatId} onChange={(e) => setMod({ ...mod, boatId: e.target.value })}>{(data?.boats ?? []).map((x) => <option key={x.id} value={x.id}>{x.nome}</option>)}</select>
-                    <input className="rounded-2xl border border-line p-3" type="date" value={mod.giorno} onChange={(e) => setMod({ ...mod, giorno: e.target.value })} />
-                    <input className="rounded-2xl border border-line p-3" type="time" value={mod.dalle} onChange={(e) => setMod({ ...mod, dalle: e.target.value })} />
-                    <input className="rounded-2xl border border-line p-3" type="time" value={mod.alle} onChange={(e) => setMod({ ...mod, alle: e.target.value })} />
+                    <label className="grid gap-1 text-xs font-semibold text-deep">Data inizio<input className="rounded-2xl border border-line p-3 text-sm" type="date" value={mod.inizioData} onChange={(e) => setMod({ ...mod, inizioData: e.target.value })} /></label>
+                    <label className="grid gap-1 text-xs font-semibold text-deep">Ora inizio<input className="rounded-2xl border border-line p-3 text-sm" type="time" value={mod.inizioOra} onChange={(e) => setMod({ ...mod, inizioOra: e.target.value })} /></label>
+                    <label className="grid gap-1 text-xs font-semibold text-deep">Data fine<input className="rounded-2xl border border-line p-3 text-sm" type="date" value={mod.fineData} onChange={(e) => setMod({ ...mod, fineData: e.target.value })} /></label>
+                    <label className="grid gap-1 text-xs font-semibold text-deep">Ora fine<input className="rounded-2xl border border-line p-3 text-sm" type="time" value={mod.fineOra} onChange={(e) => setMod({ ...mod, fineOra: e.target.value })} /></label>
                     <input className="rounded-2xl border border-line p-3" placeholder="Nome cliente" value={mod.clienteNome} onChange={(e) => setMod({ ...mod, clienteNome: e.target.value })} />
                     <input className="rounded-2xl border border-line p-3" placeholder="Telefono" value={mod.telefono} onChange={(e) => setMod({ ...mod, telefono: e.target.value })} />
                     <button className="btn-primary sm:col-span-2" disabled={busy} onClick={() => salvaMod(prenSel)}>Salva modifiche</button>

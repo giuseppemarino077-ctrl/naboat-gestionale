@@ -8,6 +8,15 @@ import { transizioneConsentita } from "@/lib/presenze";
 import { requireAzienda } from "@/lib/tenant";
 import { z } from "zod";
 
+// Il link monouso di collegamento ospite non esce mai dalle risposte del gestionale.
+function senzaLinkOspite<T extends Record<string, any>>(b: T): T {
+  const c = { ...b };
+  delete c.clienteToken;
+  delete c.clienteTokenExpires;
+  delete c.clienteTokenUsatoAt;
+  return c;
+}
+
 // Chi non ha il permesso importi non vede cifre su noleggio, extra e incassi.
 function prenotazioneSenzaImporti(b: any) {
   return {
@@ -42,6 +51,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   });
   if (!b) return fail("Prenotazione non trovata", 404);
 
+  // Il link monouso di collegamento ospite non esce mai dalle risposte.
+  const bPulita = senzaLinkOspite(b);
+
   // Storico completo con autore (chi ha fatto cosa, quando).
   const righe = await prisma.auditLog.findMany({ where: { entita: "Booking", entitaId: b.id }, orderBy: { createdAt: "desc" }, take: 60 });
   const autori = righe.length
@@ -49,8 +61,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     : [];
   const perId = new Map(autori.map((u) => [u.id, u]));
   const storico = righe.map((r) => ({ ...r, autore: r.actorId ? perId.get(r.actorId) ?? null : null }));
-  if (t.vedeImporti === false) return ok({ ...prenotazioneSenzaImporti(b), storico });
-  return ok({ ...b, storico });
+  if (t.vedeImporti === false) return ok({ ...prenotazioneSenzaImporti(bPulita), storico });
+  return ok({ ...bPulita, storico });
 }
 
 // Il canale di vendita (diretto/naboat) NON è modificabile dall'azienda: decide la fee
@@ -137,7 +149,7 @@ async function annullaPrenotazione(
   if (esito.tipo === "non_trovata") return fail("Prenotazione non trovata", 404);
   if (esito.tipo === "conflitto") return fail("La prenotazione è stata modificata nel frattempo: ricarica e riprova", 409);
   if (esito.tipo === "non_ammessa") return fail(`Prenotazione ${esito.stato}: non è possibile annullarla`, 422);
-  if (esito.tipo === "gia_annullata") return ok(esito.booking);
+  if (esito.tipo === "gia_annullata") return ok(senzaLinkOspite(esito.booking));
 
   // Chiusura best effort delle sessioni Stripe ancora aperte: una chiave non valida
   // non deve far fallire l'annullamento.
@@ -164,7 +176,8 @@ async function annullaPrenotazione(
         where: { id: cur.id },
         include: { boat: { select: { nome: true } }, tenant: { select: { nome: true, telefonoContatto: true } }, customer: { select: { email: true } } },
       });
-      if (full?.customer?.email) {
+      const emailCliente = full?.email ?? full?.customer?.email;
+      if (full && emailCliente) {
         const corpo = richiestaEsitoBody({
           cliente: full.clienteNome ?? "cliente",
           barca: full.boat.nome,
@@ -173,12 +186,12 @@ async function annullaPrenotazione(
           confermata: false,
           telefono: full.tenant.telefonoContatto,
         });
-        await sendMail(full.customer.email, corpo.subject, corpo.text, corpo.html);
+        await sendMail(emailCliente, corpo.subject, corpo.text, corpo.html);
       }
     } catch { /* l'email non deve bloccare l'operazione */ }
   }
 
-  return ok(esito.booking);
+  return ok(senzaLinkOspite(esito.booking));
 }
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -319,7 +332,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           where: { id: cur.id },
           include: { boat: { select: { nome: true } }, tenant: { select: { nome: true, telefonoContatto: true } }, customer: { select: { email: true } } },
         });
-        if (full?.customer?.email) {
+        const emailCliente = full?.email ?? full?.customer?.email;
+        if (full && emailCliente) {
           const corpo = richiestaEsitoBody({
             cliente: full.clienteNome ?? "cliente",
             barca: full.boat.nome,
@@ -328,7 +342,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
             confermata: true,
             telefono: full.tenant.telefonoContatto,
           });
-          await sendMail(full.customer.email, corpo.subject, corpo.text, corpo.html);
+          await sendMail(emailCliente, corpo.subject, corpo.text, corpo.html);
         }
       } catch { /* l'email non deve bloccare l'operazione */ }
     }
@@ -342,7 +356,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     prima: cur as unknown as Record<string, unknown>,
     dopo: upd as unknown as Record<string, unknown>,
   });
-  return ok(upd);
+  return ok(senzaLinkOspite(upd));
 }
 
 // DELETE non cancella il record: si comporta come l'annullamento (soft), così incassi,

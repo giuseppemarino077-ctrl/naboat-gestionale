@@ -50,6 +50,11 @@ export function RichiestaForm({ boatId, capienza }: { boatId: string; capienza: 
       <div className="rounded-[14px] bg-foam p-5 text-center">
         <p className="font-display text-lg font-extrabold text-deep">Richiesta inviata.</p>
         <p className="mt-2 text-sm text-muted">L'azienda verifica la disponibilità e ti risponde con le condizioni. Non è una conferma automatica.</p>
+        {dati.email.trim() ? (
+          <p className="mt-2 text-sm text-muted">Ti abbiamo inviato un'email a <b>{dati.email.trim()}</b> con un link per collegare la richiesta alla tua area personale.</p>
+        ) : (
+          <p className="mt-2 text-sm text-muted">Indica un'email nella richiesta per ritrovarla poi nella tua area personale.</p>
+        )}
         <a className="mt-3 inline-block text-sm font-bold text-ocean" href="/area">Vai all'area personale →</a>
       </div>
     );

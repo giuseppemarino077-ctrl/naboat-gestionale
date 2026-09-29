@@ -8,7 +8,7 @@ export async function GET(req: Request) {
   if ("error" in t) return t.error;
   const q = new URL(req.url).searchParams.get("q")?.trim();
   const list = await prisma.customer.findMany({
-    where: { tenantId: t.tenantId, ...(q ? { OR: [{ nome: { contains: q, mode: "insensitive" } }, { telefono: { contains: q } }] } : {}) },
+    where: { tenantId: t.tenantId, ...(q ? { OR: [{ nome: { contains: q, mode: "insensitive" } }, { telefono: { contains: q } }, { email: { contains: q, mode: "insensitive" } }] } : {}) },
     orderBy: { createdAt: "desc" },
     take: 100,
     include: { _count: { select: { bookings: true } } },

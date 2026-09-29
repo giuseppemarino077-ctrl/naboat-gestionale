@@ -1,16 +1,15 @@
 import { ok } from "@/lib/api";
+import { fineGiorno, inizioGiorno, oggi } from "@/lib/calendario";
 import { prisma } from "@/lib/db";
 import { requireTenant } from "@/lib/tenant";
 
-// Cruscotto Oggi da DB: uscite, rientri, barche bloccate, attenzioni, prossime partenze
+// Cruscotto Oggi da DB: uscite, rientri, barche bloccate, attenzioni, prossime partenze.
+// I confini del giorno sono quelli civili di Europe/Rome, non dell'ora del server.
 export async function GET(req: Request) {
   const t = await requireTenant(req);
   if ("error" in t) return t.error;
-  const now = new Date();
-  const dayStart = new Date(now);
-  dayStart.setHours(0, 0, 0, 0);
-  const dayEnd = new Date(now);
-  dayEnd.setHours(23, 59, 59, 999);
+  const dayStart = inizioGiorno(oggi());
+  const dayEnd = fineGiorno(oggi());
 
   // Se chi guarda è uno skipper, vede solo le sue uscite.
   let soloMio: string | null = null;

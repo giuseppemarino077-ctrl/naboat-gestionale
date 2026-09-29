@@ -117,6 +117,28 @@ const run = async () => {
   T("calendario", (await json("A", "/api/v1/calendar?from=2028-05-01T00:00:00.000Z&to=2028-06-01T00:00:00.000Z")).data?.bookings?.length >= 1);
   T("clienti", (await json("A", "/api/v1/customers")).data?.length >= 1);
 
+  // ---- B06: l'anagrafica non viene sovrascritta da una nuova prenotazione ----
+  const bkStesso = await json("A", "/api/v1/bookings", "POST", {
+    boatId: b.data.id, startAt: "2028-05-20T09:00:00.000Z", endAt: "2028-05-20T18:00:00.000Z",
+    clienteNome: "Nome Diverso", telefono: "333123456", skipperId: sk.data.id, idempotencyKey: key + "-stesso",
+  });
+  T("prenotazione con stesso telefono creata", bkStesso.status === 201, `${bkStesso.status}`);
+  const clientiDopo = (await json("A", "/api/v1/customers")).data ?? [];
+  const clienteUno = clientiDopo.find((c) => c.telefono === "333123456");
+  T("l'anagrafica non viene sovrascritta da una nuova prenotazione", clienteUno?.nome === "Cliente Smoke", JSON.stringify(clienteUno?.nome));
+  T("il contatto della singola prenotazione resta sulla prenotazione", (await json("A", `/api/v1/bookings/${bkStesso.data.id}`)).data?.clienteNome === "Nome Diverso");
+  // Conflitto esplicito sul telefono: non si fondono due anagrafiche in automatico.
+  const bkAltro = await json("A", "/api/v1/bookings", "POST", {
+    boatId: b.data.id, startAt: "2028-05-25T09:00:00.000Z", endAt: "2028-05-25T18:00:00.000Z",
+    clienteNome: "Altra Persona", telefono: "333111222", skipperId: sk.data.id, idempotencyKey: key + "-altro",
+  });
+  const clienteAltro = ((await json("A", "/api/v1/customers")).data ?? []).find((c) => c.telefono === "333111222");
+  T("seconda anagrafica creata con altro telefono", bkAltro.status === 201 && !!clienteAltro, `${bkAltro.status}`);
+  T("telefono già usato -> 409 (nessuna fusione automatica)", (await json("A", `/api/v1/customers/${clienteUno.id}`, "PATCH", { telefono: "333111222" })).status === 409);
+  T("cambio telefono ricalcola la chiave di dedup", (await json("A", `/api/v1/customers/${clienteUno.id}`, "PATCH", { telefono: "333999000" })).status === 200);
+  const clienteRinominato = ((await json("A", "/api/v1/customers")).data ?? []).find((c) => c.id === clienteUno.id);
+  T("nuovo telefono salvato con dedup aggiornata", clienteRinominato?.telefono === "333999000" && clienteRinominato?.dedupKey === "333999000", JSON.stringify(clienteRinominato));
+
   // ---- Pagamenti ----
   const pset0 = await json("A", "/api/v1/payments/settings");
   T("impostazioni pagamenti (spenti)", pset0.status === 200 && pset0.data?.pagamentiAttivi === false);
@@ -404,6 +426,9 @@ const run = async () => {
   const prom = await json("A", "/api/v1/promemoria/invia", "POST", {});
   T("promemoria: conteggi restituiti", prom.status === 200 && typeof prom.data?.trovate === "number" && typeof prom.data?.inviati === "number", `${prom.status} ${JSON.stringify(prom.data)}`);
   T("promemoria: parametro data non valido -> 422", (await json("A", "/api/v1/promemoria/invia", "POST", { data: "non-data" })).status === 422);
+  // B09: il giorno richiesto è un giorno civile di Europe/Rome, non dell'ora del server.
+  const promGiorno = await json("A", "/api/v1/promemoria/invia", "POST", { data: "2028-05-10" });
+  T("promemoria: il giorno richiesto resta quello indicato (Europe/Rome)", promGiorno.data?.giorno === "2028-05-10", JSON.stringify(promGiorno.data));
 
   // ---- SEO pagine pubbliche ----
   const seo0 = await adm.fetch("/api/v1/admin/seo");
