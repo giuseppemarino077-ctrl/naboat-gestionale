@@ -9,36 +9,16 @@ export const dynamic = "force-dynamic";
 
 // Il gestionale non deve MAI finire nei motori di ricerca: qui restano bloccate tutte
 // le pagine di lavoro. Solo quando NaBoat attiva le pagine pubbliche (marketplace) vengono
-// aperte le poche pagine destinate ai turisti.
+// aperte le poche pagine destinate ai turisti. Il portale è tutto sotto /gestionale.
 const PRIVATE = [
   "/api/",
-  "/oggi",
-  "/calendario",
-  "/flotta",
-  "/listino",
-  "/manutenzione",
-  "/turni",
-  "/meteo",
-  "/clienti",
-  "/pagamenti",
-  "/resoconto",
-  "/abbonamento",
-  "/team",
-  "/sicurezza",
+  "/gestionale",
   "/admin",
-  "/anteprima",
+  "/area",
   "/progetto",
-  "/registro",
-  "/ormeggio",
-  "/contratto-ormeggio/",
-  "/login",
-  "/registrazione",
-  "/verifica-email",
-  "/password-dimenticata",
-  "/reimposta-password",
   "/paga/",
   "/contratto/",
-  "/area",
+  "/contratto-ormeggio/",
 ];
 
 // Pagine del sito pubblico che i motori possono visitare.

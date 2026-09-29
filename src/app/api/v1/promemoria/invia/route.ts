@@ -23,14 +23,14 @@ export async function POST(req: Request) {
     }
     const { session: s, user: u } = id;
     if (u.role === "superadmin") {
-      if (mustTwoFa(u.role, s.twofa)) return fail("2FA obbligatoria: abilitala da /sicurezza", 403);
+      if (mustTwoFa(u.role, s.twofa)) return fail("2FA obbligatoria: abilitala da /gestionale/impostazioni/sicurezza", 403);
       tenantId = new URL(req.url).searchParams.get("tenantId");
       if (!tenantId) return fail("Superadmin: specificare ?tenantId=", 400);
     } else {
       if (!u.tenantId) return fail("Nessuna azienda associata", 403);
       if (u.tenantStatus !== "active") return fail("Azienda non attiva (in attesa/sospesa)", 403);
       if (u.role !== "owner" && u.role !== "operatore") return fail("Permesso negato", 403);
-      if (mustTwoFa(u.role, s.twofa)) return fail("2FA obbligatoria: abilitala da /sicurezza", 403);
+      if (mustTwoFa(u.role, s.twofa)) return fail("2FA obbligatoria: abilitala da /gestionale/impostazioni/sicurezza", 403);
       tenantId = u.tenantId;
     }
   }

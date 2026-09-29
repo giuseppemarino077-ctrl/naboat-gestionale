@@ -51,7 +51,7 @@ export function Manutenzione({
         </p>
 
         <div className="mt-12 border-t border-white/15 pt-5">
-          <a className="text-xs font-semibold text-white/60 underline hover:text-white" href={`${appBase}/login`}>
+          <a className="text-xs font-semibold text-white/60 underline hover:text-white" href={`/gestionale/accesso`}>
             Accesso amministratore
           </a>
         </div>

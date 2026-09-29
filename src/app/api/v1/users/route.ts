@@ -54,7 +54,7 @@ export async function POST(req: Request) {
       select: { id: true, email: true, nome: true, role: true, vedeImporti: true, createdAt: true },
     });
     const base = process.env.APP_URL || new URL(req.url).origin;
-    const link = `${base}/invito?token=${encodeURIComponent(verifyToken)}`;
+    const link = `${base}/gestionale/invito?token=${encodeURIComponent(verifyToken)}`;
     const mail = invitoBody(link);
     await sendMail(email, mail.subject, mail.text, mail.html).catch(() => {});
     return ok(user, 201);

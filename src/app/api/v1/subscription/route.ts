@@ -151,8 +151,8 @@ export async function PUT(req: Request) {
           },
         },
       ],
-      success_url: `${base}/abbonamento?esito=ok`,
-      cancel_url: `${base}/abbonamento?esito=annullato`,
+      success_url: `${base}/gestionale/impostazioni/piano?esito=ok`,
+      cancel_url: `${base}/gestionale/impostazioni/piano?esito=annullato`,
       metadata: { tenantId: t.tenantId, tipo: p.data.tipo, quantita: String(p.data.quantita) },
     });
   } catch (e) {

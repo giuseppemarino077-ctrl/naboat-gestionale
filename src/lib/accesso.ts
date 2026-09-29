@@ -8,9 +8,14 @@ export type DatiAccesso = {
   tenantOrmeggio?: boolean;
 };
 
-// Percorsi consentiti a un'azienda NON ancora attiva: stato, sicurezza, verifica email,
-// rinnovo dell'abbonamento. Tutto il resto riporta alla pagina di attesa.
-export const PERCORSI_ATTESA = ["/in-attesa", "/sicurezza", "/verifica-email", "/abbonamento"];
+// Percorsi consentiti a un'azienda NON ancora attiva: stato, sicurezza, rinnovo
+// dell'abbonamento e verifica email. Tutto il resto riporta alla pagina di attesa.
+export const PERCORSI_ATTESA = [
+  "/gestionale/stato",
+  "/gestionale/impostazioni/sicurezza",
+  "/gestionale/impostazioni/piano",
+  "/gestionale/verifica-email",
+];
 
 export function aziendaNonAttiva(status?: string | null): boolean {
   return !!status && status !== "active";
@@ -23,7 +28,7 @@ export function percorsoConsentitoInAttesa(pathname: string): boolean {
 export function destinazioneAccesso(u: DatiAccesso): string {
   if (u.role === "superadmin") return "/admin";
   if (u.role === "cliente") return "/area";
-  if (aziendaNonAttiva(u.tenantStatus)) return "/in-attesa";
-  if (u.tenantOrmeggio && u.tenantModulo !== "entrambi") return "/ormeggio";
-  return "/oggi";
+  if (aziendaNonAttiva(u.tenantStatus)) return "/gestionale/stato";
+  if (u.tenantOrmeggio && u.tenantModulo !== "entrambi") return "/gestionale/ormeggio";
+  return "/gestionale/oggi";
 }

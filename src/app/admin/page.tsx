@@ -550,7 +550,7 @@ export default function AdminPage() {
                     <button className="rounded-full border border-line px-3 py-2 text-sm font-bold text-coral" onClick={() => salvaAspetto({ homeImmagine: null })}>Usa la foto dell'accesso</button>
                   )}
                   <span className="text-xs text-muted">{aspetto?.homeImmagine ? "foto personalizzata" : "foto dell'accesso"}</span>
-                  <a className="font-bold text-ocean" href="/anteprima">Vedi l'anteprima →</a>
+                  <a className="font-bold text-ocean" href="/admin/anteprima">Vedi l'anteprima →</a>
                 </div>
               </div>
               <div className="grid gap-3">

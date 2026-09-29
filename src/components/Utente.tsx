@@ -55,7 +55,7 @@ export function useUtente(opts: { redirect?: boolean } = {}) {
       const u = await carica(forza);
       if (!vivo) return;
       if (!u) {
-        if (opts.redirect) window.location.href = "/login";
+        if (opts.redirect) window.location.href = "/gestionale/accesso";
         return;
       }
       setUtente(u);

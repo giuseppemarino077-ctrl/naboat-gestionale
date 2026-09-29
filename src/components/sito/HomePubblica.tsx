@@ -80,7 +80,7 @@ export function HomePubblica({ appBase, contenuti, numeri = { barche: 0, senzaPa
             </a>
             <a
               className="rounded-[7px] bg-gold px-6 py-3 text-base font-extrabold text-[#3a2708] hover:brightness-110"
-              href={`${appBase}/registrazione`}
+              href={`/gestionale/registrazione`}
             >
               Sei un noleggiatore? Registrati
             </a>
@@ -164,12 +164,12 @@ export function HomePubblica({ appBase, contenuti, numeri = { barche: 0, senzaPa
           <div className="text-center">
             <a
               className="inline-block rounded-[7px] bg-gold px-6 py-3 font-extrabold text-[#3a2708] hover:brightness-110"
-              href={`${appBase}/registrazione`}
+              href={`/gestionale/registrazione`}
             >
               Registra la tua azienda
             </a>
             <p className="mt-3 text-xs text-white/60">Attivazione guidata, nessuna installazione.</p>
-            <a className="mt-2 inline-block text-sm font-bold text-aqua underline" href={`${appBase}/login`}>
+            <a className="mt-2 inline-block text-sm font-bold text-aqua underline" href={`/gestionale/accesso`}>
               Hai già un account? Accedi
             </a>
           </div>

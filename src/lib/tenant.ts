@@ -30,7 +30,7 @@ export async function requireTenant(req: Request, opts: { ignoraAbbonamento?: bo
   if ((s.ver ?? 0) !== u.sessionVersion) return { error: fail("Sessione scaduta: accedi di nuovo", 401) };
 
   if (u.role === "superadmin") {
-    if (mustTwoFa(u.role, s.twofa)) return { error: fail("2FA obbligatoria: abilitala da /sicurezza", 403) };
+    if (mustTwoFa(u.role, s.twofa)) return { error: fail("2FA obbligatoria: abilitala da /gestionale/impostazioni/sicurezza", 403) };
     const tid = new URL(req.url).searchParams.get("tenantId");
     if (!tid) return { error: fail("Superadmin: specificare ?tenantId=", 400) };
     return { userId: u.id, tenantId: tid, role: u.role, vedeImporti: true };
@@ -44,7 +44,7 @@ export async function requireTenant(req: Request, opts: { ignoraAbbonamento?: bo
   if (u.role === "skipper" && req.method !== "GET" && req.method !== "HEAD") {
     return { error: fail("Ruolo skipper: sola consultazione", 403) };
   }
-  if (mustTwoFa(u.role, s.twofa)) return { error: fail("2FA obbligatoria: abilitala da /sicurezza", 403) };
+  if (mustTwoFa(u.role, s.twofa)) return { error: fail("2FA obbligatoria: abilitala da /gestionale/impostazioni/sicurezza", 403) };
   if (process.env.REQUIRE_EMAIL_VERIFY === "true" && !u.emailVerified) {
     return { error: fail("Email non confermata: controlla la posta", 403) };
   }

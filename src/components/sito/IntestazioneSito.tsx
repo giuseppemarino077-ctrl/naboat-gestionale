@@ -46,12 +46,12 @@ export function IntestazioneSito({ appBase }: { appBase: string }) {
         </nav>
 
         <div className="ml-auto hidden items-center gap-2 md:flex">
-          <a className="px-3 py-2 text-sm font-bold text-ocean hover:brightness-110" href={`${appBase}/login`}>
+          <a className="px-3 py-2 text-sm font-bold text-ocean hover:brightness-110" href={`/gestionale/accesso`}>
             Accedi
           </a>
           <a
             className="rounded-[7px] bg-gold px-4 py-2 text-sm font-extrabold text-[#3a2708] hover:brightness-110"
-            href={`${appBase}/registrazione`}
+            href={`/gestionale/registrazione`}
           >
             Registra la tua azienda
           </a>
@@ -104,10 +104,10 @@ export function IntestazioneSito({ appBase }: { appBase: string }) {
             </a>
           </nav>
           <div className="mt-auto grid gap-2 pt-6">
-            <a className="rounded-[9px] border border-sea bg-sea/15 px-4 py-3 text-center font-extrabold" href={`${appBase}/login`}>
+            <a className="rounded-[9px] border border-sea bg-sea/15 px-4 py-3 text-center font-extrabold" href={`/gestionale/accesso`}>
               Accedi
             </a>
-            <a className="rounded-[9px] bg-gold px-4 py-3 text-center font-extrabold text-[#3a2708]" href={`${appBase}/registrazione`}>
+            <a className="rounded-[9px] bg-gold px-4 py-3 text-center font-extrabold text-[#3a2708]" href={`/gestionale/registrazione`}>
               Registra la tua azienda
             </a>
             <p className="mt-2 text-center text-xs text-white/60">Hai già un account e gestisci la tua flotta? Accedi dal portale.</p>

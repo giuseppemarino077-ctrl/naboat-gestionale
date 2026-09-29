@@ -22,10 +22,50 @@ const CSP = [
   "upgrade-insecure-requests",
 ].join("; ");
 
+// Compatibilità: i vecchi indirizzi del portale (compresi i link già inviati per email)
+// puntano ai nuovi segmenti. I parametri di query vengono mantenuti automaticamente.
+// 307 (temporaneo): non si consolida nella cache dei browser durante la transizione.
+const REDIRECT_VECCHI = [
+  ["/login", "/gestionale/accesso"],
+  ["/registrazione", "/gestionale/registrazione"],
+  ["/invito", "/gestionale/invito"],
+  ["/verifica-email", "/gestionale/verifica-email"],
+  ["/password-dimenticata", "/gestionale/password-dimenticata"],
+  ["/reimposta-password", "/gestionale/reimposta-password"],
+  ["/in-attesa", "/gestionale/stato"],
+  ["/oggi", "/gestionale/oggi"],
+  ["/calendario", "/gestionale/calendario"],
+  ["/turni", "/gestionale/turni"],
+  ["/meteo", "/gestionale/meteo"],
+  ["/flotta", "/gestionale/flotta"],
+  ["/manutenzione", "/gestionale/manutenzione"],
+  ["/clienti", "/gestionale/clienti"],
+  ["/registro", "/gestionale/registro"],
+  ["/recensioni", "/gestionale/recensioni"],
+  ["/pagamenti", "/gestionale/economia/pagamenti"],
+  ["/resoconto", "/gestionale/economia/resoconto"],
+  ["/impostazioni", "/gestionale/impostazioni"],
+  ["/team", "/gestionale/impostazioni/team"],
+  ["/listino", "/gestionale/impostazioni/listino"],
+  ["/porti", "/gestionale/impostazioni/porti"],
+  ["/sicurezza", "/gestionale/impostazioni/sicurezza"],
+  ["/abbonamento", "/gestionale/impostazioni/piano"],
+  ["/anteprima", "/admin/anteprima"],
+];
+
 const nextConfig = {
   output: "standalone",
   reactStrictMode: true,
   poweredByHeader: false,
+  // Vecchi URL → nuovi segmenti (le pagine con sottopercorsi usano :path*).
+  async redirects() {
+    const fissi = REDIRECT_VECCHI.map(([source, destination]) => ({ source, destination, permanent: false }));
+    return [
+      ...fissi,
+      { source: "/prenotazioni/:path*", destination: "/gestionale/prenotazioni/:path*", permanent: false },
+      { source: "/ormeggio/:path*", destination: "/gestionale/ormeggio/:path*", permanent: false },
+    ];
+  },
   // La presentazione del progetto è una copia statica in public/progetto:
   // senza questa regola l'indirizzo pulito /progetto non verrebbe servito.
   async rewrites() {

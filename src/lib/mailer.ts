@@ -115,7 +115,7 @@ export async function sendMail(to: string, subject: string, textBody: string, ht
 }
 
 export function verifyEmailBody(token: string) {
-  const url = `${APP_URL}/verifica-email?token=${encodeURIComponent(token)}`;
+  const url = `${APP_URL}/gestionale/verifica-email?token=${encodeURIComponent(token)}`;
   return {
     subject: "Conferma il tuo indirizzo email NaBoat",
     text: `Benvenuto in NaBoat.\n\nConferma la tua email aprendo questo link (valido 48 ore):\n${url}\n\nSe non hai richiesto tu la registrazione, ignora questo messaggio.`,
@@ -201,7 +201,7 @@ ${d.telefono ? `<p>Per qualsiasi necessità: <b>${telefono}</b></p>` : ""}
 
 // Reset password: link monouso valido 1 ora.
 export function resetPasswordBody(token: string) {
-  const url = `${APP_URL}/reimposta-password?token=${encodeURIComponent(token)}`;
+  const url = `${APP_URL}/gestionale/reimposta-password?token=${encodeURIComponent(token)}`;
   return {
     subject: "Reimposta la password di NaBoat",
     text: `Hai chiesto di reimpostare la password del tuo account NaBoat.\n\nApri questo link (valido 1 ora):\n${url}\n\nSe non hai richiesto tu il cambio, ignora questo messaggio: la password resta quella di prima.`,

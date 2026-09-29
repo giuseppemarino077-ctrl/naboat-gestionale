@@ -542,7 +542,7 @@ const run = async () => {
     body: JSON.stringify({ azione: "impostazioni", seoPubblicheAttive: true, seoDominioPubblico: "https://naboat.test", seoTitoloDefault: "NaBoat Test", seoDescrizioneDefault: "Descrizione di prova", seoKeywordsDefault: "noleggio barca", seoLocalitaDefault: "Napoli" }),
   });
   const robots1 = await (await fetch(`${BASE}/robots.txt`)).text();
-  T("robots apre le pagine pubbliche quando sono attive", robots1.includes("Allow: /") && robots1.includes("Disallow: /oggi") && robots1.includes("Sitemap: https://naboat.test/sitemap.xml"), robots1.replace(/\n/g, " | ").slice(0, 200));
+  T("robots apre le pagine pubbliche quando sono attive", robots1.includes("Allow: /") && robots1.includes("Disallow: /gestionale") && robots1.includes("Sitemap: https://naboat.test/sitemap.xml"), robots1.replace(/\n/g, " | ").slice(0, 200));
   const sitemap1 = await (await fetch(`${BASE}/sitemap.xml`)).text();
   T("sitemap contiene le pagine pubblicate", sitemap1.includes("<urlset") && sitemap1.includes(pagDopo.slug), sitemap1.slice(0, 160));
 

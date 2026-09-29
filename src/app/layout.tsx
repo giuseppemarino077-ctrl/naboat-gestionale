@@ -1,6 +1,5 @@
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
-import { Struttura } from "@/components/Navigazione";
 
 export const viewport: Viewport = { themeColor: "#c2410c" };
 
@@ -11,12 +10,12 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false, nocache: true },
 };
 
+// Layout radice: solo struttura HTML. I contenitori delle aree (sito, area cliente,
+// gestionale, admin, pagine pubbliche per token) stanno nei rispettivi segmenti.
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="it">
-      <body>
-        <Struttura>{children}</Struttura>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

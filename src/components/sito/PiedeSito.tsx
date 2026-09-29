@@ -17,10 +17,10 @@ export function PiedeSito({ appBase }: { appBase: string }) {
         </div>
         <div>
           <p className="font-bold text-white">Portale aziende</p>
-          <a className="mt-2 block hover:text-white" href={`${appBase}/login`}>
+          <a className="mt-2 block hover:text-white" href={`/gestionale/accesso`}>
             Accedi
           </a>
-          <a className="mt-1 block hover:text-white" href={`${appBase}/registrazione`}>
+          <a className="mt-1 block hover:text-white" href={`/gestionale/registrazione`}>
             Registra la tua azienda
           </a>
         </div>

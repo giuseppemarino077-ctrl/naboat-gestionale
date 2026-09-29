@@ -8,8 +8,13 @@ export const DOMINIO_SITO = "https://naboat.it";
 export const LINK_SONDAGGIO =
   "https://docs.google.com/forms/d/e/1FAIpQLSftpEBun2odfFqGrd3R4B-IvxkcJn8ME3q8JWZCvuhk1l1dEw/viewform";
 
-// Percorsi serviti senza accesso sul dominio del sito.
+// Percorsi del sito pubblico serviti senza accesso sul dominio del sito.
+// Le pagine informative, il catalogo e le schede non cambiano indirizzo.
 export const PERCORSI_SITO = ["/", "/chi-siamo", "/contatti", "/progetto", "/privacy", "/cookie", "/termini", "/noleggia", "/per-noleggiatori", "/barca", "/azienda"];
+
+// Prefisso del gestionale: tutto il portale operativo (noleggio, ormeggio, impostazioni)
+// vive sotto /gestionale, separato dal sito pubblico e dall'area cliente.
+export const PREFISSO_GESTIONALE = "/gestionale";
 
 // Presentazione del progetto (vecchio sito, copia statica in public/progetto).
 export const LINK_PROGETTO = "/progetto";
