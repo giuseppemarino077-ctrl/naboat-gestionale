@@ -9,7 +9,8 @@
 #   ./scripts/ripristino-completo.sh backups/completi/naboat-completo-2026-09-18_0300.tar.gz
 #
 # Contiene: dump completo del database, cartella uploads (foto barche, loghi,
-# foto di check-in/check-out), file di configurazione (.env, docker-compose, Caddyfile).
+# foto di check-in/check-out), archivio privato (patenti, verbali), file di
+# configurazione (.env, docker-compose, Caddyfile).
 # ATTENZIONE: l'archivio contiene segreti (.env) e foto dei clienti: va conservato
 # in un posto protetto (permessi 600, destinazioni private, mai in una cartella pubblica).
 
@@ -20,11 +21,12 @@ GIORNI="${BACKUP_KEEP_DAYS:-14}"
 
 umask 077
 mkdir -p "$CARTELLA"
+chmod 700 "$CARTELLA" 2>/dev/null || true
 
 # Variabili del database lette dal .env (senza caricare il file: contiene spazi e caratteri speciali)
 leggi_env() {
   [ -f .env ] || { echo ""; return; }
-  grep -E "^$1=" .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true
+  grep -E "^$1=" .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '\r' || true
 }
 DB_USER="${POSTGRES_USER:-$(leggi_env POSTGRES_USER)}"
 DB_NAME="${POSTGRES_DB:-$(leggi_env POSTGRES_DB)}"
@@ -60,6 +62,12 @@ if [ -n "$CARTELLA_FOTO" ]; then
 else
   echo "     (nessuna cartella uploads: nessuna foto da salvare)"
 fi
+# Archivio privato: patenti nautiche e verbali. Non deve mai finire in una cartella pubblica.
+if [ -d ./uploads-privati ]; then
+  cp -r ./uploads-privati "$LAVORO/portale/uploads-privati"
+  PRIVATI=$(find "$LAVORO/portale/uploads-privati" -type f | wc -l)
+  echo "     archivio privato: $PRIVATI file"
+fi
 for f in .env docker-compose.yml docker-compose.override.yml Caddyfile Dockerfile; do
   [ -f "$f" ] && cp "$f" "$LAVORO/portale/"
 done
@@ -70,8 +78,14 @@ FILE="$CARTELLA/naboat-completo-$DATA.tar.gz"
 tar -czf "$FILE" -C "$LAVORO" .
 chmod 600 "$FILE"
 
-# Retention locale
-find "$CARTELLA" -name 'naboat-completo-*.tar.gz' -type f -mtime "+$GIORNI" -delete
+# Retention locale: numero di copie scelto nel pannello ("copie conservate")
+# più un limite in giorni di sicurezza.
+COPIE="${BACKUP_KEEP_COPIES:-0}"
+if [ -n "$COPIE" ] && [ "$COPIE" -gt 0 ] 2>/dev/null; then
+  ls -1t "$CARTELLA"/naboat-completo-*.tar.gz 2>/dev/null \
+    | tail -n +"$((COPIE + 1))" | while IFS= read -r f; do rm -f -- "$f"; done || true
+fi
+find "$CARTELLA" -name 'naboat-completo-*.tar.gz' -type f -mtime "+$GIORNI" -delete 2>/dev/null || true
 CONSERVATI=$(find "$CARTELLA" -name 'naboat-completo-*.tar.gz' -type f | wc -l)
 DIM=$(du -h "$FILE" | cut -f1)
 

@@ -47,7 +47,7 @@ done
 
 leggi_env() {
   [ -f .env ] || { echo ""; return; }
-  grep -E "^$1=" .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true
+  grep -E "^$1=" .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '\r' || true
 }
 DB_USER="${POSTGRES_USER:-$(leggi_env POSTGRES_USER)}"
 DB_NAME="${POSTGRES_DB:-$(leggi_env POSTGRES_DB)}"
@@ -61,6 +61,13 @@ if [ -d "$LAVORO/portale/uploads" ]; then
   echo "   copiate $(find ./uploads -type f | wc -l) foto"
 else
   echo "   nessuna foto nell'archivio"
+fi
+# Archivio privato (patenti, verbali): fuori dalla cartella pubblica, permessi stretti.
+if [ -d "$LAVORO/portale/uploads-privati" ]; then
+  mkdir -p ./uploads-privati
+  cp -r "$LAVORO/portale/uploads-privati/." ./uploads-privati/
+  chmod -R go-rwx ./uploads-privati 2>/dev/null || true
+  echo "   archivio privato: $(find ./uploads-privati -type f | wc -l) file"
 fi
 
 echo "4) Database e cache…"

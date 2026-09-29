@@ -94,12 +94,34 @@ export async function piano(): Promise<Piano> {
   };
 }
 
+// Segnala se le impostazioni scelte non corrispondono a ciò che il server può
+// davvero eseguire (variabili mancanti, opzioni tra loro in conflitto).
+export function avvisiBackup(s: ImpostazioniBackup, ultima: { esito: string; iniziatoAt: Date } | null, regolare: boolean): string[] {
+  const avvisi: string[] = [];
+  if (!s.attivo) avvisi.push("Backup disattivati dal pannello: lo script salta ogni esecuzione.");
+  if (!s.destinazioneLocale && !s.destinazioneObjectStorage && !s.destinazioneFtp) {
+    avvisi.push("Nessuna destinazione attiva: i backup non verrebbero conservati.");
+  }
+  if (s.destinazioneObjectStorage && !(process.env.S3_ENDPOINT && process.env.S3_BUCKET && process.env.S3_ACCESS_KEY)) {
+    avvisi.push("«Copia su Object Storage» attiva ma mancano S3_ENDPOINT/S3_BUCKET/S3_ACCESS_KEY nel .env del server.");
+  }
+  if (s.destinazioneFtp && !(process.env.FTP_HOST && process.env.FTP_USER && process.env.FTP_PASS)) {
+    avvisi.push("«Copia FTP» attiva ma mancano FTP_HOST/FTP_USER/FTP_PASS nel .env del server.");
+  }
+  if (s.replicaAttiva && !s.replicaHost?.trim()) avvisi.push("Replica attiva ma manca l'indirizzo del secondo server.");
+  if (s.soloDatabase && s.includiFoto) avvisi.push("«Includi foto» è ignorato: è attivo «Solo database».");
+  if (!ultima) avvisi.push("Nessuna esecuzione registrata: verifica che la riga di cron sia installata.");
+  else if (!regolare) avvisi.push(`Ultima esecuzione non regolare (esito "${ultima.esito}"). Controlla ./backups/backup.log.`);
+  return avvisi;
+}
+
 // Stato riassuntivo mostrato nel pannello.
 export async function stato() {
   const s = await impostazioni();
   const esecuzioni = await prisma.backupRun.findMany({ orderBy: { iniziatoAt: "desc" }, take: 20 });
 
   const ultima = esecuzioni[0] ?? null;
+  const ultimoSuccesso = esecuzioni.find((e) => e.esito === "ok") ?? null;
   const oreDaUltima = ultima ? (Date.now() - ultima.iniziatoAt.getTime()) / 3600000 : null;
   const oreMassime = Math.max(s.ogniOre * 2, 6);
   const regolare = !!ultima && ultima.esito === "ok" && oreDaUltima !== null && oreDaUltima <= oreMassime;
@@ -107,12 +129,17 @@ export async function stato() {
   const settimana = await prisma.backupRun.count({ where: { esito: "ok", iniziatoAt: { gte: new Date(Date.now() - 7 * 86400000) } } });
   const errori = await prisma.backupRun.count({ where: { esito: "errore", iniziatoAt: { gte: new Date(Date.now() - 7 * 86400000) } } });
 
+  // Retention reale: le copie conservate le applica lo script sul server con
+  // retentionCopie (numero di copie). Qui la mostriamo per non lasciarla ambigua.
   return {
     impostazioni: s,
     ultima,
+    ultimoSuccesso,
     esecuzioni,
     oreDaUltima: oreDaUltima === null ? null : Math.round(oreDaUltima * 10) / 10,
     regolare,
+    avvisi: avvisiBackup(s, ultima, regolare),
+    retention: { copie: s.retentionCopie, giorni: process.env.BACKUP_KEEP_DAYS ?? "30" },
     ultimi7giorni: { riusciti: settimana, errori },
   };
 }
@@ -129,8 +156,10 @@ export function crontab(): string[] {
   return [
     `# NaBoat — una sola riga: esegue ciò che è attivo nel pannello /admin/backup`,
     `${cronOrario(0)} cd /opt/naboat && ./scripts/backup-orchestrator.sh >> ./backups/backup.log 2>&1`,
-    `# Controllo giornaliero: avvisa se il backup non è regolare`,
+    `# Controllo giornaliero: avvisa se il backup non è regolare o manca una prova di ripristino`,
     `0 8 * * * cd /opt/naboat && docker compose run --rm -T tools node scripts/backup-verifica.mjs /app/backups >> ./backups/backup.log 2>&1`,
+    `# Prova di ripristino isolata (mensile): dimostra che l'ultimo archivio si ripristina davvero`,
+    `0 4 1 * * cd /opt/naboat && ./scripts/verifica-ripristino.sh >> ./backups/backup.log 2>&1`,
   ];
 }
 

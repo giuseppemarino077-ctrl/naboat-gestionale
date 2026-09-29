@@ -1,35 +1,24 @@
 #!/usr/bin/env bash
-# Restore drill: ripristina l'ultimo dump in un database "drill" separato e
-# verifica che i dati siano leggibili. NON tocca il database di produzione.
+# Restore drill: ripristina un backup in un database SEPARATO e verifica che i
+# dati siano leggibili. NON tocca il database di produzione.
 #
-# Uso (sul VPS, dalla cartella del compose):
-#   ./scripts/restore-drill.sh [percorso-dump]
+# Da questa versione il drill è un richiamo a scripts/verifica-ripristino.sh,
+# che oltre al database controlla anche le foto e scrive la prova usata da
+# scripts/backup-verifica.mjs.
+#
+# Uso (sul VPS o in locale, dalla cartella del compose):
+#   ./scripts/restore-drill.sh [percorso-archivio]
 set -euo pipefail
 
-DUMP="${1:-$(ls -1t ./backups/**/*.sql ./backups/**/*.gz ./backups/*.sql ./backups/*.gz 2>/dev/null | head -n1)}"
-DRILL_DB="naboat_drill"
-
-if [ -z "${DUMP:-}" ]; then echo "Nessun dump trovato in ./backups"; exit 1; fi
-echo "Dump scelto: $DUMP"
-
-echo "1) Ricreo il database di prova $DRILL_DB"
-docker compose exec -T db psql -U "$POSTGRES_USER" -d postgres -c "DROP DATABASE IF EXISTS $DRILL_DB;"
-docker compose exec -T db psql -U "$POSTGRES_USER" -d postgres -c "CREATE DATABASE $DRILL_DB;"
-
-echo "2) Ripristino il dump"
-if [[ "$DUMP" == *.gz ]]; then
-  gunzip -c "$DUMP" | docker compose exec -T db psql -U "$POSTGRES_USER" -d "$DRILL_DB" >/dev/null
-else
-  docker compose exec -T db psql -U "$POSTGRES_USER" -d "$DRILL_DB" < "$DUMP" >/dev/null
+ARCHIVIO="${1:-}"
+if [ -z "$ARCHIVIO" ]; then
+  ARCHIVIO=$(ls -1t ./backups/completi/naboat-completo-*.tar.gz ./backups/completi/naboat-db-*.sql.gz \
+    ./backups/*.tar.gz ./backups/*.sql.gz ./backups/*.sql 2>/dev/null | head -n1 || true)
 fi
 
-echo "3) Verifica integrità"
-docker compose exec -T db psql -U "$POSTGRES_USER" -d "$DRILL_DB" -c 'SELECT
-  (SELECT count(*) FROM "Tenant")  AS tenants,
-  (SELECT count(*) FROM "User")    AS users,
-  (SELECT count(*) FROM "Boat")    AS boats,
-  (SELECT count(*) FROM "Booking") AS bookings;'
+if [ -z "${ARCHIVIO:-}" ] || [ ! -f "$ARCHIVIO" ]; then
+  echo "Nessun archivio trovato in ./backups. Uso: $0 /percorso/archivio.tar.gz"
+  exit 1
+fi
 
-echo "4) Pulizia"
-docker compose exec -T db psql -U "$POSTGRES_USER" -d postgres -c "DROP DATABASE $DRILL_DB;"
-echo "Restore drill completato."
+exec "$(dirname "$0")/verifica-ripristino.sh" "$ARCHIVIO"

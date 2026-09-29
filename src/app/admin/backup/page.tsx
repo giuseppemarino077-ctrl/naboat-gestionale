@@ -12,9 +12,12 @@ type Esecuzione = { id: string; iniziatoAt: string; finitoAt: string | null; esi
 type Stato = {
   impostazioni: Impostazioni;
   ultima: Esecuzione | null;
+  ultimoSuccesso: Esecuzione | null;
   esecuzioni: Esecuzione[];
   oreDaUltima: number | null;
   regolare: boolean;
+  avvisi: string[];
+  retention: { copie: number; giorni: string };
   ultimi7giorni: { riusciti: number; errori: number };
   crontab: string[];
   istruzioniTempo: string[];
@@ -79,7 +82,20 @@ export default function BackupPage() {
             ) : (
               <p><b>Nessun backup registrato.</b> Installa la riga di cron qui sotto e il primo esito comparirà qui.</p>
             )}
+            <p className="mt-1 text-xs text-muted">
+              Ultimo successo: {stato.ultimoSuccesso ? new Date(stato.ultimoSuccesso.iniziatoAt).toLocaleString("it-IT") : "nessuno"} ·
+              {" "}copie conservate: <b>{stato.retention.copie}</b> (retention giorni sul server: {stato.retention.giorni})
+            </p>
           </div>
+
+          {stato.avvisi.length > 0 && (
+            <div className="card border-[#ffe0a3] bg-[#fff8e6] p-4 text-sm">
+              <b>Da sistemare</b>
+              <ul className="mt-1 list-disc pl-5">
+                {stato.avvisi.map((a, i) => <li key={i}>{a}</li>)}
+              </ul>
+            </div>
+          )}
 
           <div className="card grid gap-3 p-5 text-sm">
             <h2 className="text-lg">Metodi attivi</h2>

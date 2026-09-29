@@ -12,11 +12,19 @@ set -euo pipefail
 
 # Indirizzo del portale: si legge da APP_URL nel .env (l'app non è esposta su localhost,
 # la porta 80 risponde solo per il dominio pubblico).
-BASE="${APP_BASE:-$(grep -E '^APP_URL=' .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true)}"
+BASE="${APP_BASE:-$(grep -E '^APP_URL=' .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '\r' || true)}"
 BASE="${BASE:-https://app.naboat.it}"
-SECRET=$(grep -E '^CRON_SECRET=' .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true)
+SECRET=$(grep -E '^CRON_SECRET=' .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '\r' || true)
 CARTELLA="${BACKUP_DIR:-./backups/completi}"
-GIORNI="${BACKUP_KEEP_DAYS:-14}"
+# Limite in giorni di sicurezza: dall'ambiente o dal .env (coerente con il pannello).
+GIORNI="${BACKUP_KEEP_DAYS:-$(grep -E '^BACKUP_KEEP_DAYS=' .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '\r' || true)}"
+GIORNI="${GIORNI:-14}"
+
+leggi_env() {
+  grep -E "^$1=" .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '\r' || true
+}
+DB_USER="${POSTGRES_USER:-$(leggi_env POSTGRES_USER)}"; DB_USER="${DB_USER:-naboat}"
+DB_NAME="${POSTGRES_DB:-$(leggi_env POSTGRES_DB)}"; DB_NAME="${DB_NAME:-naboat}"
 
 if [ -z "$SECRET" ]; then
   echo "[$(date '+%F %T')] ERRORE: CRON_SECRET non impostato nel .env"
@@ -31,6 +39,19 @@ PIANO=$(curl -fsS "$BASE/api/v1/backup/piano" -H "x-cron-secret: $SECRET") || {
 
 leggi() { echo "$PIANO" | grep -o "\"$1\":[^,}]*" | head -1 | cut -d: -f2- | tr -d '"' ; }
 
+# Conserva solo le N copie più recenti (retentionCopie scelta nel pannello) e in
+# ogni caso elimina i file più vecchi dei giorni indicati.
+potatura() {
+  local dir="$1" copie="$2"
+  [ -d "$dir" ] || return 0
+  if [ -n "$copie" ] && [ "$copie" -gt 0 ] 2>/dev/null; then
+    ls -1t "$dir"/naboat-*.tar.gz "$dir"/naboat-*.sql.gz "$dir"/wal-*.tar.gz 2>/dev/null \
+      | tail -n +"$((copie + 1))" | while IFS= read -r f; do rm -f -- "$f"; done || true
+  fi
+  find "$dir" -maxdepth 1 -type f \( -name 'naboat-*.tar.gz' -o -name 'naboat-*.sql.gz' -o -name 'wal-*.tar.gz' \) \
+    -mtime "+$GIORNI" -delete 2>/dev/null || true
+}
+
 ESEGUI=$(leggi esegui)
 ESECUZIONE=$(leggi esecuzioneId)
 OGNI=$(leggi ogniOre)
@@ -39,6 +60,10 @@ FOTO=$(leggi includiFoto)
 SOLODB=$(leggi soloDatabase)
 DEST=$(leggi destinazioni)
 TEMPO=$(leggi macchinaDelTempo)
+
+# La retention scelta nel pannello ("copie conservate") comanda davvero lo script.
+export BACKUP_KEEP_COPIES="$RETENTION"
+export BACKUP_KEEP_DAYS="$GIORNI"
 
 if [ "$ESEGUI" != "true" ]; then
   MOTIVO=$(leggi motivo)
@@ -71,7 +96,7 @@ if [ "$SOLODB" = "true" ]; then
   echo "Modalità solo database."
   mkdir -p "$CARTELLA"
   FILE="$CARTELLA/naboat-db-$(date +%Y-%m-%d_%H%M).sql.gz"
-  docker compose exec -T db pg_dump -U "${POSTGRES_USER:-naboat}" -d "${POSTGRES_DB:-naboat}" | gzip > "$FILE" || ESITO="errore"
+  docker compose exec -T db pg_dump -U "$DB_USER" -d "$DB_NAME" | gzip > "$FILE" || ESITO="errore"
 else
   echo "Archivio completo (database + foto + configurazione)…"
   ./scripts/backup-completo.sh || ESITO="errore"
@@ -79,8 +104,8 @@ else
 fi
 
 if [ "$ESITO" = "ok" ]; then
-  # Retention
-  find "$CARTELLA" -type f \( -name 'naboat-*.tar.gz' -o -name 'naboat-*.sql.gz' \) -mtime "+$GIORNI" -delete 2>/dev/null || true
+  # Retention: numero di copie scelto nel pannello (+ limite in giorni).
+  potatura "$CARTELLA" "$RETENTION"
 
   # Copie esterne, solo quelle attive nel pannello
   case ",$DEST," in
@@ -97,8 +122,8 @@ if [ "$ESITO" = "ok" ]; then
   fi
 fi
 
-# Retention anche sulle cartelle di lavoro
-find "$CARTELLA" -type f -mtime "+$GIORNI" -delete 2>/dev/null || true
+# Retention anche sulle cartelle di lavoro (stessa regola del pannello).
+potatura "$CARTELLA" "$RETENTION"
 
 DIM=0
 [ -n "$FILE" ] && [ -f "$FILE" ] && DIM=$(wc -c < "$FILE" | tr -d ' ')

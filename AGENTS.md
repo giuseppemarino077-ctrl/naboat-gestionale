@@ -44,6 +44,8 @@ Nota: il DB locale è esposto sulla porta **5434** (la 5432 è spesso occupata).
 - Mai disattivare il controllo `tenantId` nelle query.
 - Mai committare `.env`/`.env.local`.
 - Se tocchi l'autenticazione, mantieni: cookie httpOnly, SameSite=lax, secure in produzione.
+- **RLS**: resta **spenta** (`RLS_ENABLED=false`); l'isolamento è applicativo. Il client espone `conTenant()` (contesto tenant in transazione, `set_config(..., true)`) e `prismaPiattaforma()` (ruolo con BYPASSRLS per superadmin/cron/backup). Attivazione e rollback in `DEPLOY.md` §8; copertura con `node scripts/verifica-rls.mjs`. Non attivarla senza ruolo `naboat_app`/`naboat_admin` e test su copia.
+- **Liveness/readiness**: `/api/healthz` dice solo che il processo è vivo ed è il `healthcheck` del container; `/api/readyz` controlla DB/Redis per proxy e monitor. Non spostare i controlli di DB dentro `healthz` (un DB lento non deve far riavviare l'app).
 
 ## Pagamenti (Fase 2) — regole specifiche
 - Le chiavi Stripe sono **cifrate a riposo** (`src/lib/payments.ts`: AES-256-GCM con chiave derivata da `AUTH_SECRET`). Non decifrarle mai per restituirle via API: le API mostrano solo il booleano «configurato».
@@ -96,8 +98,11 @@ Nota: il DB locale è esposto sulla porta **5434** (la 5432 è spesso occupata).
 - Le impostazioni stanno in `BackupSettings` (singleton) e si gestiscono da **`/admin/backup`**: attivo, `ogniOre`, `retentionCopie`, `includiFoto`, `destinazioneLocale/ObjectStorage/Ftp`, `soloDatabase`, `macchinaDelTempo`, `replicaAttiva`+`replicaHost`, `registroCompleto`, `avvisoEmail`.
 - `GET /api/v1/backup/piano` (header `x-cron-secret`) restituisce cosa eseguire e apre una riga in `BackupRun`; `POST /api/v1/backup/esito` chiude la riga e manda l'email di avviso se l'esito è `errore`. **Gli interruttori del pannello comandano lo script**, non il crontab.
 - `scripts/backup-orchestrator.sh` è l'unica riga di cron sul VPS: legge il piano ed esegue solo ciò che è attivo. Gli script Node girano nel servizio compose **`tools`** (`docker compose run --rm -T tools node scripts/...`) perché **sul VPS Node non è installato sull'host**. Non richiamare `node` direttamente dal crontab.
-- **Backup completo**: `scripts/backup-completo.sh` (gira sull'host) crea un unico `.tar.gz` con database + `uploads` + configurazione. Contiene segreti e foto dei clienti: permessi 600, mai in cartelle pubbliche. In produzione le foto stanno in `./uploads`, in locale in `./public/uploads`: entrambi i percorsi sono gestiti.
-- **Ripristino**: `scripts/ripristino-completo.sh` da quell'archivio; salva i file esistenti come `.pre-ripristino-*`.
+- **Backup completo**: `scripts/backup-completo.sh` (gira sull'host) crea un unico `.tar.gz` con database + `uploads` + `uploads-privati` (patenti/verbali) + configurazione. Contiene segreti e foto dei clienti: `umask 077` + archivio 600 + cartella 700, mai in cartelle pubbliche. In produzione le foto stanno in `./uploads`, in locale in `./public/uploads`: entrambi i percorsi sono gestiti.
+- **Una sola autorità sui backup**: l'orchestratore governato dal pannello (`/admin/backup` → `backup-orchestrator.sh`). Il vecchio servizio autonomo `backup` del compose è disattivato di default (`profiles: ["legacy-backup"]`): due schedulazioni duplicherebbero i dump. Non riattivarlo come default.
+- **Retention**: comanda il numero di copie scelto nel pannello (`retentionCopie`), applicato dall'orchestratore e da `backup-completo.sh` (`BACKUP_KEEP_COPIES`), più il limite in giorni `BACKUP_KEEP_DAYS`. Se il pannello e il comportamento divergono, è un bug.
+- **Ripristino**: `scripts/ripristino-completo.sh` da quell'archivio, oppure `scripts/verifica-ripristino.sh` / `scripts/restore-drill.sh` per una prova **isolata** (database temporaneo + cartella temporanea), che scrive la prova in `./backups/ripristino-ok.txt`. Non tocca la produzione.
+- **La verifica è legata al ripristino**: `scripts/backup-verifica.mjs` controlla anche che la prova di ripristino esista e sia recente (`PROVA_RIPRISTINO_GIORNI`, default 35). Un file di backup non prova da solo di essere ripristinabile.
 - **Registro completo**: `src/lib/audit.ts` → `traccia()` scrive in `AuditLog.dettagli` i valori prima/dopo (solo i campi cambiati) quando l'impostazione è attiva. Non deve mai bloccare l'operazione principale (errori ignorati). L'azienda consulta `/registro` via `GET /api/v1/audit`.
 
 ## Sito pubblico e portale: un solo dominio (naboat.it)

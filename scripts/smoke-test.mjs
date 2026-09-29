@@ -63,7 +63,9 @@ const reg = (name, email) => ({ azienda: name, nome: "Owner " + name, email, pas
 
 const run = async () => {
   const h = await json("", "/api/healthz"); T("healthz", h.data?.ok === true);
+  T("healthz non espone segreti", !/password|secret|token|api[_-]?key/i.test(JSON.stringify(h.data ?? {})));
   const r = await json("", "/api/readyz"); T("readyz (db+redis)", r.data?.ok === true, JSON.stringify(r.data));
+  T("readyz riporta i controlli, non segreti", r.data?.checks?.db === true && r.data?.checks?.redis === true);
 
   // tenant A
   const ea = `smokeA${Date.now()}@test.local`;
@@ -609,6 +611,8 @@ const run = async () => {
   T("NaBoat apre la pagina dei backup", bk0.status === 200 && !!bkDati?.impostazioni && Array.isArray(bkDati?.crontab), `${bk0.status}`);
   T("backup riservati a NaBoat", (await jar.fetch("/api/v1/admin/backup")).status === 403);
   T("crontab generato", bkDati.crontab.join(" ").includes("backup-orchestrator.sh"));
+  T("crontab include la prova di ripristino", bkDati.crontab.join(" ").includes("verifica-ripristino.sh"));
+  T("stato backup con avvisi e stato reale", Array.isArray(bkDati?.avvisi) && "ultimoSuccesso" in (bkDati ?? {}) && !!bkDati?.retention, JSON.stringify({ avvisi: bkDati?.avvisi?.length, retention: bkDati?.retention }));
 
   const bkAtt = await adm.fetch("/api/v1/admin/backup", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ attivo: true, ogniOre: 1, retentionCopie: 48, includiFoto: true, destinazioneLocale: true, destinazioneObjectStorage: false, destinazioneFtp: false, registroCompleto: true, avvisoEmail: "lorenzo@naboat.test" }) });
   T("NaBoat attiva il backup ogni ora", bkAtt.status === 200, `${bkAtt.status}`);
@@ -638,6 +642,7 @@ const run = async () => {
   T("esito del backup registrato", esitoBk.status === 200, `${esitoBk.status}`);
   const bkDopo = await (await adm.fetch("/api/v1/admin/backup")).json();
   T("stato aggiornato nel pannello", bkDopo?.ultima?.esito === "ok" && bkDopo?.ultima?.dimensioneByte === 3456789, JSON.stringify(bkDopo?.ultima));
+  T("ultimo successo visibile nel pannello", bkDopo?.ultimoSuccesso?.esito === "ok" && bkDopo?.ultimoSuccesso?.dimensioneByte === 3456789);
   T("esecuzione non trovata -> 404", (await fetch(`${BASE}/api/v1/backup/esito`, { method: "POST", headers: { "x-cron-secret": CRON, "Content-Type": "application/json" }, body: JSON.stringify({ esecuzioneId: "00000000-0000-0000-0000-000000000000", esito: "ok" }) })).status === 404);
 
   // ---- Registro completo delle modifiche ----

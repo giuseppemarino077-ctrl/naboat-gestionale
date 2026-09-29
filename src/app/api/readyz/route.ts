@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import Redis from "ioredis";
 
-// Readiness: verifica DB e (se configurato) Redis. Per monitoraggio esterno.
+// Readiness: l'app è pronta a servire traffico? Verifica DB e (se configurato)
+// Redis. Da usare su proxy e monitor (es. curl /api/readyz), NON come healthcheck
+// del container: quello resta /api/healthz. Non espone segreti, solo booleani.
 export async function GET() {
   const checks: Record<string, boolean> = { db: false, redis: true };
   try {
@@ -24,5 +26,8 @@ export async function GET() {
   }
 
   const ok = Object.values(checks).every(Boolean);
-  return NextResponse.json({ ok, checks, time: new Date().toISOString() }, { status: ok ? 200 : 503 });
+  return NextResponse.json(
+    { ok, checks, time: new Date().toISOString() },
+    { status: ok ? 200 : 503, headers: { "Cache-Control": "no-store" } }
+  );
 }

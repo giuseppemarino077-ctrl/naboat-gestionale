@@ -87,9 +87,15 @@ services:
     networks: [back]
     profiles: ["tools"]
 
+  # Legacy: vecchio servizio autonomo con schedulazione propria (@daily). NON parte
+  # con `docker compose up`: l'unica autorità sui backup è l'orchestratore governato
+  # dal pannello (/admin/backup → scripts/backup-orchestrator.sh). Due schedulazioni
+  # insieme duplicherebbero i dump; per riattivarlo come emergenza:
+  #   docker compose --profile legacy-backup up -d backup
   backup:
     image: prodrigestivill/postgres-backup-local:15
     restart: unless-stopped
+    profiles: ["legacy-backup"]
     env_file: [.env]
     environment:
       POSTGRES_HOST: db
