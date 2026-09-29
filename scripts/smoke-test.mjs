@@ -490,6 +490,28 @@ const run = async () => {
   const pagCache = await fetch(`${BASE}/api/v1/payments/public/${token}`);
   T("pagamento: risposta non memorizzabile", (pagCache.headers.get("cache-control") ?? "").includes("no-store"), pagCache.headers.get("cache-control") ?? "");
 
+  // ---- U03: pagine legali pubbliche, senza login e senza bozze spacciate per definitive ----
+  for (const percorso of ["/privacy", "/termini", "/cookie"]) {
+    const r = await fetch(`${BASE}${percorso}`);
+    const html = await r.text();
+    T(`U03 ${percorso} accessibile senza login`, r.status === 200, `status=${r.status}`);
+    T(`U03 ${percorso} segnala la configurazione incompleta`, html.includes("Configurazione incompleta"), `${percorso}`);
+  }
+  const setLegale = await adm.fetch("/api/v1/admin/piattaforma", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ legaleVersione: "prova-2026", legalePrivacyTesto: "Testo privacy approvato di prova.", legaleTerminiTesto: "Testo termini approvato di prova.", legaleCookieTesto: "Testo cookie approvato di prova." }),
+  });
+  T("U03 NaBoat configura i testi legali", setLegale.status === 200, `${setLegale.status}`);
+  const privConf = await (await fetch(`${BASE}/privacy`)).text();
+  T("U03 privacy mostra testo approvato e versione", privConf.includes("Testo privacy approvato di prova.") && privConf.includes("prova-2026"));
+  T("U03 privacy configurata non mostra più la bozza", !privConf.includes("Configurazione incompleta"));
+  await adm.fetch("/api/v1/admin/piattaforma", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ legaleVersione: "", legalePrivacyTesto: "", legaleTerminiTesto: "", legaleCookieTesto: "" }),
+  });
+
   // ---- SEO pagine pubbliche ----
   const seo0 = await adm.fetch("/api/v1/admin/seo");
   const seoDati = await seo0.json();
@@ -545,6 +567,27 @@ const run = async () => {
   T("robots apre le pagine pubbliche quando sono attive", robots1.includes("Allow: /") && robots1.includes("Disallow: /gestionale") && robots1.includes("Sitemap: https://naboat.test/sitemap.xml"), robots1.replace(/\n/g, " | ").slice(0, 200));
   const sitemap1 = await (await fetch(`${BASE}/sitemap.xml`)).text();
   T("sitemap contiene le pagine pubblicate", sitemap1.includes("<urlset") && sitemap1.includes(pagDopo.slug), sitemap1.slice(0, 160));
+  T("U04 sitemap senza URL skipper (nessuna pagina reale)", !sitemap1.includes("/skipper/"), sitemap1.slice(0, 160));
+
+  // U04: metadati coerenti (title/description/canonical/og) sulla pagina azienda pubblicata
+  const azHtml = await (await fetch(`${BASE}/azienda/${pagDopo.slug}`)).text();
+  T("U04 azienda: canonical coerente con lo slug", azHtml.includes('rel="canonical"') && azHtml.includes(`https://naboat.test/azienda/${pagDopo.slug}`), azHtml.slice(0, 200));
+  T("U04 azienda: titolo manuale nei metadati", azHtml.includes("Titolo scelto da NaBoat"));
+  T("U04 azienda: meta description e openGraph presenti", azHtml.includes('name="description"') && azHtml.includes('property="og:title"'), "");
+
+  // Una barca non pubblicata non è raggiungibile (e quindi non indicizzabile)
+  const barcaNo = await fetch(`${BASE}/barca/${pagBarca.slug}`);
+  T("U04 barca non pubblicata: scheda non raggiungibile (404)", barcaNo.status === 404, `${barcaNo.status}`);
+
+  // Cambio indirizzo: il vecchio link continua a funzionare con un reindirizzamento
+  const slugVecchio = pagDopo.slug;
+  const slugNuovo = `${slugVecchio}-r${Date.now()}`;
+  const cambiaSlug = await adm.fetch("/api/v1/admin/seo", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ azione: "pagina", id: pagAzienda.id, slug: slugNuovo }) });
+  T("U04 cambio indirizzo della pagina SEO", cambiaSlug.status === 200, `${cambiaSlug.status}`);
+  const redirectVecchio = await fetch(`${BASE}/azienda/${slugVecchio}`, { redirect: "manual" });
+  T("U04 vecchio slug reindirizza al nuovo", [301, 302, 307, 308].includes(redirectVecchio.status), `${redirectVecchio.status}`);
+  const azNuova = await (await fetch(`${BASE}/azienda/${slugNuovo}`)).text();
+  T("U04 il nuovo slug risponde e ha canonical proprio", azNuova.includes(`https://naboat.test/azienda/${slugNuovo}`), "");
 
   // L'azienda vede la propria SEO ma non può modificarla
   const seoTenant = await json("A", "/api/v1/seo");
@@ -851,12 +894,17 @@ const run = async () => {
   const rieDopo = (await (await adm.fetch("/api/v1/admin/riepilogo")).json()).barchePubblicate;
   T("riepilogo: la barca bloccata esce dalle pubblicate", rieDopo === riePrima - 1, `${riePrima} -> ${rieDopo}`);
   T("barca bloccata fuori dal catalogo", !(await leggiCatalogo()).includes(nomeCatalogo));
+  T("U04 barca bloccata: scheda pubblica non raggiungibile (404)", (await fetch(`${BASE}/barca/${bPub.data.id}`)).status === 404);
   const riPub = await json("A", `/api/v1/boats/${bPub.data.id}`, "PATCH", { pubblicata: true, inPausa: false });
   T("blocco NaBoat non aggirabile dal proprietario -> 409", riPub.status === 409, `${riPub.status} ${JSON.stringify(riPub.data)}`);
   const sblocco = await adm.fetch("/api/v1/admin/barche", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ boatId: bPub.data.id, azione: "mostra" }) });
   T("NaBoat rimuove il blocco", sblocco.status === 200);
   T("riepilogo: la barca sbloccata rientra", (await (await adm.fetch("/api/v1/admin/riepilogo")).json()).barchePubblicate === riePrima);
   T("sbloccata torna nel catalogo", (await leggiCatalogo()).includes("Smoke Catalogo"));
+  // Scheda della barca raggiungibile subito, ma noindex finché NaBoat non pubblica la pagina SEO.
+  const barcaPub = await (await fetch(`${BASE}/barca/${bPub.data.id}`)).text();
+  T("U04 barca senza pagina SEO pubblicata: metadati noindex", barcaPub.includes('name="robots"') && barcaPub.includes("noindex"), barcaPub.slice(0, 160));
+  T("U04 barca: titolo generato presente", barcaPub.includes(nomeCatalogo), "");
 
   // ---- M07: sessioni separate cliente/operatore ----
   const emailCli = `cliente${Date.now()}@test.local`;

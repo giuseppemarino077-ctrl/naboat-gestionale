@@ -1,30 +1,47 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { IntestazioneSito } from "@/components/sito/IntestazioneSito";
 import { PiedeSito } from "@/components/sito/PiedeSito";
 import { RichiestaForm } from "@/components/sito/RichiestaForm";
 import { barcaPerSlug, sceglieTariffa, stagioneDi, TIPI_TARIFFA } from "@/lib/marketplace";
+import { ambienteSeo, metadataEntita, paginaSeoEntita, slugCanonico, trovaPaginaSeo } from "@/lib/seo";
 import { contestoSito } from "@/lib/sito-server";
 
 const euro = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
 
 const ETICHETTA_TIPO: Record<string, string> = { mezza_giornata: "Mezza giornata", giornata: "Giornata", settimana: "Settimana" };
 
+// Slug canonico della barca: pagina SEO pubblica, altrimenti l'id (schede non indicizzate).
+async function risolviBarca(slug: string) {
+  const pagina = (await trovaPaginaSeo("barca", slug)) ?? (await paginaSeoEntita("barca", slug));
+  return { pagina, slugEffettivo: pagina?.slug ?? slug };
+}
+
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
-  const b = await barcaPerSlug(slug);
-  if (!b) return { title: "Barca non trovata" };
-  return {
-    title: `${b.nome}${b.porto ? ` — ${b.porto.nome}` : ""} | NaBoat`,
-    description: b.descrizione?.slice(0, 155) ?? `Noleggia ${b.nome} a ${b.porto?.nome ?? "Napoli"} con ${b.tenant.nome}.`,
-    robots: { index: true, follow: true },
-    openGraph: b.fotoCopertina ? { images: [b.fotoCopertina] } : undefined,
-  };
+  const { pagina, slugEffettivo } = await risolviBarca(slug);
+  const b = await barcaPerSlug(slugEffettivo);
+  if (!b) return { title: "Barca non trovata", robots: { index: false, follow: false } };
+  const ambiente = await ambienteSeo();
+  return metadataEntita({
+    ambiente,
+    pagina,
+    percorso: "barca",
+    slug: slugEffettivo,
+    fallback: {
+      titolo: `${b.nome}${b.porto ? ` — ${b.porto.nome}` : ""} | NaBoat`,
+      descrizione: b.descrizione?.slice(0, 155) ?? `Noleggia ${b.nome} a ${b.porto?.nome ?? "Napoli"} con ${b.tenant.nome}.`,
+      immagine: b.fotoCopertina,
+    },
+  });
 }
 
 export default async function BarcaPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const b = await barcaPerSlug(slug);
+  const { pagina, slugEffettivo } = await risolviBarca(slug);
+  // Indirizzo sempre canonico: id o slug precedente vengono reindirizzati (link non rotti).
+  if (pagina?.slug && pagina.slug !== slug) redirect(`/barca/${pagina.slug}`);
+  const b = await barcaPerSlug(slugEffettivo);
   if (!b) notFound();
   const { appBase } = await contestoSito();
 
@@ -35,7 +52,8 @@ export default async function BarcaPage({ params }: { params: Promise<{ slug: st
   const listino = TIPI_TARIFFA.map((tipo) => ({ tipo, scelta: sceglieTariffa(b.tariffe, b.id, tipo, stagione) })).filter((x) => x.scelta);
   const tel = b.tenant.telefonoContatto?.replace(/\D/g, "");
   const wa = tel ? `https://wa.me/${tel}?text=${encodeURIComponent(`Salve, sono interessato alla barca ${b.nome}${b.porto ? ` (${b.porto.nome})` : ""}.`)}` : null;
-  const aziendaSlug = b.tenant.slug ?? b.tenant.id;
+  // Collegamento all'azienda sullo slug canonico, non su quello del profilo azienda.
+  const aziendaSlug = (await slugCanonico("azienda", b.tenantId)) ?? b.tenant.slug ?? b.tenant.id;
 
   const patenteBox = b.patenteRichiesta
     ? { testo: "Serve la patente nautica", classe: "border-[#fdba74] bg-[#ffe8d5] text-deep" }

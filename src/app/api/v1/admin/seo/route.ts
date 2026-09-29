@@ -143,7 +143,7 @@ export async function PATCH(req: Request) {
   const pag = PaginaSchema.safeParse(body);
   if (pag.success) {
     const d = pag.data;
-    const pagina = await prisma.seoPage.findUnique({ where: { id: d.id }, select: { id: true, slug: true } });
+    const pagina = await prisma.seoPage.findUnique({ where: { id: d.id }, select: { id: true, slug: true, slugPrecedenti: true } });
     if (!pagina) return fail("Pagina SEO non trovata", 404);
 
     if (d.slug !== undefined && d.slug !== null) {
@@ -154,12 +154,23 @@ export async function PATCH(req: Request) {
       d.slug = pulito;
     }
 
+    // Cambiando indirizzo si conserva quello vecchio: i link già diffusi continuano a
+    // funzionare con un reindirizzamento verso il nuovo slug.
+    let slugPrecedenti: string[] | undefined;
+    if (d.slug !== undefined && d.slug !== null && d.slug !== pagina.slug) {
+      const set = new Set(pagina.slugPrecedenti);
+      if (pagina.slug) set.add(pagina.slug);
+      set.delete(d.slug);
+      slugPrecedenti = [...set];
+    }
+
     const upd = await prisma.seoPage.update({
       where: { id: pagina.id },
       data: {
         ...(d.pubblica !== undefined ? { pubblica: d.pubblica } : {}),
         ...(d.noindex !== undefined ? { noindex: d.noindex } : {}),
         ...(d.slug !== undefined ? { slug: d.slug } : {}),
+        ...(slugPrecedenti !== undefined ? { slugPrecedenti } : {}),
         ...(d.titolo !== undefined ? { titolo: d.titolo } : {}),
         ...(d.descrizione !== undefined ? { descrizione: d.descrizione } : {}),
         ...(d.keywords !== undefined ? { keywords: d.keywords } : {}),

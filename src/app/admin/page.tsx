@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { TERMINI_VERSIONE } from "@/lib/termini";
 
 const euro = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
 const eurInput = (c: number | null | undefined) => (c === null || c === undefined ? "" : (c / 100).toFixed(2).replace(".", ","));
@@ -58,7 +59,7 @@ export default function AdminPage() {
     abbonamentoObbligatorio: false,
   });
   const [cond, setCond] = useState<Record<string, { moduloMarketplace: boolean; feeNaboatPct: number; prezzoAttivazioneEuro: string; canoneMensileEuro: string; canoneStagionaleEuro: string }>>({});
-  const [aspetto, setAspetto] = useState<{ loginImmagine: string | null; loginSfocatura: number; loginMessaggio: string; homeTitolo: string; homeSottotitolo: string; homeImmagine: string | null; manutenzioneAttiva: boolean; manutenzioneTitolo: string; manutenzioneTesto: string; sogliaPatenteCv: number; tempoPreparazioneMin: number; finestraRecensioniGiorni: number; pianoFreeMaxBarche: number; pianoFreeMaxFoto: number; pianoProPrezzoMensileCent: number | null; pianoProPrezzoAnnualeCent: number | null; pianoProvaGiorni: number; opzioneScadenzaOre: number; richiestaMaxDurataGiorni: number; richiestaMaxAnticipoGiorni: number; predefinita: string } | null>(null);
+  const [aspetto, setAspetto] = useState<{ loginImmagine: string | null; loginSfocatura: number; loginMessaggio: string; homeTitolo: string; homeSottotitolo: string; homeImmagine: string | null; manutenzioneAttiva: boolean; manutenzioneTitolo: string; manutenzioneTesto: string; legaleVersione: string; legalePrivacyTesto: string; legaleTerminiTesto: string; legaleCookieTesto: string; legaleAggiornatoAt: string | null; sogliaPatenteCv: number; tempoPreparazioneMin: number; finestraRecensioniGiorni: number; pianoFreeMaxBarche: number; pianoFreeMaxFoto: number; pianoProPrezzoMensileCent: number | null; pianoProPrezzoAnnualeCent: number | null; pianoProvaGiorni: number; opzioneScadenzaOre: number; richiestaMaxDurataGiorni: number; richiestaMaxAnticipoGiorni: number; predefinita: string } | null>(null);
   const [caricandoSfondo, setCaricandoSfondo] = useState(false);
   const [caricandoHome, setCaricandoHome] = useState(false);
   const [err, setErr] = useState("");
@@ -98,7 +99,7 @@ export default function AdminPage() {
     setMsg("Foto di apertura della home aggiornata."); load();
   };
 
-  const salvaAspetto = async (patch: Partial<{ loginImmagine: string | null; loginSfocatura: number; loginMessaggio: string | null; homeTitolo: string | null; homeSottotitolo: string | null; homeImmagine: string | null; manutenzioneAttiva: boolean; manutenzioneTitolo: string | null; manutenzioneTesto: string | null; sogliaPatenteCv: number; tempoPreparazioneMin: number; finestraRecensioniGiorni: number; pianoFreeMaxBarche: number; pianoFreeMaxFoto: number; pianoProPrezzoMensileCent: number | null; pianoProPrezzoAnnualeCent: number | null; pianoProvaGiorni: number; opzioneScadenzaOre: number; richiestaMaxDurataGiorni: number; richiestaMaxAnticipoGiorni: number }>) => {
+  const salvaAspetto = async (patch: Partial<{ loginImmagine: string | null; loginSfocatura: number; loginMessaggio: string | null; homeTitolo: string | null; homeSottotitolo: string | null; homeImmagine: string | null; manutenzioneAttiva: boolean; manutenzioneTitolo: string | null; manutenzioneTesto: string | null; legaleVersione: string | null; legalePrivacyTesto: string | null; legaleTerminiTesto: string | null; legaleCookieTesto: string | null; sogliaPatenteCv: number; tempoPreparazioneMin: number; finestraRecensioniGiorni: number; pianoFreeMaxBarche: number; pianoFreeMaxFoto: number; pianoProPrezzoMensileCent: number | null; pianoProPrezzoAnnualeCent: number | null; pianoProvaGiorni: number; opzioneScadenzaOre: number; richiestaMaxDurataGiorni: number; richiestaMaxAnticipoGiorni: number }>) => {
     const r = await fetch("/api/v1/admin/piattaforma", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { setErr(j.error ?? "Errore"); return; }
@@ -579,6 +580,38 @@ export default function AdminPage() {
                 <textarea className="rounded-2xl border border-line p-3" rows={3} maxLength={600} value={aspetto?.manutenzioneTesto ?? ""} onChange={(e) => setAspetto((a) => (a ? { ...a, manutenzioneTesto: e.target.value } : a))} onBlur={() => salvaAspetto({ manutenzioneTesto: aspetto?.manutenzioneTesto || null })} placeholder="es. Il nuovo sito NaBoat per noleggio barche sarà online a breve." />
               </label>
             </div>
+          </div>
+
+          <div className="rounded-3xl border border-line bg-white p-6 shadow-sm">
+            <h2 className="text-xl">Testi legali (privacy, termini, cookie)</h2>
+            <p className="mt-1 text-sm text-muted">
+              Testi approvati mostrati nelle pagine pubbliche <b>/privacy</b>, <b>/termini</b> e <b>/cookie</b>. Finché i
+              campi sono vuoti le pagine avvisano che la configurazione è incompleta e mostrano solo una bozza di lavoro.
+              La versione è quella registrata all&apos;accettazione in fase di registrazione.
+            </p>
+            <label className="mt-4 grid max-w-xs gap-1 text-sm">Versione dei testi
+              <input className="rounded-2xl border border-line p-3" maxLength={40} value={aspetto?.legaleVersione ?? ""} onChange={(e) => setAspetto((a) => (a ? { ...a, legaleVersione: e.target.value } : a))} onBlur={() => salvaAspetto({ legaleVersione: aspetto?.legaleVersione || null })} placeholder="es. 2026-09" />
+            </label>
+            {(aspetto?.legaleVersione ?? "") !== "" && (aspetto?.legaleVersione ?? "") !== TERMINI_VERSIONE && (
+              <p className="mt-2 rounded-2xl border border-[#fdba74] bg-[#fff4e6] p-3 text-xs font-semibold text-[#8a4b08]">
+                Attenzione: la versione mostrata non coincide con quella registrata all&apos;accettazione
+                («{TERMINI_VERSIONE}»). Aggiorna la costante nel codice prima di pubblicare i nuovi testi.
+              </p>
+            )}
+            <div className="mt-4 grid gap-4">
+              <label className="grid gap-1 text-sm">Informativa privacy
+                <textarea className="rounded-2xl border border-line p-3" rows={6} maxLength={40000} value={aspetto?.legalePrivacyTesto ?? ""} onChange={(e) => setAspetto((a) => (a ? { ...a, legalePrivacyTesto: e.target.value } : a))} onBlur={() => salvaAspetto({ legalePrivacyTesto: aspetto?.legalePrivacyTesto || null })} placeholder="Incolla qui il testo approvato della privacy (le righe vuote separano i paragrafi)." />
+              </label>
+              <label className="grid gap-1 text-sm">Termini di servizio
+                <textarea className="rounded-2xl border border-line p-3" rows={6} maxLength={40000} value={aspetto?.legaleTerminiTesto ?? ""} onChange={(e) => setAspetto((a) => (a ? { ...a, legaleTerminiTesto: e.target.value } : a))} onBlur={() => salvaAspetto({ legaleTerminiTesto: aspetto?.legaleTerminiTesto || null })} placeholder="Incolla qui il testo approvato dei termini." />
+              </label>
+              <label className="grid gap-1 text-sm">Cookie
+                <textarea className="rounded-2xl border border-line p-3" rows={6} maxLength={40000} value={aspetto?.legaleCookieTesto ?? ""} onChange={(e) => setAspetto((a) => (a ? { ...a, legaleCookieTesto: e.target.value } : a))} onBlur={() => salvaAspetto({ legaleCookieTesto: aspetto?.legaleCookieTesto || null })} placeholder="Incolla qui il testo approvato sui cookie." />
+              </label>
+            </div>
+            <p className="mt-2 text-xs text-muted">
+              {aspetto?.legaleAggiornatoAt ? `Ultimo aggiornamento: ${new Date(aspetto.legaleAggiornatoAt).toLocaleString("it-IT")}` : "Nessun testo legale configurato."}
+            </p>
           </div>
 
           <div className="rounded-3xl border border-line bg-white p-6 shadow-sm">

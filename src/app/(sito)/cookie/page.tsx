@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { PaginaLegale, leggiTestoLegale } from "@/components/sito/PaginaLegale";
+import { contestoSito } from "@/lib/sito-server";
 
 export const metadata: Metadata = {
   title: "Cookie — NaBoat",
@@ -6,11 +8,18 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
 };
 
-// NOTA: testo redatto come base da far verificare prima della pubblicazione definitiva.
-export default function CookiePage() {
+// NOTA: il testo sotto è una bozza di lavoro. Finché NaBoat non configura il testo
+// approvato (PlatformSettings.legaleCookieTesto + legaleVersione) la pagina lo segnala.
+export default async function CookiePage() {
+  const [legale, { appBase }] = await Promise.all([leggiTestoLegale("legaleCookieTesto"), contestoSito()]);
   return (
-    <article className="mx-auto grid max-w-3xl gap-5 px-5 py-12 text-sm leading-relaxed text-ink">
-      <h1 className="text-3xl">Cookie</h1>
+    <PaginaLegale
+      titolo="Cookie"
+      versione={legale.versione}
+      aggiornatoAt={legale.aggiornatoAt}
+      testo={legale.testo}
+      appBase={appBase}
+    >
       <p className="text-muted">
         NaBoat usa solo cookie tecnici necessari al funzionamento. Non usa cookie di profilazione o pubblicitari.
       </p>
@@ -19,8 +28,8 @@ export default function CookiePage() {
         <h2 className="text-xl">Cookie tecnici</h2>
         <ul className="list-disc pl-5">
           <li>
-            <b>nb_session</b>: mantiene l'accesso al portale (token di sessione, cookie httpOnly). Senza questo cookie non
-            è possibile accedere all'area riservata.
+            <b>nb_session</b>: mantiene l&apos;accesso al portale (token di sessione, cookie httpOnly). Senza questo cookie non
+            è possibile accedere all&apos;area riservata.
           </li>
         </ul>
       </section>
@@ -48,10 +57,6 @@ export default function CookiePage() {
           però accedere al portale.
         </p>
       </section>
-
-      <nav className="border-t border-line pt-4">
-        <a className="font-bold text-ocean" href="/">← Torna al sito</a>
-      </nav>
-    </article>
+    </PaginaLegale>
   );
 }

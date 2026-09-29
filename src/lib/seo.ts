@@ -1,3 +1,5 @@
+import type { Metadata } from "next";
+import { headers } from "next/headers";
 import type { SeoTipo } from "@prisma/client";
 import { prisma } from "@/lib/db";
 
@@ -141,6 +143,100 @@ export function effettivo(p: PaginaSeo) {
     pubblica: p.pubblica,
     noindex: p.noindex,
     manuale: { titolo: !!p.titolo, descrizione: !!p.descrizione, keywords: !!p.keywords },
+  };
+}
+
+// --- Indicizzabilità e metadati delle schede pubbliche ---
+// Un'unica fonte per capire se una pagina va indicizzata: interruttore globale
+// (seoPubblicheAttive) + pagina SEO pubblicata da NaBoat + entità ancora idonea.
+// L'idoneità dell'entità la garantiscono barcaPerSlug/aziendaPerSlug (FILTRO_CATALOGO).
+
+const CAMPI_SEO = {
+  tipo: true,
+  refId: true,
+  slug: true,
+  pubblica: true,
+  noindex: true,
+  titoloAuto: true,
+  descrizioneAuto: true,
+  keywordsAuto: true,
+  titolo: true,
+  descrizione: true,
+  keywords: true,
+  immagine: true,
+} as const;
+
+export type AmbienteSeo = { attive: boolean; base: string };
+
+// Legge l'interruttore globale e l'indirizzo canonico. Senza seoDominioPubblico
+// si ricade sull'indirizzo della richiesta, così canonical e og:url restano assoluti.
+export async function ambienteSeo(): Promise<AmbienteSeo> {
+  const [s, h] = await Promise.all([
+    prisma.platformSettings
+      .findUnique({ where: { id: "singleton" }, select: { seoPubblicheAttive: true, seoDominioPubblico: true } })
+      .catch(() => null),
+    headers(),
+  ]);
+  const host = h.get("host") ?? "";
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = (s?.seoDominioPubblico || "").replace(/\/$/, "") || (host ? `${proto}://${host}` : "");
+  return { attive: s?.seoPubblicheAttive === true, base };
+}
+
+// Pagina SEO di un'entità (la slug attuale è l'indirizzo canonico).
+export async function paginaSeoEntita(tipo: SeoTipo, refId: string) {
+  return prisma.seoPage.findFirst({ where: { tipo, refId }, select: CAMPI_SEO });
+}
+
+// Pagina SEO per slug attuale oppure per uno slug precedente (link non rotti).
+export async function trovaPaginaSeo(tipo: SeoTipo, slug: string) {
+  return prisma.seoPage.findFirst({
+    where: { tipo, OR: [{ slug }, { slugPrecedenti: { has: slug } }] },
+    select: CAMPI_SEO,
+  });
+}
+
+// Slug canonico di un'entità, se NaBoat le ha assegnato una pagina pubblica.
+export async function slugCanonico(tipo: SeoTipo, refId: string): Promise<string | null> {
+  const p = await prisma.seoPage.findFirst({ where: { tipo, refId }, select: { slug: true } });
+  return p?.slug ?? null;
+}
+
+function taglio(testo: string, max: number): string {
+  return testo.length <= max ? testo : `${testo.slice(0, max - 1).trimEnd()}…`;
+}
+
+// Metadati di una scheda pubblica: titolo/descrizione effettivi (override manuali +
+// testo generato), canonical coerente con lo slug, openGraph completo e robots
+// index solo se la pagina è pubblicata e l'interruttore globale è acceso.
+export function metadataEntita(opts: {
+  ambiente: AmbienteSeo;
+  pagina: PaginaSeo | null;
+  percorso: string;
+  slug: string;
+  fallback: { titolo: string; descrizione: string; immagine?: string | null };
+}): Metadata {
+  const { ambiente, pagina } = opts;
+  const eff = pagina ? effettivo(pagina) : null;
+  const titolo = taglio(eff?.titolo || opts.fallback.titolo || "NaBoat", 120);
+  const descrizione = taglio(eff?.descrizione || opts.fallback.descrizione || "Noleggio barche con NaBoat.", 300);
+  const immagine = eff?.immagine || opts.fallback.immagine || null;
+  const indicizzabile = ambiente.attive && !!pagina?.pubblica && !pagina?.noindex;
+  const url = ambiente.base ? `${ambiente.base}/${opts.percorso}/${opts.slug}` : undefined;
+
+  return {
+    title: titolo,
+    description: descrizione,
+    alternates: url ? { canonical: url } : undefined,
+    robots: indicizzabile ? { index: true, follow: true } : { index: false, follow: false },
+    openGraph: {
+      title: titolo,
+      description: descrizione,
+      siteName: "NaBoat",
+      type: "website",
+      ...(url ? { url } : {}),
+      ...(immagine ? { images: [immagine] } : {}),
+    },
   };
 }
 

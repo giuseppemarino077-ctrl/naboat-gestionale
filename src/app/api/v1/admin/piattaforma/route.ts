@@ -20,6 +20,11 @@ export async function GET() {
       manutenzioneAttiva: true,
       manutenzioneTitolo: true,
       manutenzioneTesto: true,
+      legaleVersione: true,
+      legalePrivacyTesto: true,
+      legaleTerminiTesto: true,
+      legaleCookieTesto: true,
+      legaleAggiornatoAt: true,
       sogliaPatenteCv: true,
       tempoPreparazioneMin: true,
       finestraRecensioniGiorni: true,
@@ -43,6 +48,11 @@ export async function GET() {
     manutenzioneAttiva: s?.manutenzioneAttiva ?? false,
     manutenzioneTitolo: s?.manutenzioneTitolo ?? "",
     manutenzioneTesto: s?.manutenzioneTesto ?? "",
+    legaleVersione: s?.legaleVersione ?? "",
+    legalePrivacyTesto: s?.legalePrivacyTesto ?? "",
+    legaleTerminiTesto: s?.legaleTerminiTesto ?? "",
+    legaleCookieTesto: s?.legaleCookieTesto ?? "",
+    legaleAggiornatoAt: s?.legaleAggiornatoAt ?? null,
     sogliaPatenteCv: s?.sogliaPatenteCv ?? 40,
     tempoPreparazioneMin: s?.tempoPreparazioneMin ?? 0,
     finestraRecensioniGiorni: s?.finestraRecensioniGiorni ?? 60,
@@ -69,6 +79,10 @@ const Schema = z
     manutenzioneAttiva: z.boolean().optional(),
     manutenzioneTitolo: z.string().max(160).optional().nullable(),
     manutenzioneTesto: z.string().max(600).optional().nullable(),
+    legaleVersione: z.string().max(40).optional().nullable(),
+    legalePrivacyTesto: z.string().max(40000).optional().nullable(),
+    legaleTerminiTesto: z.string().max(40000).optional().nullable(),
+    legaleCookieTesto: z.string().max(40000).optional().nullable(),
     sogliaPatenteCv: z.number().int().min(0).max(2000).optional(),
     tempoPreparazioneMin: z.number().int().min(0).max(10080).optional(),
     finestraRecensioniGiorni: z.number().int().min(1).max(365).optional(),
@@ -93,10 +107,15 @@ export async function PATCH(req: Request) {
     where: { id: "singleton" },
     select: { loginImmagine: true, homeImmagine: true },
   });
+  // Data di aggiornamento dei testi legali: si tocca solo quando si modificano.
+  const toccaLegale = ["legaleVersione", "legalePrivacyTesto", "legaleTerminiTesto", "legaleCookieTesto"].some(
+    (k) => k in p.data
+  );
+  const dati = toccaLegale ? { ...p.data, legaleAggiornatoAt: new Date() } : p.data;
   const salvato = await prisma.platformSettings.upsert({
     where: { id: "singleton" },
-    update: p.data,
-    create: { id: "singleton", ...p.data },
+    update: dati,
+    create: { id: "singleton", ...dati },
   });
 
   // Se si cambia o si toglie un'immagine, quella vecchia (se caricata da qui) si elimina.

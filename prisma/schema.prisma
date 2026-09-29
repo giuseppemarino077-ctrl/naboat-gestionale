@@ -631,6 +631,16 @@ model PlatformSettings {
   manutenzioneTitolo String?
   manutenzioneTesto  String?
 
+  // --- Testi legali approvati (privacy, termini, cookie) ---
+  // Finché questi campi sono vuoti le pagine mostrano un avviso di configurazione
+  // incompleta, mai una bozza presentata come definitiva. La versione è quella che
+  // l'utente accetta in registrazione (User.terminiVersione).
+  legaleVersione      String?
+  legalePrivacyTesto  String?
+  legaleTerminiTesto  String?
+  legaleCookieTesto   String?
+  legaleAggiornatoAt  DateTime?
+
   // --- Listino del modulo Ormeggio (prezzi di NaBoat per gli ormeggiatori) ---
   prezzoAttivazioneOrmeggioCent Int?
   canoneOrmeggioMensileCent     Int?
@@ -692,6 +702,7 @@ model SeoPage {
   refId           String? // id di azienda/barca/skipper (null per la piattaforma)
   tenantId        String? // azienda di appartenenza (null per la piattaforma)
   slug            String?  @unique // indirizzo pubblico, es. "golfo-charter"
+  slugPrecedenti  String[] @default([]) // slug cambiati: i vecchi link vengono reindirizzati al nuovo
   pubblica         Boolean  @default(false) // se la pagina pubblica è attiva
   titoloAuto      String?
   descrizioneAuto String?

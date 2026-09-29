@@ -1,22 +1,38 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { IntestazioneSito } from "@/components/sito/IntestazioneSito";
 import { PiedeSito } from "@/components/sito/PiedeSito";
 import { prisma } from "@/lib/db";
 import { aziendaPerSlug } from "@/lib/marketplace";
+import { ambienteSeo, metadataEntita, paginaSeoEntita, trovaPaginaSeo } from "@/lib/seo";
 import { contestoSito } from "@/lib/sito-server";
 
 const euro = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
 
+// Slug canonico dell'azienda: pagina SEO pubblica, altrimenti slug/id del profilo.
+async function risolviAzienda(slug: string) {
+  const pagina = (await trovaPaginaSeo("azienda", slug)) ?? (await paginaSeoEntita("azienda", slug));
+  return { pagina, slugEffettivo: pagina?.slug ?? slug };
+}
+
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
-  const a = await aziendaPerSlug(slug);
-  if (!a) return { title: "Azienda non trovata" };
-  return {
-    title: `${a.nome}${a.citta ? ` — noleggio barche a ${a.citta}` : ""} | NaBoat`,
-    description: a.descrizione?.slice(0, 155) ?? `Le barche di ${a.nome} su NaBoat: prezzi, disponibilità e contatti.`,
-    robots: { index: true, follow: true },
-  };
+  const { pagina, slugEffettivo } = await risolviAzienda(slug);
+  const a = await aziendaPerSlug(slugEffettivo);
+  if (!a) return { title: "Azienda non trovata", robots: { index: false, follow: false } };
+  const ambiente = await ambienteSeo();
+  const copertina = a.copertinaUrl ?? a.boats.find((b) => b.fotoCopertina)?.fotoCopertina ?? a.logoUrl;
+  return metadataEntita({
+    ambiente,
+    pagina,
+    percorso: "azienda",
+    slug: slugEffettivo,
+    fallback: {
+      titolo: `${a.nome}${a.citta ? ` — noleggio barche a ${a.citta}` : ""} | NaBoat`,
+      descrizione: a.descrizione?.slice(0, 155) ?? `Le barche di ${a.nome} su NaBoat: prezzi, disponibilità e contatti.`,
+      immagine: copertina,
+    },
+  });
 }
 
 export default async function AziendaPage({
@@ -28,7 +44,9 @@ export default async function AziendaPage({
 }) {
   const { slug } = await params;
   const sp = await searchParams;
-  const a = await aziendaPerSlug(slug);
+  const { pagina, slugEffettivo } = await risolviAzienda(slug);
+  if (pagina?.slug && pagina.slug !== slug) redirect(`/azienda/${pagina.slug}`);
+  const a = await aziendaPerSlug(slugEffettivo);
   if (!a) notFound();
   const { appBase } = await contestoSito();
 

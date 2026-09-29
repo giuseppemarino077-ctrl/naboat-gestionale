@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { PaginaLegale, leggiTestoLegale } from "@/components/sito/PaginaLegale";
+import { contestoSito } from "@/lib/sito-server";
 
 export const metadata: Metadata = {
   title: "Informativa privacy — NaBoat",
@@ -6,14 +8,19 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
 };
 
-// NOTA: testo redatto come base da far verificare prima della pubblicazione definitiva.
-export default function PrivacyPage() {
+// NOTA: il testo sotto è una bozza di lavoro. Finché NaBoat non configura il testo
+// approvato (PlatformSettings.legalePrivacyTesto + legaleVersione) la pagina lo segnala.
+export default async function PrivacyPage() {
+  const [legale, { appBase }] = await Promise.all([leggiTestoLegale("legalePrivacyTesto"), contestoSito()]);
   return (
-    <article className="mx-auto grid max-w-3xl gap-5 px-5 py-12 text-sm leading-relaxed text-ink">
-      <h1 className="text-3xl">Informativa privacy</h1>
-      <p className="text-muted">
-        Ai sensi degli articoli 13 e 14 del Regolamento (UE) 2016/679 («GDPR»). Ultimo aggiornamento: da definire.
-      </p>
+    <PaginaLegale
+      titolo="Informativa privacy"
+      versione={legale.versione}
+      aggiornatoAt={legale.aggiornatoAt}
+      testo={legale.testo}
+      appBase={appBase}
+    >
+      <p className="text-muted">Ai sensi degli articoli 13 e 14 del Regolamento (UE) 2016/679 («GDPR»).</p>
 
       <section className="grid gap-2">
         <h2 className="text-xl">1. Titolare del trattamento</h2>
@@ -61,17 +68,13 @@ export default function PrivacyPage() {
       </section>
 
       <section className="grid gap-2">
-        <h2 className="text-xl">6. Diritti dell'interessato</h2>
+        <h2 className="text-xl">6. Diritti dell&apos;interessato</h2>
         <p>
           Accesso, rettifica, cancellazione, limitazione, opposizione e portabilità. Le richieste si inviano a{" "}
           <a className="font-bold text-ocean" href="mailto:info@naboat.it">info@naboat.it</a>. È possibile proporre
           reclamo al Garante per la protezione dei dati personali.
         </p>
       </section>
-
-      <nav className="border-t border-line pt-4">
-        <a className="font-bold text-ocean" href="/">← Torna al sito</a>
-      </nav>
-    </article>
+    </PaginaLegale>
   );
 }

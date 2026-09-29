@@ -1,26 +1,29 @@
 import type { MetadataRoute } from "next";
 import { headers } from "next/headers";
 import { prisma } from "@/lib/db";
-import { FILTRO_BARCA_CATALOGO } from "@/lib/marketplace";
+import { FILTRO_CATALOGO } from "@/lib/marketplace";
 import { DOMINIO_SITO, dominioPubblico } from "@/lib/sito";
 
 // Come robots.txt: si aggiorna a ogni richiesta, non alla compilazione.
 export const dynamic = "force-dynamic";
 
-const prefisso = (tipo: string) => (tipo === "barca" ? "barca" : tipo === "azienda" ? "azienda" : tipo === "skipper" ? "skipper" : "");
+// Prefisso dell'indirizzo pubblico. barca/azienda sono le uniche schede con una
+// pagina reale: gli skipper non hanno una pagina propria, quindi non si segnalano.
+const prefisso = (tipo: string) => (tipo === "barca" ? "barca" : tipo === "azienda" ? "azienda" : "");
 
 // Pagine del marketplace (schede pubbliche): si aggiungono solo quando NaBoat le attiva
 // e solo se l'entità è ancora idonea al catalogo (M01). Una pagina SEO pubblicata non
-// basta: barca bloccata, senza foto/prezzo o con marketplace spento non deve finire qui.
+// basta: barca bloccata, senza foto/prezzo, azienda sospesa o marketplace spento non
+// devono finire qui. FILTRO_CATALOGO è la stessa regola usata dal catalogo e dalle schede.
 async function pagineMarketplace(base: string): Promise<MetadataRoute.Sitemap> {
   const [pagine, barcheOk, aziendeOk] = await Promise.all([
     prisma.seoPage.findMany({
-      where: { pubblica: true, noindex: false, slug: { not: null } },
+      where: { pubblica: true, noindex: false, slug: { not: null }, tipo: { in: ["barca", "azienda"] } },
       select: { tipo: true, slug: true, refId: true, tenantId: true, aggiornatoAt: true },
       orderBy: { aggiornatoAt: "desc" },
       take: 5000,
     }),
-    prisma.boat.findMany({ where: FILTRO_BARCA_CATALOGO, select: { id: true } }),
+    prisma.boat.findMany({ where: FILTRO_CATALOGO, select: { id: true } }),
     prisma.tenant.findMany({ where: { status: "active", moduloMarketplace: true }, select: { id: true } }),
   ]);
   const idBarche = new Set(barcheOk.map((b) => b.id));
@@ -31,10 +34,10 @@ async function pagineMarketplace(base: string): Promise<MetadataRoute.Sitemap> {
     if (!p.slug) continue;
     if (p.tipo === "barca" && (!p.refId || !idBarche.has(p.refId))) continue;
     if (p.tipo === "azienda" && (!p.refId || !idAziende.has(p.refId))) continue;
-    if (p.tipo === "skipper" && (!p.tenantId || !idAziende.has(p.tenantId))) continue;
     const pre = prefisso(p.tipo);
+    if (!pre) continue;
     voci.push({
-      url: pre ? `${base}/${pre}/${p.slug}` : `${base}/${p.slug}`,
+      url: `${base}/${pre}/${p.slug}`,
       lastModified: p.aggiornatoAt,
       changeFrequency: p.tipo === "barca" ? "weekly" : "monthly",
       priority: p.tipo === "azienda" ? 0.8 : 0.7,
@@ -67,6 +70,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       { url: `${b}/per-noleggiatori`, changeFrequency: "monthly", priority: 0.7 },
       { url: `${b}/chi-siamo`, changeFrequency: "monthly", priority: 0.6 },
       { url: `${b}/contatti`, changeFrequency: "monthly", priority: 0.6 },
+      { url: `${b}/privacy`, changeFrequency: "yearly", priority: 0.3 },
+      { url: `${b}/cookie`, changeFrequency: "yearly", priority: 0.3 },
+      { url: `${b}/termini`, changeFrequency: "yearly", priority: 0.3 },
     ];
     if (s?.seoPubblicheAttive === true) voci.push(...(await pagineMarketplace(b)));
     return voci;
