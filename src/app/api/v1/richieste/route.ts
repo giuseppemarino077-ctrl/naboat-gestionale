@@ -1,5 +1,6 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
+import { bloccaRisorse, validaBarcaNoleggio, verificaDisponibilita } from "@/lib/disponibilita";
 import { richiestaRicevutaBody, sendMail } from "@/lib/mailer";
 import { getSession } from "@/lib/session";
 import { clientIp, rateLimit } from "@/lib/ratelimit";
@@ -37,34 +38,30 @@ export async function POST(req: Request) {
 
   const start = new Date(p.data.startAt);
   const end = new Date(p.data.endAt);
-  if (!(start < end)) return fail("Orari incoerenti", 422);
+  if (!(start < end)) return fail("Orari incoherenti", 422);
 
   const boat = await prisma.boat.findFirst({
-    where: { id: p.data.boatId, uso: "noleggio", pubblicata: true, inPausa: false, tenant: { status: "active" } },
+    where: { id: p.data.boatId, uso: "noleggio", pubblicata: true, inPausa: false, archiviato: false, tenant: { status: "active" } },
     include: { tenant: { select: { id: true, nome: true } } },
   });
   if (!boat) return fail("Barca non disponibile", 404);
-  if (p.data.passeggeri > boat.capienza) return fail(`Capienza massima ${boat.capienza} persone`, 422);
+  // Stesse regole dello stato finale: barca a noleggio (già in query), non in
+  // manutenzione, capienza rispettata.
+  const errBarca = validaBarcaNoleggio(boat, p.data.passeggeri);
+  if (errBarca) return fail(errBarca.startsWith("Capienza") ? `Capienza massima ${boat.capienza} persone` : "Barca non disponibile", 422);
 
   const s = await getSession();
   const clienteAccountId = s?.role === "cliente" ? s.sub : null;
 
-  const impostazioni = await prisma.platformSettings.findUnique({ where: { id: "singleton" }, select: { tempoPreparazioneMin: true } }).catch(() => null);
-  const prepMs = Math.max(0, impostazioni?.tempoPreparazioneMin ?? 0) * 60000;
-  const startAllargato = new Date(start.getTime() - prepMs);
-  const endAllargato = new Date(end.getTime() + prepMs);
-
   const dedupKey = normTel(p.data.telefono);
 
+  // Il controllo di disponibilità e la creazione stanno nella stessa transazione,
+  // con il lock per barca: una richiesta non scavalca una prenotazione in corso.
   const risultato = await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${boat.id}))`;
-    const overlap = await tx.booking.findFirst({
-      where: { boatId: boat.id, tenantId: boat.tenantId, stato: { in: ["da_confermare", "prenotata", "in_mare"] }, startAt: { lt: endAllargato }, endAt: { gt: startAllargato } },
-      select: { id: true },
-    });
-    if (overlap) return { err: "La barca non è disponibile in quelle date", booking: null };
-    const block = await tx.block.findFirst({ where: { boatId: boat.id, tenantId: boat.tenantId, startAt: { lt: endAllargato }, endAt: { gt: startAllargato } }, select: { id: true } });
-    if (block) return { err: "La barca non è disponibile in quelle date", booking: null };
+    await bloccaRisorse(tx, { boatIds: [boat.id] });
+
+    const disp = await verificaDisponibilita(tx, { tenantId: boat.tenantId, boatId: boat.id, startAt: start, endAt: end });
+    if (!disp.ok) return { err: "La barca non è disponibile in quelle date", booking: null };
 
     const customer = await tx.customer.upsert({
       where: { tenantId_dedupKey: { tenantId: boat.tenantId, dedupKey } },

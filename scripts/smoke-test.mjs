@@ -103,6 +103,9 @@ const run = async () => {
   T("crea prenotazione", bk.data?.stato === "prenotata", JSON.stringify(bk.data));
   const bk2 = await json("A", "/api/v1/bookings", "POST", { boatId: b.data.id, startAt: t0, endAt: t1, clienteNome: "Cliente Smoke", telefono: "333123456", passeggeri: 3, skipperId: sk.data.id, idempotencyKey: key });
   T("idempotency replay", bk2.data?.id === bk.data?.id);
+  T("stessa chiave idempotenza con dati diversi -> 409", (await json("A", "/api/v1/bookings", "POST", { boatId: b.data.id, startAt: t0, endAt: t1, clienteNome: "Cliente Diverso", telefono: "333123456", passeggeri: 3, skipperId: sk.data.id, idempotencyKey: key })).status === 409);
+  T("skipper già impegnato su altra barca -> 409", (await json("A", "/api/v1/bookings", "POST", { boatId: dup.data.id, startAt: t0, endAt: t1, clienteNome: "Cliente Skipper", telefono: "333222111", skipperId: sk.data.id, idempotencyKey: key + "-sk" })).status === 409);
+  T("modifica passeggeri oltre capienza -> 422", (await json("A", `/api/v1/bookings/${bk.data.id}`, "PATCH", { passeggeri: 5 })).status === 422);
   T("overlap 409", (await json("A", "/api/v1/bookings", "POST", { boatId: b.data.id, startAt: "2028-05-10T12:00:00.000Z", endAt: "2028-05-10T14:00:00.000Z", clienteNome: "X", telefono: "333999888", skipperId: sk.data.id, idempotencyKey: key + "b" })).status === 409);
   T("stato -> in_mare", (await json("A", `/api/v1/bookings/${bk.data.id}`, "PATCH", { stato: "in_mare" })).data?.stato === "in_mare");
   T("regressione stato 422", (await json("A", `/api/v1/bookings/${bk.data.id}`, "PATCH", { stato: "prenotata" })).status === 422);

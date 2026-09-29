@@ -1,6 +1,7 @@
 import { fail, ok } from "@/lib/api";
 import { registraAzione } from "@/lib/audit";
 import { prisma } from "@/lib/db";
+import { bloccaRisorse, verificaDisponibilita } from "@/lib/disponibilita";
 import { requireTenant } from "@/lib/tenant";
 import { z } from "zod";
 
@@ -27,15 +28,33 @@ export async function POST(req: Request) {
   if (!p.success) return fail("Dati blocco non validi", 422);
   const start = new Date(p.data.startAt);
   const end = new Date(p.data.endAt);
-  if (start >= end) return fail("Orari incoerenti", 422);
-  const boat = await prisma.boat.findFirst({ where: { id: p.data.boatId, tenantId: t.tenantId } });
-  if (!boat) return fail("Barca non trovata", 404);
-  const clash = await prisma.booking.findFirst({
-    where: { boatId: p.data.boatId, tenantId: t.tenantId, stato: { in: ["prenotata", "in_mare"] }, startAt: { lt: end }, endAt: { gt: start } },
-    select: { id: true },
-  });
-  if (clash) return fail("Esiste una prenotazione nel periodo", 409);
-  return ok(await prisma.block.create({ data: { tenantId: t.tenantId, boatId: p.data.boatId, startAt: start, endAt: end, motivo: p.data.motivo } }), 201);
+  if (start >= end) return fail("Orari incoherenti", 422);
+
+  // In transazione con il lock per barca: non si inserisce un blocco sopra una
+  // prenotazione o un altro blocco mentre un'altra richiesta sta salvando.
+  let risultato: { err?: string; status?: number; block?: any };
+  try {
+    risultato = await prisma.$transaction(async (tx) => {
+      await bloccaRisorse(tx, { boatIds: [p.data.boatId] });
+
+      const boat = await tx.boat.findFirst({ where: { id: p.data.boatId, tenantId: t.tenantId }, select: { id: true } });
+      if (!boat) return { err: "Barca non trovata", status: 404 };
+
+      const disp = await verificaDisponibilita(tx, { tenantId: t.tenantId, boatId: p.data.boatId, startAt: start, endAt: end });
+      if (!disp.ok) {
+        const messaggio = disp.motivo === "barca" ? "Esiste una prenotazione nel periodo" : disp.motivo === "blocco" ? "Esiste già un blocco nel periodo" : disp.messaggio;
+        return { err: messaggio, status: 409 };
+      }
+
+      const block = await tx.block.create({ data: { tenantId: t.tenantId, boatId: p.data.boatId, startAt: start, endAt: end, motivo: p.data.motivo } });
+      return { block };
+    });
+  } catch (e) {
+    if (/Sovrapposizione/i.test(e instanceof Error ? e.message : String(e))) return fail("Esiste una prenotazione nel periodo", 409);
+    throw e;
+  }
+  if (risultato.err) return fail(risultato.err, risultato.status ?? 409);
+  return ok(risultato.block, 201);
 }
 
 // Eliminazione di un blocco o di un gruppo di blocchi.

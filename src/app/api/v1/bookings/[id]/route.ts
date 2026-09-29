@@ -1,6 +1,7 @@
 import { fail, ok } from "@/lib/api";
 import { traccia, registraAzione } from "@/lib/audit";
 import { prisma } from "@/lib/db";
+import { bloccaRisorse, validaBarcaNoleggio, validaPatente, verificaDisponibilita } from "@/lib/disponibilita";
 import { richiestaEsitoBody, sendMail } from "@/lib/mailer";
 import { parseImportoEuro } from "@/lib/payments";
 import { requireAzienda } from "@/lib/tenant";
@@ -118,23 +119,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (p.data.patenteOk !== undefined) data.patenteOk = p.data.patenteOk;
   if (p.data.skipperId !== undefined) data.skipperId = p.data.skipperId;
 
-  // Spostamento (barca / giorno / orario): si ricontrollano disponibilità e capienza.
-  if (p.data.boatId || p.data.startAt || p.data.endAt) {
+  // Spostamento (barca / giorno / orario): si impostano i nuovi valori.
+  if (p.data.boatId !== undefined || p.data.startAt !== undefined || p.data.endAt !== undefined) {
     const nuovoBoatId = p.data.boatId ?? cur.boatId;
     const nuovoStart = p.data.startAt ? new Date(p.data.startAt) : cur.startAt;
     const nuovoEnd = p.data.endAt ? new Date(p.data.endAt) : cur.endAt;
-    if (!(nuovoStart < nuovoEnd)) return fail("Orari incoerenti", 422);
-    const boat = await prisma.boat.findFirst({ where: { id: nuovoBoatId, tenantId: t.tenantId } });
-    if (!boat) return fail("Barca non trovata", 404);
-    const pass = p.data.passeggeri ?? cur.passeggeri;
-    if (pass > boat.capienza) return fail(`Capienza max ${boat.capienza}`, 422);
-    const overlap = await prisma.booking.findFirst({
-      where: { tenantId: t.tenantId, boatId: nuovoBoatId, id: { not: id }, stato: { in: ["da_confermare", "prenotata", "in_mare"] }, startAt: { lt: nuovoEnd }, endAt: { gt: nuovoStart } },
-      select: { id: true },
-    });
-    if (overlap) return fail("Sovrapposizione con altra prenotazione", 409);
-    const block = await prisma.block.findFirst({ where: { tenantId: t.tenantId, boatId: nuovoBoatId, startAt: { lt: nuovoEnd }, endAt: { gt: nuovoStart } }, select: { id: true } });
-    if (block) return fail("Risorsa bloccata in quel periodo", 409);
+    if (!(nuovoStart < nuovoEnd)) return fail("Orari incoherenti", 422);
     data.boatId = nuovoBoatId;
     data.startAt = nuovoStart;
     data.endAt = nuovoEnd;
@@ -144,7 +134,67 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   if (Object.keys(data).length === 0) return fail("Nessuna modifica richiesta", 422);
 
-  const upd = await prisma.booking.update({ where: { id: cur.id }, data: data as never });
+  // Stato finale (record corrente fuso con le modifiche): è questo che va validato, non
+  // il solo insieme dei campi inviati. Cambiare solo i passeggeri, ad esempio, deve
+  // comunque rispettare capienza e disponibilità.
+  const nuovoBoatId = p.data.boatId ?? cur.boatId;
+  const nuovoStart = p.data.startAt ? new Date(p.data.startAt) : cur.startAt;
+  const nuovoEnd = p.data.endAt ? new Date(p.data.endAt) : cur.endAt;
+  const finalePasseggeri = p.data.passeggeri ?? cur.passeggeri;
+  const finalePatenteOk = p.data.patenteOk ?? cur.patenteOk;
+  const finaleSkipperId = p.data.skipperId !== undefined ? p.data.skipperId : cur.skipperId;
+  const cambiaOperativo =
+    p.data.boatId !== undefined ||
+    p.data.startAt !== undefined ||
+    p.data.endAt !== undefined ||
+    p.data.passeggeri !== undefined ||
+    p.data.skipperId !== undefined ||
+    p.data.patenteOk !== undefined;
+
+  let upd: any;
+  if (cambiaOperativo) {
+    // Lock su vecchia e nuova barca (in ordine stabile) e sullo skipper finale:
+    // lo spostamento non può sfuggire a due addetti che salvano insieme.
+    let esito: { err?: string; status?: number; booking?: any };
+    try {
+      esito = await prisma.$transaction(async (tx) => {
+        await bloccaRisorse(tx, { boatIds: [cur.boatId, nuovoBoatId], skipperId: finaleSkipperId });
+
+        const boat = await tx.boat.findFirst({ where: { id: nuovoBoatId, tenantId: t.tenantId } });
+        if (!boat) return { err: "Barca non trovata", status: 404 };
+        const errBarca = validaBarcaNoleggio(boat, finalePasseggeri);
+        if (errBarca) return { err: errBarca, status: 422 };
+        const errPatente = validaPatente(boat, { patenteOk: finalePatenteOk, skipperId: finaleSkipperId });
+        if (errPatente) return { err: errPatente, status: 422 };
+
+        if (finaleSkipperId) {
+          const sk = await tx.skipper.findFirst({ where: { id: finaleSkipperId, tenantId: t.tenantId, attivo: true }, select: { id: true } });
+          if (!sk) return { err: "Skipper non valido", status: 422 };
+        }
+
+        const disp = await verificaDisponibilita(tx, {
+          tenantId: t.tenantId,
+          boatId: nuovoBoatId,
+          startAt: nuovoStart,
+          endAt: nuovoEnd,
+          bookingId: cur.id,
+          skipperId: finaleSkipperId,
+        });
+        if (!disp.ok) return { err: disp.messaggio, status: 409 };
+
+        const booking = await tx.booking.update({ where: { id: cur.id }, data: data as never });
+        return { booking };
+      });
+    } catch (e) {
+      if (/Sovrapposizione/i.test(e instanceof Error ? e.message : String(e))) return fail("Sovrapposizione con altra prenotazione", 409);
+      throw e;
+    }
+    if (esito.err) return fail(esito.err, esito.status ?? 422);
+    upd = esito.booking;
+  } else {
+    upd = await prisma.booking.update({ where: { id: cur.id }, data: data as never });
+  }
+
   if (p.data.stato) {
     await registraAzione({ tenantId: t.tenantId, actorId: t.userId, azione: `booking.stato.${p.data.stato}`, entita: "Booking", entitaId: cur.id, nota: `${cur.stato} → ${p.data.stato}` });
     // Esito di una richiesta dal sito: si avvisa il cliente.

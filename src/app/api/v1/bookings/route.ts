@@ -1,8 +1,10 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
+import { bloccaRisorse, validaBarcaNoleggio, validaPatente, verificaDisponibilita } from "@/lib/disponibilita";
 import { parseImportoEuro } from "@/lib/payments";
 import { extrasDelTenant } from "@/lib/riferimenti";
 import { requireAzienda } from "@/lib/tenant";
+import { createHash } from "crypto";
 import { z } from "zod";
 
 const normTel = (s: string) => s.replace(/\D/g, "").slice(-15);
@@ -62,6 +64,31 @@ const Schema = z.object({
   pagato: z.boolean().optional(),
 });
 
+// Impronta dell'intento (payload normalizzato): alla stessa chiave di idempotenza
+// deve corrispondere la stessa richiesta, altrimenti si risponde 409.
+function improntaPayload(v: z.infer<typeof Schema>): string {
+  const canonico = {
+    boatId: v.boatId,
+    startAt: v.startAt,
+    endAt: v.endAt,
+    passeggeri: v.passeggeri,
+    clienteNome: v.clienteNome,
+    telefono: v.telefono,
+    email: v.email ?? null,
+    destinazione: v.destinazione ?? null,
+    formula: v.formula ?? null,
+    note: v.note ?? null,
+    patenteOk: v.patenteOk,
+    skipperId: v.skipperId ?? null,
+    extraIds: [...v.extraIds].sort(),
+    extraQuantita: Object.fromEntries(Object.entries(v.extraQuantita ?? {}).sort(([a], [b]) => a.localeCompare(b))),
+    stato: v.stato,
+    prezzoEuro: v.prezzoEuro ?? null,
+    pagato: v.pagato ?? false,
+  };
+  return createHash("sha256").update(JSON.stringify(canonico)).digest("hex");
+}
+
 export async function POST(req: Request) {
   const t = await requireAzienda(req);
   if ("error" in t) return t.error;
@@ -72,55 +99,70 @@ export async function POST(req: Request) {
   if (t.vedeImporti === false && (v.prezzoEuro || v.pagato)) return fail("Permesso negato: non hai l'accesso agli importi", 403);
   const start = new Date(v.startAt);
   const end = new Date(v.endAt);
-  if (start >= end) return fail("Orari incoerenti", 422);
+  if (start >= end) return fail("Orari incoherenti", 422);
 
+  const impronta = v.idempotencyKey ? improntaPayload(v) : null;
+
+  // Retry immediato della stessa richiesta: si restituisce l'esito già salvato.
   if (v.idempotencyKey) {
     const dup = await prisma.booking.findUnique({ where: { idempotencyKey: v.idempotencyKey } });
-    if (dup && dup.tenantId === t.tenantId) return ok(dup);
-    if (dup) return fail("Chiave idempotenza già usata", 409);
+    if (dup) {
+      if (dup.tenantId !== t.tenantId) return fail("Chiave idempotenza già usata", 409);
+      if (dup.idempotencyHash && dup.idempotencyHash !== impronta) return fail("Chiave idempotenza già usata con dati diversi", 409);
+      return ok(dup);
+    }
   }
 
-  const boat = await prisma.boat.findFirst({ where: { id: v.boatId, tenantId: t.tenantId } });
-  if (!boat) return fail("Barca non trovata", 404);
-  if (boat.stato === "manutenzione") return fail("Barca in manutenzione", 422);
-  if (v.passeggeri > boat.capienza) return fail(`Capienza max ${boat.capienza}`, 422);
-  if (boat.patenteRichiesta && !v.patenteOk && !v.skipperId) return fail("Patente richiesta: indicare patente oppure skipper", 422);
-  if (v.skipperId) {
-    const sk = await prisma.skipper.findFirst({ where: { id: v.skipperId, tenantId: t.tenantId, attivo: true } });
-    if (!sk) return fail("Skipper non valido", 422);
-  }
   // Gli extra devono appartenere alla stessa azienda: il solo id non è garanzia.
   const extraCheck = await extrasDelTenant(t.tenantId, v.extraIds);
   if (!extraCheck.ok) return fail("Extra non validi per questa azienda", 422);
-
-  // Tempo di preparazione fra due noleggi della stessa barca (pulizia/rifornimento),
-  // configurabile da NaBoat. Si allarga la finestra di controllo su entrambi i lati.
-  const impostazioni = await prisma.platformSettings.findUnique({ where: { id: "singleton" }, select: { tempoPreparazioneMin: true } }).catch(() => null);
-  const prepMs = Math.max(0, impostazioni?.tempoPreparazioneMin ?? 0) * 60000;
-  const startAllargato = new Date(start.getTime() - prepMs);
-  const endAllargato = new Date(end.getTime() + prepMs);
 
   const dedupKey = normTel(v.telefono);
   const prezzoCent = v.prezzoEuro ? parseImportoEuro(v.prezzoEuro) : null;
   if (v.prezzoEuro && prezzoCent === null) return fail("Prezzo non valido", 422);
 
-  // Tutto in transazione, con un lock per barca: due addetti che salvano nello stesso
-  // istante non possono superare insieme il controllo (il trigger del database resta il secondo livello).
-  let risultato: { err?: string; booking?: any };
+  // Tutto in transazione, con i lock per barca (e skipper): due addetti che salvano nello
+  // stesso istante non possono superare insieme il controllo (il trigger del database resta
+  // il secondo livello). La stessa chiave di idempotenza serializza i retry.
+  let risultato: { err?: string; status?: number; booking?: any; duplicato?: boolean };
   try {
     risultato = await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${v.boatId}))`;
+      await bloccaRisorse(tx, {
+        boatIds: [v.boatId],
+        skipperId: v.skipperId,
+        chiaviExtra: v.idempotencyKey ? [`idem:${v.idempotencyKey}`] : [],
+      });
 
-      const overlap = await tx.booking.findFirst({
-        where: { boatId: v.boatId, tenantId: t.tenantId, stato: { in: ["da_confermare", "prenotata", "in_mare"] }, startAt: { lt: endAllargato }, endAt: { gt: startAllargato } },
-        select: { id: true },
+      // Ricontrollo dentro il lock: due retry con la stessa chiave non duplicano.
+      if (v.idempotencyKey) {
+        const dup = await tx.booking.findUnique({ where: { idempotencyKey: v.idempotencyKey } });
+        if (dup) {
+          if (dup.tenantId !== t.tenantId) return { err: "Chiave idempotenza già usata", status: 409 };
+          if (dup.idempotencyHash && dup.idempotencyHash !== impronta) return { err: "Chiave idempotenza già usata con dati diversi", status: 409 };
+          return { booking: dup, duplicato: true };
+        }
+      }
+
+      const boat = await tx.boat.findFirst({ where: { id: v.boatId, tenantId: t.tenantId } });
+      if (!boat) return { err: "Barca non trovata", status: 404 };
+      const errBarca = validaBarcaNoleggio(boat, v.passeggeri);
+      if (errBarca) return { err: errBarca, status: 422 };
+      const errPatente = validaPatente(boat, { patenteOk: v.patenteOk, skipperId: v.skipperId });
+      if (errPatente) return { err: errPatente, status: 422 };
+
+      if (v.skipperId) {
+        const sk = await tx.skipper.findFirst({ where: { id: v.skipperId, tenantId: t.tenantId, attivo: true }, select: { id: true } });
+        if (!sk) return { err: "Skipper non valido", status: 422 };
+      }
+
+      const disp = await verificaDisponibilita(tx, {
+        tenantId: t.tenantId,
+        boatId: v.boatId,
+        startAt: start,
+        endAt: end,
+        skipperId: v.skipperId ?? null,
       });
-      if (overlap) return { err: prepMs > 0 ? "Sovrapposizione con altra prenotazione (o troppo vicina: serve il tempo di preparazione)" : "Sovrapposizione con altra prenotazione" };
-      const block = await tx.block.findFirst({
-        where: { boatId: v.boatId, tenantId: t.tenantId, startAt: { lt: endAllargato }, endAt: { gt: startAllargato } },
-        select: { id: true, motivo: true },
-      });
-      if (block) return { err: `Risorsa bloccata${block.motivo ? `: ${block.motivo}` : ""}` };
+      if (!disp.ok) return { err: disp.messaggio, status: 409 };
 
       const customer = await tx.customer.upsert({
         where: { tenantId_dedupKey: { tenantId: t.tenantId, dedupKey } },
@@ -146,36 +188,54 @@ export async function POST(req: Request) {
           ...(prezzoCent !== null ? { prezzoCent } : {}),
           skipperId: v.skipperId || undefined,
           idempotencyKey: v.idempotencyKey,
+          idempotencyHash: impronta,
           extras: { create: v.extraIds.map((id) => ({ extraId: id, quantita: v.extraQuantita?.[id] ?? 1 })) },
         },
         include: { boat: { select: { nome: true } }, skipper: { select: { nome: true } } },
       });
+
+      // Prenotazione manuale già pagata: l'incasso entra nella stessa transazione,
+      // così non restano effetti parziali se qualcosa fallisce.
+      if (v.pagato && prezzoCent !== null) {
+        await tx.payment.create({
+          data: {
+            tenantId: t.tenantId,
+            bookingId: booking.id,
+            provider: "manuale",
+            tipo: "saldo",
+            importoCent: prezzoCent,
+            totaleCent: prezzoCent,
+            stato: "pagato",
+            metodo: "manuale",
+            descrizione: "Incasso registrato a mano (prenotazione rapida)",
+            paidAt: new Date(),
+          },
+        });
+      }
+
       return { booking };
     });
   } catch (e) {
+    // Due retry con la stessa chiave arrivati insieme: vince il primo, l'altro ne legge l'esito.
+    // Ci si limita al vincolo sull'idempotenza: altri P2002 (es. cliente) non vanno mascherati.
+    if (e && typeof e === "object" && (e as { code?: string }).code === "P2002") {
+      const meta = (e as { meta?: { target?: unknown } }).meta;
+      const target = Array.isArray(meta?.target) ? meta.target.join(",") : String(meta?.target ?? "");
+      if (/idempotencykey/i.test(target)) {
+        const dup = v.idempotencyKey ? await prisma.booking.findUnique({ where: { idempotencyKey: v.idempotencyKey } }) : null;
+        if (dup && dup.tenantId === t.tenantId) {
+          if (dup.idempotencyHash && dup.idempotencyHash !== impronta) return fail("Chiave idempotenza già usata con dati diversi", 409);
+          return ok(dup);
+        }
+        return fail("Chiave idempotenza già usata", 409);
+      }
+      throw e;
+    }
     if (/Sovrapposizione/i.test(e instanceof Error ? e.message : String(e))) return fail("Sovrapposizione con altra prenotazione", 409);
     throw e;
   }
 
-  if (risultato.err) return fail(risultato.err, 409);
-
-  // Prenotazione manuale già pagata: si registra un incasso distinto dal noleggio online.
-  if (v.pagato && prezzoCent !== null && risultato.booking) {
-    await prisma.payment.create({
-      data: {
-        tenantId: t.tenantId,
-        bookingId: risultato.booking.id,
-        provider: "manuale",
-        tipo: "saldo",
-        importoCent: prezzoCent,
-        totaleCent: prezzoCent,
-        stato: "pagato",
-        metodo: "manuale",
-        descrizione: "Incasso registrato a mano (prenotazione rapida)",
-        paidAt: new Date(),
-      },
-    });
-  }
-
+  if (risultato.err) return fail(risultato.err, risultato.status ?? 422);
+  if (risultato.duplicato) return ok(risultato.booking);
   return ok(risultato.booking, 201);
 }

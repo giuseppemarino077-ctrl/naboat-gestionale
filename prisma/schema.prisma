@@ -359,6 +359,7 @@ model Booking {
   patenteOk   Boolean       @default(false)
   note        String?
   idempotencyKey String?    @unique
+  idempotencyHash String? // impronta del payload: stessa chiave con dati diversi = 409
   createdAt   DateTime      @default(now())
 
   // --- Pagamenti (Fase 2) ---
