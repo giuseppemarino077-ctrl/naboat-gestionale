@@ -1,13 +1,25 @@
 "use client";
 import { useEffect, useState } from "react";
 
-type Barca = { id: string; nome: string; tipo: string | null; pubblicata: boolean; inPausa: boolean; tenant: { nome: string; status: string } | null };
+type Barca = {
+  id: string;
+  nome: string;
+  tipo: string | null;
+  pubblicata: boolean;
+  inPausa: boolean;
+  bloccataAdmin: boolean;
+  motivoBlocco: string | null;
+  bloccataAt: string | null;
+  bloccataDa: string | null;
+  tenant: { nome: string; status: string } | null;
+};
 
 export default function AdminBarchePage() {
   const [barche, setBarche] = useState<Barca[]>([]);
   const [stato, setStato] = useState("tutte");
   const [q, setQ] = useState("");
   const [err, setErr] = useState("");
+  const [motivo, setMotivo] = useState<Record<string, string>>({});
 
   const carica = () => {
     fetch(`/api/v1/admin/barche?stato=${stato}&q=${encodeURIComponent(q)}`)
@@ -18,7 +30,14 @@ export default function AdminBarchePage() {
   useEffect(carica, [stato]);
 
   const azione = async (boatId: string, a: "nascondi" | "mostra") => {
-    await fetch("/api/v1/admin/barche", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ boatId, azione: a }) });
+    const body: Record<string, unknown> = { boatId, azione: a };
+    if (a === "nascondi") {
+      const m = (motivo[boatId] ?? "").trim();
+      if (m.length < 3) { setErr("Indica il motivo del blocco (almeno 3 caratteri)."); return; }
+      body.motivo = m;
+    }
+    await fetch("/api/v1/admin/barche", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    setErr("");
     carica();
   };
 
@@ -37,21 +56,52 @@ export default function AdminBarchePage() {
       </div>
       {err && <p className="card p-3 text-sm font-semibold text-coral">{err}</p>}
       <div className="card overflow-x-auto">
-        <table className="w-full min-w-[620px] text-left text-sm">
+        <table className="w-full min-w-[760px] text-left text-sm">
           <thead className="text-xs uppercase tracking-wide text-muted"><tr><th className="p-3">Barca</th><th className="p-3">Azienda</th><th className="p-3">Stato</th><th className="p-3"></th></tr></thead>
           <tbody>
-            {barche.map((b) => (
-              <tr key={b.id} className="border-t border-line">
-                <td className="p-3 font-semibold">{b.nome} <span className="text-muted">{b.tipo ?? ""}</span></td>
-                <td className="p-3 text-muted">{b.tenant?.nome ?? "—"}</td>
-                <td className="p-3">{b.pubblicata && !b.inPausa ? <span className="badge-ready">pubblicata</span> : <span className="badge-block">nascosta</span>}</td>
-                <td className="p-3">
-                  {b.pubblicata && !b.inPausa
-                    ? <button className="font-bold text-coral" onClick={() => azione(b.id, "nascondi")}>Nascondi</button>
-                    : <button className="font-bold text-ocean" onClick={() => azione(b.id, "mostra")}>Mostra</button>}
-                </td>
-              </tr>
-            ))}
+            {barche.map((b) => {
+              const inCatalogo = b.pubblicata && !b.inPausa && !b.bloccataAdmin;
+              return (
+                <tr key={b.id} className="border-t border-line align-top">
+                  <td className="p-3 font-semibold">{b.nome} <span className="text-muted">{b.tipo ?? ""}</span></td>
+                  <td className="p-3 text-muted">{b.tenant?.nome ?? "—"}</td>
+                  <td className="p-3">
+                    {b.bloccataAdmin ? (
+                      <div className="grid gap-1">
+                        <span className="badge-block">bloccata da NaBoat</span>
+                        <span className="text-xs text-muted">
+                          Motivo: {b.motivoBlocco ?? "—"}
+                          {b.bloccataAt ? ` · ${new Date(b.bloccataAt).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" })}` : ""}
+                          {b.bloccataDa ? ` · staff ${b.bloccataDa.slice(0, 8)}` : ""}
+                        </span>
+                        <span className="text-xs text-muted">
+                          Scelta del noleggiatore: {b.pubblicata && !b.inPausa ? "pubblicata" : "nascosta"}
+                        </span>
+                      </div>
+                    ) : b.pubblicata && !b.inPausa ? (
+                      <span className="badge-ready">pubblicata</span>
+                    ) : (
+                      <div className="grid gap-1">
+                        <span className="badge-block">nascosta dal noleggiatore</span>
+                        <span className="text-xs text-muted">{b.inPausa ? "in pausa" : "non pubblicata"}</span>
+                      </div>
+                    )}
+                  </td>
+                  <td className="p-3">
+                    {inCatalogo ? (
+                      <div className="grid gap-1">
+                        <input className="rounded-md border border-line p-1.5 text-xs" placeholder="Motivo del blocco" value={motivo[b.id] ?? ""} onChange={(e) => setMotivo({ ...motivo, [b.id]: e.target.value })} />
+                        <button className="font-bold text-coral" onClick={() => azione(b.id, "nascondi")}>Blocca</button>
+                      </div>
+                    ) : b.bloccataAdmin ? (
+                      <button className="font-bold text-ocean" onClick={() => azione(b.id, "mostra")}>Sblocca</button>
+                    ) : (
+                      <span className="text-xs text-muted">—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
             {barche.length === 0 && !err && <tr><td className="p-3 text-muted" colSpan={4}>Nessuna barca.</td></tr>}
           </tbody>
         </table>

@@ -26,6 +26,8 @@ function prenotazioneSenzaImporti(b: any) {
     cauzioneCent: null,
     cauzioneIntentId: null,
     danniCent: null,
+    // Lo snapshot contiene il prezzo dell'offerta: non deve uscire senza permesso.
+    preventivoSnapshot: null,
     extras: Array.isArray(b.extras)
       ? b.extras.map((e: any) => ({ ...e, extra: e.extra ? { ...e.extra, prezzo: null } : e.extra }))
       : b.extras,

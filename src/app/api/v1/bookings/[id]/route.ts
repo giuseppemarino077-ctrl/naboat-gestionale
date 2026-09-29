@@ -25,6 +25,8 @@ function prenotazioneSenzaImporti(b: any) {
     cauzioneCent: null,
     cauzioneIntentId: null,
     danniCent: null,
+    // Lo snapshot contiene il prezzo dell'offerta: non deve uscire senza permesso.
+    preventivoSnapshot: null,
     extras: Array.isArray(b.extras)
       ? b.extras.map((e: any) => ({ ...e, extra: e.extra ? { ...e.extra, prezzo: null } : e.extra }))
       : b.extras,
@@ -236,6 +238,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       const cent = parseImportoEuro(p.data.prezzoEuro);
       if (cent === null) return fail("Prezzo non valido", 422);
       data.prezzoCent = cent;
+      data.prezzoDaDefinire = false; // il prezzo è stato determinato
     }
   }
 
@@ -261,6 +264,23 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (p.data.passeggeri !== undefined) data.passeggeri = p.data.passeggeri;
 
   if (Object.keys(data).length === 0) return fail("Nessuna modifica richiesta", 422);
+
+  // M03: la conferma di una richiesta (da_confermare -> prenotata) richiede un prezzo
+  // determinato. Se manca si legge lo snapshot congelato alla richiesta: la tariffa
+  // NON si ricalcola dal listino attuale (una variazione non riscrive l'offerta).
+  if (p.data.stato === "prenotata" && cur.stato === "da_confermare") {
+    if (data.prezzoCent === null) delete data.prezzoCent; // non si conferma azzerando il prezzo
+    if (data.prezzoCent === undefined && (cur.prezzoCent == null || cur.prezzoCent <= 0)) {
+      const snap = cur.preventivoSnapshot as { prezzoNoleggioCent?: number | null } | null;
+      const prezzoSnapshot = snap?.prezzoNoleggioCent ?? null;
+      if (prezzoSnapshot != null && prezzoSnapshot > 0) {
+        data.prezzoCent = prezzoSnapshot;
+        data.prezzoDaDefinire = false;
+      } else {
+        return fail("Prezzo da definire: indica il prezzo del noleggio prima di confermare la richiesta", 422);
+      }
+    }
+  }
 
   // Stato finale (record corrente fuso con le modifiche): è questo che va validato, non
   // il solo insieme dei campi inviati. Cambiare solo i passeggeri, ad esempio, deve

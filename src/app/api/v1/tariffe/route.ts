@@ -1,18 +1,13 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
+import { stagioneDi, tariffaPerPreventivo, TIPI_TARIFFA, type TipoTariffa } from "@/lib/marketplace";
 import { parseImportoEuro } from "@/lib/payments";
 import { requireAzienda } from "@/lib/tenant";
 import { z } from "zod";
 
 // Tipo di noleggio: serve a scegliere la tariffa giusta.
-const TIPI = ["mezza_giornata", "giornata", "settimana"] as const;
-type Tipo = (typeof TIPI)[number];
-
-// Stagione alta: dal 1 giugno al 30 settembre (regola semplice, modificabile qui se serve).
-function stagioneDi(data: Date): "alta" | "bassa" {
-  const mese = data.getUTCMonth() + 1;
-  return mese >= 6 && mese <= 9 ? "alta" : "bassa";
-}
+const TIPI = TIPI_TARIFFA;
+type Tipo = TipoTariffa;
 
 export async function GET(req: Request) {
   const t = await requireAzienda(req);
@@ -28,29 +23,16 @@ export async function GET(req: Request) {
     if (Number.isNaN(data.getTime())) return fail("Data non valida", 422);
     const stagione = stagioneDi(data);
 
-    const candidate = await prisma.tariffa.findMany({
-      where: {
-        tenantId: t.tenantId,
-        attivo: true,
-        tipo,
-        stagione: { in: [stagione, "tutto_anno"] },
-        ...(boatId ? { OR: [{ boatId }, { boatId: null }] } : {}),
-      },
-      orderBy: [{ boatId: "desc" }],
-    });
-    // Preferisce la tariffa della barca, meglio se stagionale; altrimenti quella generale.
-    const scelta =
-      candidate.find((c) => c.boatId && c.stagione === stagione) ??
-      candidate.find((c) => c.boatId) ??
-      candidate.find((c) => c.stagione === stagione) ??
-      candidate[0] ??
-      null;
+    // Precedenza unica (src/lib/marketplace.ts): barca+stagione esatta, barca
+    // tutto_anno, generale+stagione esatta, generale tutto_anno. Niente minimi
+    // fra voci incompatibili: se non c'è la voce giusta il prezzo è null.
+    const scelta = await tariffaPerPreventivo(t.tenantId, boatId, tipo, stagione);
 
     return ok({
       tipo,
       stagione,
       prezzoCent: scelta?.prezzoCent ?? null,
-      tariffaId: scelta?.id ?? null,
+      tariffaId: scelta?.tariffaId ?? null,
     });
   }
 

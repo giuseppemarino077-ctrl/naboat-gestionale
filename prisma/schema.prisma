@@ -376,6 +376,13 @@ model Booking {
   payTokenExpires DateTime?
   payments       Payment[]
 
+  // --- M03: preventivo congelato ---
+  // Offerta presentata al cliente al momento della richiesta (prezzo determinato
+  // oppure «da definire», extra, stagione, commissioni, versione). Una variazione
+  // di listino NON riscrive il passato: conferma e pagamento leggono questo snapshot.
+  preventivoSnapshot Json?
+  prezzoDaDefinire   Boolean @default(false) // true se la richiesta è nata senza prezzo determinato
+
   // --- Cauzione con blocco carta ---
   cauzioneCent     Int?
   cauzioneStato    CauzioneStato @default(non_richiesta)

@@ -660,15 +660,67 @@ const run = async () => {
   await adm.fetch("/api/v1/admin/subscriptions", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ azione: "condizioniAzienda", id: tA.id, moduloMarketplace: true, feeNaboatPct: 10 }) });
   T("marketplace riattivato: torna nel catalogo", (await leggiCatalogo()).includes("Smoke Catalogo"));
 
-  // Moderazione NaBoat: campo dedicato, non cancellato dall'editoriale del noleggiatore.
+  // ---- M03: preventivo congelato nella richiesta pubblica ----
+  const leggiNoleggia = async (q = "") => (await jar.fetch(`/noleggia${q}${q ? "&" : "?"}_=${Date.now()}`)).text();
+  T("ricerca con date: barca libera presente", (await leggiNoleggia("?dal=2028-09-10&al=2028-09-10")).includes(nomeCatalogo));
+
+  const richPrezzo = await json("", "/api/v1/richieste", "POST", {
+    boatId: bPub.data.id, startAt: "2028-09-10T09:00:00.000Z", endAt: "2028-09-10T18:00:00.000Z", passeggeri: 2,
+    clienteNome: "Richiedente Prezzo", telefono: "333666001", privacy: true, istante: Date.now() - 5000,
+  });
+  T("richiesta pubblica: offerta congelata con prezzo determinato",
+    richPrezzo.status === 201 && richPrezzo.data?.preventivo?.stato === "determinato" && richPrezzo.data?.preventivo?.prezzoNoleggioCent === 30000,
+    `${richPrezzo.status} ${JSON.stringify(richPrezzo.data?.preventivo)}`);
+  const richLetta = await json("A", `/api/v1/bookings/${richPrezzo.data.id}`);
+  const snap = richLetta.data?.preventivoSnapshot;
+  T("snapshot del preventivo salvato e versionato", !!snap?.versione && snap?.prezzoNoleggioCent === 30000, JSON.stringify(snap?.versione));
+  T("richiesta con prezzo: non marcata da definire", richLetta.data?.prezzoDaDefinire === false && richLetta.data?.prezzoCent === 30000, `${richLetta.data?.prezzoDaDefinire}/${richLetta.data?.prezzoCent}`);
+
+  // Extra scelti nella richiesta: ammessi dal catalogo e congelati nello snapshot.
+  const exPub = await json("A", "/api/v1/extras", "POST", { nome: `Extra Catalogo ${Date.now()}`, prezzo: 20, unita: "fisso", boatIds: [bPub.data.id] });
+  const richExtra = await json("", "/api/v1/richieste", "POST", {
+    boatId: bPub.data.id, startAt: "2028-09-20T09:00:00.000Z", endAt: "2028-09-20T18:00:00.000Z", passeggeri: 2,
+    clienteNome: "Richiedente Extra", telefono: "333666003", privacy: true, istante: Date.now() - 5000,
+    extras: [{ extraId: exPub.data.id, quantita: 2 }],
+  });
+  T("preventivo con extra ammessi e quantitaMax",
+    richExtra.status === 201 && richExtra.data?.preventivo?.extraTotaleCent === 4000 && richExtra.data?.preventivo?.totaleClienteCent > 30000,
+    `${richExtra.status} ${JSON.stringify(richExtra.data?.preventivo)}`);
+
+  // Durata senza tariffa in listino: «da definire», mai un prezzo inventato.
+  const richDaDef = await json("", "/api/v1/richieste", "POST", {
+    boatId: bPub.data.id, startAt: "2028-10-01T09:00:00.000Z", endAt: "2028-10-05T18:00:00.000Z", passeggeri: 2,
+    clienteNome: "Richiedente Def", telefono: "333666002", privacy: true, istante: Date.now() - 5000,
+  });
+  T("richiesta senza prezzo determinato: preventivo da definire",
+    richDaDef.status === 201 && richDaDef.data?.preventivo?.stato === "da_definire" && richDaDef.data?.preventivo?.prezzoNoleggioCent === null,
+    `${richDaDef.status} ${JSON.stringify(richDaDef.data?.preventivo)}`);
+  T("confermare una richiesta da definire -> 422", (await json("A", `/api/v1/bookings/${richDaDef.data.id}`, "PATCH", { stato: "prenotata" })).status === 422);
+
+  // Una variazione di listino NON riscrive l'offerta già presentata al cliente.
+  await json("A", "/api/v1/tariffe", "POST", { boatId: bPub.data.id, tipo: "giornata", stagione: "tutto_anno", prezzoEuro: "999,00" });
+  const richDopoTariffa = await json("A", `/api/v1/bookings/${richPrezzo.data.id}`);
+  T("variazione listino non riscrive lo snapshot", richDopoTariffa.data?.preventivoSnapshot?.prezzoNoleggioCent === 30000 && richDopoTariffa.data?.prezzoCent === 30000, JSON.stringify({ snap: richDopoTariffa.data?.preventivoSnapshot?.prezzoNoleggioCent, prezzo: richDopoTariffa.data?.prezzoCent }));
+  const conf = await json("A", `/api/v1/bookings/${richPrezzo.data.id}`, "PATCH", { stato: "prenotata" });
+  T("conferma con lo snapshot determinato", conf.status === 200 && conf.data?.stato === "prenotata" && conf.data?.prezzoCent === 30000, `${conf.status} ${JSON.stringify(conf.data?.prezzoCent)}`);
+  await json("A", "/api/v1/tariffe", "POST", { boatId: bPub.data.id, tipo: "giornata", stagione: "tutto_anno", prezzoEuro: "300,00" });
+
+  // La ricerca con date usa la disponibilità reale: ora la barca è occupata.
+  T("ricerca con date: barca occupata esclusa", !(await leggiNoleggia("?dal=2028-09-10&al=2028-09-10")).includes(nomeCatalogo));
+
+  // ---- Moderazione NaBoat: campo dedicato, non cancellato dall'editoriale del noleggiatore. ----
+  const riePrima = (await (await adm.fetch("/api/v1/admin/riepilogo")).json()).barchePubblicate;
   T("nascondi senza motivo -> 422", (await adm.fetch("/api/v1/admin/barche", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ boatId: bPub.data.id, azione: "nascondi" }) })).status === 422);
   const bloccoAdm = await adm.fetch("/api/v1/admin/barche", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ boatId: bPub.data.id, azione: "nascondi", motivo: "Non conforme al catalogo" }) });
   T("NaBoat blocca la barca con motivo", bloccoAdm.status === 200, `${bloccoAdm.status}`);
+  const rieDopo = (await (await adm.fetch("/api/v1/admin/riepilogo")).json()).barchePubblicate;
+  T("riepilogo: la barca bloccata esce dalle pubblicate", rieDopo === riePrima - 1, `${riePrima} -> ${rieDopo}`);
   T("barca bloccata fuori dal catalogo", !(await leggiCatalogo()).includes(nomeCatalogo));
   const riPub = await json("A", `/api/v1/boats/${bPub.data.id}`, "PATCH", { pubblicata: true, inPausa: false });
   T("blocco NaBoat non aggirabile dal proprietario -> 409", riPub.status === 409, `${riPub.status} ${JSON.stringify(riPub.data)}`);
   const sblocco = await adm.fetch("/api/v1/admin/barche", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ boatId: bPub.data.id, azione: "mostra" }) });
   T("NaBoat rimuove il blocco", sblocco.status === 200);
+  T("riepilogo: la barca sbloccata rientra", (await (await adm.fetch("/api/v1/admin/riepilogo")).json()).barchePubblicate === riePrima);
   T("sbloccata torna nel catalogo", (await leggiCatalogo()).includes("Smoke Catalogo"));
 
   // Accordi personalizzati per azienda

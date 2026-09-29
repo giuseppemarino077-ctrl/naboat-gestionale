@@ -2,6 +2,20 @@
 import { useState } from "react";
 import Turnstile from "@/components/Turnstile";
 
+const euro = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
+
+// Offerta congelata restituita dalla richiesta (M03): prezzo determinato o da definire.
+type Prev = {
+  stato: "determinato" | "da_definire";
+  motivo: string | null;
+  tipo: string;
+  stagione: string;
+  prezzoNoleggioCent: number | null;
+  extraTotaleCent: number;
+  commissioniCent: number;
+  totaleClienteCent: number | null;
+};
+
 // Richiesta di prenotazione dalla scheda barca: non è una conferma automatica,
 // l'azienda risponde. Se il cliente ha già un account, la richiesta resta collegata.
 export function RichiestaForm({ boatId, capienza }: { boatId: string; capienza: number }) {
@@ -12,6 +26,7 @@ export function RichiestaForm({ boatId, capienza }: { boatId: string; capienza: 
   const [istante] = useState(() => Date.now());
   const [invio, setInvio] = useState(false);
   const [fatto, setFatto] = useState(false);
+  const [preventivo, setPreventivo] = useState<Prev | null>(null);
   const [errore, setErrore] = useState("");
   const campo = "rounded-2xl border border-line p-3 text-sm";
 
@@ -42,14 +57,32 @@ export function RichiestaForm({ boatId, capienza }: { boatId: string; capienza: 
     const j = await r.json().catch(() => ({}));
     setInvio(false);
     if (!r.ok) { setErrore(j.error ?? "Invio non riuscito, riprova."); return; }
+    setPreventivo(j.preventivo ?? null);
     setFatto(true);
   };
 
   if (fatto) {
+    const prezzo = preventivo?.prezzoNoleggioCent ?? null;
     return (
       <div className="rounded-[14px] bg-foam p-5 text-center">
         <p className="font-display text-lg font-extrabold text-deep">Richiesta inviata.</p>
         <p className="mt-2 text-sm text-muted">L'azienda verifica la disponibilità e ti risponde con le condizioni. Non è una conferma automatica.</p>
+        {preventivo && (
+          <div className="mt-3 rounded-[10px] border border-line bg-white p-3 text-left text-xs text-muted">
+            <p className="font-bold text-deep">Offerta congelata per la tua richiesta</p>
+            {preventivo.stato === "determinato" && prezzo != null ? (
+              <>
+                <p className="mt-1">Noleggio ({preventivo.tipo}, stagione {preventivo.stagione}): <b className="text-ink">{euro(prezzo)}</b></p>
+                {preventivo.extraTotaleCent > 0 && <p>Extra: {euro(preventivo.extraTotaleCent)}</p>}
+                {preventivo.commissioniCent > 0 && <p>Commissioni di servizio: {euro(preventivo.commissioniCent)}</p>}
+                <p className="mt-1">Totale indicativo: <b className="text-ink">{euro(preventivo.totaleClienteCent ?? prezzo)}</b></p>
+                <p className="mt-1 italic">Il prezzo è quello dell'offerta inviata: l'azienda conferma disponibilità e regole prima del pagamento.</p>
+              </>
+            ) : (
+              <p className="mt-1">Per queste date il prezzo non è ancora determinato: l'azienda ti risponde con un preventivo. Non è un acquisto concluso.</p>
+            )}
+          </div>
+        )}
         {dati.email.trim() ? (
           <p className="mt-2 text-sm text-muted">Ti abbiamo inviato un'email a <b>{dati.email.trim()}</b> con un link per collegare la richiesta alla tua area personale.</p>
         ) : (

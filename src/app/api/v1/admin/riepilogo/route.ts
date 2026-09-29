@@ -13,7 +13,7 @@ export async function GET() {
     prisma.richiestaContatto.count({ where: { lettoAt: null } }),
     prisma.modelloBarca.count({ where: { stato: "in_verifica" } }),
     prisma.recensione.count(),
-    prisma.boat.count({ where: { pubblicata: true, inPausa: false } }),
+    prisma.boat.count({ where: { uso: "noleggio", archiviato: false, pubblicata: true, inPausa: false, bloccataAdmin: false } }),
     prisma.customer.count(),
     prisma.booking.count({ where: { startAt: { gte: inizioOggi, lte: fineOggi } } }),
     prisma.tenant.count({ where: { status: "active" } }),

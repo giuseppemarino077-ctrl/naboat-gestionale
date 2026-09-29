@@ -3,10 +3,12 @@ import { notFound } from "next/navigation";
 import { IntestazioneSito } from "@/components/sito/IntestazioneSito";
 import { PiedeSito } from "@/components/sito/PiedeSito";
 import { RichiestaForm } from "@/components/sito/RichiestaForm";
-import { barcaPerSlug } from "@/lib/marketplace";
+import { barcaPerSlug, sceglieTariffa, stagioneDi, TIPI_TARIFFA } from "@/lib/marketplace";
 import { contestoSito } from "@/lib/sito-server";
 
 const euro = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
+
+const ETICHETTA_TIPO: Record<string, string> = { mezza_giornata: "Mezza giornata", giornata: "Giornata", settimana: "Settimana" };
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
@@ -28,6 +30,9 @@ export default async function BarcaPage({ params }: { params: Promise<{ slug: st
 
   const foto = b.fotoCopertina ? [b.fotoCopertina, ...b.fotoGallery.filter((f) => f !== b.fotoCopertina)] : b.fotoGallery;
   const prezzoDa = b.tariffe.length ? Math.min(...b.tariffe.map((t) => t.prezzoCent)) : null;
+  // Listino per la stagione corrente: stessa precedenza unica del preventivo (M03).
+  const stagione = stagioneDi(new Date());
+  const listino = TIPI_TARIFFA.map((tipo) => ({ tipo, scelta: sceglieTariffa(b.tariffe, b.id, tipo, stagione) })).filter((x) => x.scelta);
   const tel = b.tenant.telefonoContatto?.replace(/\D/g, "");
   const wa = tel ? `https://wa.me/${tel}?text=${encodeURIComponent(`Salve, sono interessato alla barca ${b.nome}${b.porto ? ` (${b.porto.nome})` : ""}.`)}` : null;
   const aziendaSlug = b.tenant.slug ?? b.tenant.id;
@@ -83,6 +88,24 @@ export default async function BarcaPage({ params }: { params: Promise<{ slug: st
               <div className="card p-3"><p className="text-xs text-muted">Cabine</p><p className="font-bold">{b.cabine ?? "—"}</p></div>
             </div>
 
+            {listino.length > 0 && (
+              <div className="card p-4">
+                <h2 className="font-display text-lg font-bold text-deep">Prezzi ({stagione} stagione)</h2>
+                <ul className="mt-2 grid gap-1 text-sm">
+                  {listino.map((x) => (
+                    <li key={x.tipo} className="flex justify-between border-b border-line py-1 last:border-0">
+                      <span>{ETICHETTA_TIPO[x.tipo] ?? x.tipo}</span>
+                      <span className="font-semibold">{euro(x.scelta!.prezzoCent)}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-2 text-xs text-muted">Prezzo del noleggio; extra e commissioni sono indicati nella richiesta.</p>
+              </div>
+            )}
+            {listino.length === 0 && (
+              <div className="rounded-[14px] border border-line px-4 py-3 text-sm text-muted">Preventivo da definire: chiedi all&apos;azienda il prezzo per le tue date.</div>
+            )}
+
             {b.descrizione && <p className="whitespace-pre-line text-sm text-muted">{b.descrizione}</p>}
 
             {b.dotazioni.length > 0 && (
@@ -100,7 +123,7 @@ export default async function BarcaPage({ params }: { params: Promise<{ slug: st
                 <ul className="mt-2 grid gap-1 text-sm">
                   {b.extras.map((e) => (
                     <li key={e.id} className="flex justify-between border-b border-line py-1">
-                      <span>{e.nome}</span><span className="font-semibold">{e.prezzo != null ? euro(e.prezzo) : "—"}</span>
+                      <span>{e.nome}</span><span className="font-semibold">{e.prezzo != null ? euro(Math.round(e.prezzo * 100)) : "—"}</span>
                     </li>
                   ))}
                 </ul>

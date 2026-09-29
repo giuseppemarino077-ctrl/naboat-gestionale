@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { IntestazioneSito } from "@/components/sito/IntestazioneSito";
 import { PiedeSito } from "@/components/sito/PiedeSito";
 import { prisma } from "@/lib/db";
+import { FILTRO_BARCA_CATALOGO } from "@/lib/marketplace";
 import { contestoSito } from "@/lib/sito-server";
 
 export const metadata: Metadata = {
@@ -34,8 +35,10 @@ const DOMANDE = [
 
 export default async function PerNoleggiatoriPage() {
   const { appBase } = await contestoSito();
+  // Un solo criterio di catalogo (src/lib/marketplace.ts): esclude le barche bloccate
+  // da NaBoat, archiviate, in pausa o senza foto/prezzo.
   const esempio = await prisma.tenant
-    .findFirst({ where: { status: "active", slug: { not: null }, boats: { some: { pubblicata: true, inPausa: false } } }, select: { slug: true, nome: true } })
+    .findFirst({ where: { status: "active", slug: { not: null }, boats: { some: FILTRO_BARCA_CATALOGO } }, select: { slug: true, nome: true } })
     .catch(() => null);
 
   return (

@@ -3,11 +3,12 @@ import { chiaveDedup, normalizzaEmail, nuovoTokenOspite } from "@/lib/anagrafica
 import { requireCliente } from "@/lib/clienti";
 import { prisma } from "@/lib/db";
 import { bloccaRisorse, validaBarcaNoleggio, verificaDisponibilita } from "@/lib/disponibilita";
-import { FILTRO_CATALOGO } from "@/lib/marketplace";
+import { FILTRO_CATALOGO, preventivoNoleggio } from "@/lib/marketplace";
 import { escapeHtml, richiestaRicevutaBody, sendMail } from "@/lib/mailer";
 import { getSession } from "@/lib/session";
 import { clientIp, rateLimit } from "@/lib/ratelimit";
 import { verifyTurnstile } from "@/lib/turnstile";
+import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 // Richiesta di prenotazione dal sito pubblico. Non è una conferma automatica:
@@ -22,6 +23,8 @@ const Schema = z.object({
   email: z.string().trim().email().max(160).optional(),
   destinazione: z.string().trim().max(120).optional(),
   note: z.string().trim().max(1000).optional(),
+  // Extra scelti dal cliente: vengono congelati nella richiesta e limitati a quantitaMax.
+  extras: z.array(z.object({ extraId: z.string().uuid(), quantita: z.number().int().min(1).max(1000) })).max(20).optional(),
   privacy: z.literal(true),
   azienda: z.string().max(200).optional(),
   istante: z.number().int().optional(),
@@ -83,6 +86,24 @@ export async function POST(req: Request) {
   const errBarca = validaBarcaNoleggio(boat, p.data.passeggeri);
   if (errBarca) return fail(errBarca.startsWith("Capienza") ? `Capienza massima ${boat.capienza} persone` : "Barca non disponibile", 422);
 
+  // M03 — snapshot dell'offerta congelato alla richiesta. Il prezzo può essere
+  // determinato oppure no: in entrambi i casi resta una richiesta "da_confermare",
+  // mai un acquisto concluso. Una variazione di listino non riscrive questa offerta.
+  const preventivo = await preventivoNoleggio({
+    tenantId: boat.tenantId,
+    boatId: boat.id,
+    startAt: start,
+    endAt: end,
+    passeggeri: p.data.passeggeri,
+    extraRichiesti: p.data.extras ?? [],
+    origineCanale: "naboat",
+  });
+  const idAmmessi = new Set(preventivo.extraDisponibili.map((e) => e.id));
+  if ((p.data.extras ?? []).some((e) => !idAmmessi.has(e.extraId))) {
+    return fail("Uno degli extra scelti non è disponibile per questa barca", 422);
+  }
+  const prezzoNoleggioCent = preventivo.prezzoNoleggioCent;
+
   const s = await getSession();
   const clienteAccountId = s?.role === "cliente" ? s.sub : null;
 
@@ -123,6 +144,12 @@ export async function POST(req: Request) {
         note: p.data.note ?? null,
         stato: "da_confermare",
         origineCanale: "naboat",
+        ...(prezzoNoleggioCent != null && prezzoNoleggioCent > 0 ? { prezzoCent: prezzoNoleggioCent } : {}),
+        prezzoDaDefinire: preventivo.stato === "da_definire",
+        preventivoSnapshot: preventivo as unknown as Prisma.InputJsonValue,
+        extras: preventivo.extra.length
+          ? { create: preventivo.extra.map((e) => ({ extraId: e.id, quantita: e.quantita })) }
+          : undefined,
         clienteToken: ospite?.token ?? null,
         clienteTokenExpires: ospite?.scadenza ?? null,
       },
@@ -160,7 +187,24 @@ export async function POST(req: Request) {
     } catch { /* l'email non deve bloccare la richiesta */ }
   }
 
-  return ok({ ricevuto: true, id: risultato.booking!.id }, 201);
+  return ok(
+    {
+      ricevuto: true,
+      id: risultato.booking!.id,
+      // Offerta congelata: il form la mostra come tale (prezzo determinato o da definire).
+      preventivo: {
+        stato: preventivo.stato,
+        motivo: preventivo.motivo,
+        tipo: preventivo.tipo,
+        stagione: preventivo.stagione,
+        prezzoNoleggioCent,
+        extraTotaleCent: preventivo.extraTotaleCent,
+        commissioniCent: preventivo.commissioniCent,
+        totaleClienteCent: preventivo.totaleClienteCent,
+      },
+    },
+    201
+  );
 }
 
 // Collegamento di una richiesta ospite all'area personale (link monouso),
