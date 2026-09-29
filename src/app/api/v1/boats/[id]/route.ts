@@ -1,8 +1,10 @@
 import { fail, ok } from "@/lib/api";
 import { traccia } from "@/lib/audit";
 import { prisma } from "@/lib/db";
-import { deletePhoto } from "@/lib/storage";
+import { motivoNonIdonea } from "@/lib/marketplace";
+import { bloccaPiano, verificaFotoPiano, verificaPubblicazione } from "@/lib/piani";
 import { portoDelTenant, modelloValido } from "@/lib/riferimenti";
+import { deletePhoto } from "@/lib/storage";
 import { rigeneraBarca } from "@/lib/seo";
 import { requireAzienda } from "@/lib/tenant";
 import { z } from "zod";
@@ -44,60 +46,92 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (p.data.portoId && !(await portoDelTenant(t.tenantId, p.data.portoId))) return fail("Porto non valido per questa azienda", 422);
   if (p.data.modelloId && !(await modelloValido(p.data.modelloId))) return fail("Modello non valido", 422);
 
-  let gallery = cur.fotoGallery;
-  let copertina = p.data.fotoCopertina !== undefined ? p.data.fotoCopertina : cur.fotoCopertina;
-  if (p.data.rimuoviFoto) {
-    // Si cancella solo un file realmente associato a questa barca: un percorso
-    // arbitrario inviato dal client non deve raggiungere il cancellatore.
-    if (gallery.includes(p.data.rimuoviFoto)) {
-      gallery = gallery.filter((u) => u !== p.data.rimuoviFoto);
-      if (copertina === p.data.rimuoviFoto) copertina = gallery[0] ?? null;
-      await deletePhoto(p.data.rimuoviFoto);
+  // Tutto il calcolo di pubblicabilità e limiti sta nella transazione, con il
+  // lock del piano: due pubblicazioni simultanee non sfondano il tetto Free.
+  const esito = await prisma.$transaction(async (tx) => {
+    await bloccaPiano(tx, t.tenantId);
+    const attuale = await tx.boat.findFirst({ where: { id, tenantId: t.tenantId } });
+    if (!attuale) return { ok: false as const, stato: 404, errore: "Barca non trovata" };
+
+    let gallery = attuale.fotoGallery;
+    let copertina = p.data.fotoCopertina !== undefined ? p.data.fotoCopertina : attuale.fotoCopertina;
+    let daCancellare: string | null = null;
+    if (p.data.rimuoviFoto) {
+      // Si cancella solo un file realmente associato a questa barca: un percorso
+      // arbitrario inviato dal client non deve raggiungere il cancellatore.
+      if (gallery.includes(p.data.rimuoviFoto)) {
+        gallery = gallery.filter((u) => u !== p.data.rimuoviFoto);
+        if (copertina === p.data.rimuoviFoto) copertina = gallery[0] ?? null;
+        daCancellare = p.data.rimuoviFoto;
+      }
     }
-  }
-  // Riordino della galleria: si accettano solo foto già presenti; le mancanti restano in coda.
-  if (p.data.ordineFoto) {
-    const presenti = new Set(gallery);
-    const ordinate = p.data.ordineFoto.filter((u) => presenti.has(u));
-    const resto = gallery.filter((u) => !ordinate.includes(u));
-    gallery = [...ordinate, ...resto];
-  }
-  if (copertina && !gallery.includes(copertina)) return fail("Copertina non in galleria", 422);
-
-  const { rimuoviFoto: _r, fotoCopertina: _c, ordineFoto: _o, ...rest } = p.data;
-
-  // Una barca diventa pubblica solo con almeno una foto e un prezzo attivo.
-  if (rest.pubblicata === true) {
-    if (gallery.length < 1) return fail("Per pubblicare serve almeno una foto", 422);
-    const prezzo = await prisma.tariffa.count({ where: { boatId: cur.id, tenantId: t.tenantId, attivo: true } });
-    if (prezzo < 1) return fail("Per pubblicare serve un prezzo nel listino", 422);
-    // Limiti del piano Free applicati dal server.
-    const [tenant, ps] = await Promise.all([
-      prisma.tenant.findUnique({ where: { id: t.tenantId }, select: { pianoTipo: true } }),
-      prisma.platformSettings.findUnique({ where: { id: "singleton" }, select: { pianoFreeMaxBarche: true, pianoFreeMaxFoto: true } }),
-    ]);
-    if ((tenant?.pianoTipo ?? "free") === "free") {
-      const maxBarche = ps?.pianoFreeMaxBarche ?? 3;
-      const altre = await prisma.boat.count({ where: { tenantId: t.tenantId, pubblicata: true, id: { not: cur.id } } });
-      if (altre + 1 > maxBarche) return fail(`Piano Free: massimo ${maxBarche} barche pubblicate`, 402);
-      const maxFoto = ps?.pianoFreeMaxFoto ?? 5;
-      if (gallery.length > maxFoto) return fail(`Piano Free: massimo ${maxFoto} foto per barca`, 402);
+    // Riordino della galleria: si accettano solo foto già presenti; le mancanti restano in coda.
+    if (p.data.ordineFoto) {
+      const presenti = new Set(gallery);
+      const ordinate = p.data.ordineFoto.filter((u) => presenti.has(u));
+      const resto = gallery.filter((u) => !ordinate.includes(u));
+      gallery = [...ordinate, ...resto];
     }
-  }
+    if (copertina && !gallery.includes(copertina)) return { ok: false as const, stato: 422, errore: "Copertina non in galleria" };
 
-  const aggiornata = await prisma.boat.update({ where: { id: cur.id }, data: { ...rest, fotoGallery: gallery, fotoCopertina: copertina } });
+    const { rimuoviFoto: _r, fotoCopertina: _c, ordineFoto: _o, ...rest } = p.data;
+
+    const tenant = await tx.tenant.findUnique({ where: { id: t.tenantId }, select: { status: true, moduloMarketplace: true } });
+    const tariffeAttive = await tx.tariffa.count({ where: { boatId: attuale.id, tenantId: t.tenantId, attivo: true } });
+    const requisiti = {
+      uso: attuale.uso,
+      archiviato: attuale.archiviato,
+      bloccataAdmin: attuale.bloccataAdmin,
+      fotoCopertina: copertina,
+      fotoGallery: gallery,
+      tariffeAttive,
+      aziendaStatus: tenant?.status ?? "pending",
+      moduloMarketplace: tenant?.moduloMarketplace ?? false,
+    };
+
+    // M01: la pubblicazione richiede i requisiti; il blocco NaBoat non si aggira.
+    if (rest.pubblicata === true) {
+      const motivo = motivoNonIdonea({ ...requisiti, pubblicata: true, inPausa: rest.inPausa ?? attuale.inPausa });
+      if (motivo) return { ok: false as const, stato: attuale.bloccataAdmin ? 409 : motivo.includes("Marketplace") ? 403 : 422, errore: motivo };
+      const lim = await verificaPubblicazione(tx, t.tenantId, { boatId: attuale.id, fotoCount: gallery.length });
+      if (!lim.ok) return { ok: false as const, stato: 402, errore: lim.messaggio };
+    }
+
+    const pubblicataDopo = rest.pubblicata ?? attuale.pubblicata;
+    const inPausaDopo = rest.inPausa ?? attuale.inPausa;
+    const nelCatalogo = pubblicataDopo && !inPausaDopo && !attuale.bloccataAdmin;
+
+    // M02: una barca già nel catalogo rispetta il limite foto anche nelle modifiche.
+    if (nelCatalogo && rest.pubblicata !== true) {
+      const limFoto = await verificaFotoPiano(tx, t.tenantId, gallery.length);
+      if (!limFoto.ok) return { ok: false as const, stato: 402, errore: limFoto.messaggio };
+    }
+
+    // M01: se la modifica toglie i requisiti (ultima foto rimossa) la barca non
+    // resta pubblicata. In ogni caso il catalogo la esclude con FILTRO_CATALOGO,
+    // così una tariffa disattivata altrove non la lascia esposta.
+    if (nelCatalogo && gallery.length === 0 && !copertina) rest.pubblicata = false;
+
+    const aggiornata = await tx.boat.update({ where: { id: attuale.id }, data: { ...rest, fotoGallery: gallery, fotoCopertina: copertina } });
+    return { ok: true as const, aggiornata, prima: attuale, fotoCopertina: copertina, fotoGallery: gallery, daCancellare };
+  });
+
+  if (!esito.ok) return fail(esito.errore, esito.stato);
+  // Il file rimosso si cancella solo a transazione riuscita: se i limiti bloccano
+  // la modifica, la foto resta al suo posto.
+  if (esito.daCancellare) await deletePhoto(esito.daCancellare);
   await traccia({
     tenantId: t.tenantId,
     actorId: t.userId,
     azione: "boat.modificata",
     entita: "Boat",
-    entitaId: cur.id,
-    prima: cur as unknown as Record<string, unknown>,
-    dopo: aggiornata as unknown as Record<string, unknown>,
+    entitaId: esito.prima.id,
+    prima: esito.prima as unknown as Record<string, unknown>,
+    dopo: esito.aggiornata as unknown as Record<string, unknown>,
   });
   // I testi della pagina pubblica seguono i dati della barca.
-  await rigeneraBarca(cur.id).catch(() => {});
-  return ok({ id, fotoCopertina: copertina, fotoGallery: gallery });
+  await rigeneraBarca(esito.prima.id).catch(() => {});
+  return ok({ id, fotoCopertina: esito.fotoCopertina, fotoGallery: esito.fotoGallery });
 }
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {

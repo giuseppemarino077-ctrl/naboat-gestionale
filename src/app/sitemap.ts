@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import { headers } from "next/headers";
 import { prisma } from "@/lib/db";
+import { FILTRO_BARCA_CATALOGO } from "@/lib/marketplace";
 import { DOMINIO_SITO, dominioPubblico } from "@/lib/sito";
 
 // Come robots.txt: si aggiorna a ogni richiesta, non alla compilazione.
@@ -8,18 +9,29 @@ export const dynamic = "force-dynamic";
 
 const prefisso = (tipo: string) => (tipo === "barca" ? "barca" : tipo === "azienda" ? "azienda" : tipo === "skipper" ? "skipper" : "");
 
-// Pagine del marketplace (schede pubbliche): si aggiungono solo quando NaBoat le attiva.
+// Pagine del marketplace (schede pubbliche): si aggiungono solo quando NaBoat le attiva
+// e solo se l'entità è ancora idonea al catalogo (M01). Una pagina SEO pubblicata non
+// basta: barca bloccata, senza foto/prezzo o con marketplace spento non deve finire qui.
 async function pagineMarketplace(base: string): Promise<MetadataRoute.Sitemap> {
-  const pagine = await prisma.seoPage.findMany({
-    where: { pubblica: true, noindex: false, slug: { not: null } },
-    select: { tipo: true, slug: true, aggiornatoAt: true },
-    orderBy: { aggiornatoAt: "desc" },
-    take: 5000,
-  });
+  const [pagine, barcheOk, aziendeOk] = await Promise.all([
+    prisma.seoPage.findMany({
+      where: { pubblica: true, noindex: false, slug: { not: null } },
+      select: { tipo: true, slug: true, refId: true, tenantId: true, aggiornatoAt: true },
+      orderBy: { aggiornatoAt: "desc" },
+      take: 5000,
+    }),
+    prisma.boat.findMany({ where: FILTRO_BARCA_CATALOGO, select: { id: true } }),
+    prisma.tenant.findMany({ where: { status: "active", moduloMarketplace: true }, select: { id: true } }),
+  ]);
+  const idBarche = new Set(barcheOk.map((b) => b.id));
+  const idAziende = new Set(aziendeOk.map((t) => t.id));
 
   const voci: MetadataRoute.Sitemap = [];
   for (const p of pagine) {
     if (!p.slug) continue;
+    if (p.tipo === "barca" && (!p.refId || !idBarche.has(p.refId))) continue;
+    if (p.tipo === "azienda" && (!p.refId || !idAziende.has(p.refId))) continue;
+    if (p.tipo === "skipper" && (!p.tenantId || !idAziende.has(p.tenantId))) continue;
     const pre = prefisso(p.tipo);
     voci.push({
       url: pre ? `${base}/${pre}/${p.slug}` : `${base}/${p.slug}`,

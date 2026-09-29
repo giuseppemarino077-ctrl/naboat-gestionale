@@ -3,6 +3,7 @@ import { chiaveDedup, normalizzaEmail, nuovoTokenOspite } from "@/lib/anagrafica
 import { requireCliente } from "@/lib/clienti";
 import { prisma } from "@/lib/db";
 import { bloccaRisorse, validaBarcaNoleggio, verificaDisponibilita } from "@/lib/disponibilita";
+import { FILTRO_CATALOGO } from "@/lib/marketplace";
 import { escapeHtml, richiestaRicevutaBody, sendMail } from "@/lib/mailer";
 import { getSession } from "@/lib/session";
 import { clientIp, rateLimit } from "@/lib/ratelimit";
@@ -70,8 +71,10 @@ export async function POST(req: Request) {
   const end = new Date(p.data.endAt);
   if (!(start < end)) return fail("Orari incoherenti", 422);
 
+  // M01: stessa regola unica del catalogo. Se il marketplace è spento, la barca è
+  // bloccata da NaBoat o mancano foto/prezzo, non si accettano nuove richieste.
   const boat = await prisma.boat.findFirst({
-    where: { id: p.data.boatId, uso: "noleggio", pubblicata: true, inPausa: false, archiviato: false, tenant: { status: "active" } },
+    where: { id: p.data.boatId, ...FILTRO_CATALOGO },
     include: { tenant: { select: { id: true, nome: true } } },
   });
   if (!boat) return fail("Barca non disponibile", 404);

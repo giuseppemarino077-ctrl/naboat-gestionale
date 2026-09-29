@@ -293,6 +293,12 @@ model Boat {
   pubblicata   Boolean  @default(false) // visibile nel marketplace
   inPausa      Boolean  @default(false) // es. manutenzione: resta ma non si pubblica
   archiviato   Boolean  @default(false) // archiviata: conserva storia, non compare in elenco
+  // Moderazione NaBoat, distinta dalla scelta editoriale del noleggiatore:
+  // il proprietario non può annullarla cambiando pubblicata/inPausa.
+  bloccataAdmin Boolean @default(false)
+  motivoBlocco  String?
+  bloccataAt    DateTime?
+  bloccataDa    String?
   portoId      String?
   porto        Porto?   @relation(fields: [portoId], references: [id], onDelete: SetNull)
   modelloId    String?

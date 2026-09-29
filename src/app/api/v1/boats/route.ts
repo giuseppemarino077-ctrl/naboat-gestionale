@@ -1,5 +1,7 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
+import { motivoNonIdonea } from "@/lib/marketplace";
+import { bloccaPiano } from "@/lib/piani";
 import { portoDelTenant, modelloValido } from "@/lib/riferimenti";
 import { rigeneraBarca } from "@/lib/seo";
 import { requireAzienda } from "@/lib/tenant";
@@ -51,7 +53,30 @@ export async function POST(req: Request) {
   if (!p.success) return fail("Dati barca non validi", 422);
   if (p.data.portoId && !(await portoDelTenant(t.tenantId, p.data.portoId))) return fail("Porto non valido per questa azienda", 422);
   if (p.data.modelloId && !(await modelloValido(p.data.modelloId))) return fail("Modello non valido", 422);
-  const boat = await prisma.boat.create({ data: { tenantId: t.tenantId, ...p.data } });
+
+  // M01: la creazione segue la stessa regola della modifica. Un azienda con il
+  // marketplace spento non può nemmeno creare una barca già pubblicata.
+  if (p.data.pubblicata === true) {
+    const tenant = await prisma.tenant.findUnique({ where: { id: t.tenantId }, select: { status: true, moduloMarketplace: true } });
+    const motivo = motivoNonIdonea({
+      uso: p.data.uso,
+      archiviato: false,
+      pubblicata: true,
+      inPausa: p.data.inPausa ?? false,
+      bloccataAdmin: false,
+      fotoCopertina: null,
+      fotoGallery: [],
+      tariffeAttive: 0,
+      aziendaStatus: tenant?.status ?? "pending",
+      moduloMarketplace: tenant?.moduloMarketplace ?? false,
+    });
+    return fail(motivo ?? "Per pubblicare serve almeno una foto e un prezzo nel listino", motivo?.includes("Marketplace") ? 403 : 422);
+  }
+
+  const boat = await prisma.$transaction(async (tx) => {
+    await bloccaPiano(tx, t.tenantId);
+    return tx.boat.create({ data: { tenantId: t.tenantId, ...p.data } });
+  });
   await prisma.auditLog.create({
     data: { tenantId: t.tenantId, actorId: t.userId, azione: "boat.create", entita: "Boat", entitaId: boat.id },
   });

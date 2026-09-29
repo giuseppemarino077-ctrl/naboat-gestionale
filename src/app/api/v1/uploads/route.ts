@@ -1,7 +1,8 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
+import { bloccaPiano, verificaFotoPiano } from "@/lib/piani";
 import { requireAzienda } from "@/lib/tenant";
-import { InvalidPhotoError, MAX_BYTES, MIME_OK, savePhoto } from "@/lib/storage";
+import { InvalidPhotoError, MAX_BYTES, MIME_OK, deletePhoto, savePhoto } from "@/lib/storage";
 
 // Upload immagini (multipart). Max 5 MB, jpeg/png/webp. Tre usi:
 //   boatId                    -> foto della barca (la prima diventa copertina)
@@ -60,10 +61,29 @@ export async function POST(req: Request) {
     return ok({ url, tipo }, 201);
   }
 
-  const copertina = barca!.fotoCopertina;
-  await prisma.boat.update({
-    where: { id: barca!.id },
-    data: { fotoGallery: [...barca!.fotoGallery, url], ...(copertina ? {} : { fotoCopertina: url }) },
+  // Limite foto del piano Free applicato in transazione, con il lock del piano:
+  // due caricamenti simultanei non superano il tetto. Vale per le barche già in catalogo.
+  const esito = await prisma.$transaction(async (tx) => {
+    await bloccaPiano(tx, t.tenantId);
+    const b = await tx.boat.findFirst({
+      where: { id: barca!.id, tenantId: t.tenantId },
+      select: { fotoGallery: true, fotoCopertina: true, pubblicata: true, inPausa: true, bloccataAdmin: true },
+    });
+    if (!b) return { ok: false as const, errore: "Barca non trovata", stato: 404 };
+    const nuovaGallery = [...b.fotoGallery, url];
+    if (b.pubblicata && !b.inPausa && !b.bloccataAdmin) {
+      const lim = await verificaFotoPiano(tx, t.tenantId, nuovaGallery.length);
+      if (!lim.ok) return { ok: false as const, errore: lim.messaggio, stato: 402 };
+    }
+    await tx.boat.update({
+      where: { id: barca!.id },
+      data: { fotoGallery: nuovaGallery, ...(b.fotoCopertina ? {} : { fotoCopertina: url }) },
+    });
+    return { ok: true as const, copertina: b.fotoCopertina ?? url };
   });
-  return ok({ url, copertina: copertina ?? url }, 201);
+  if (!esito.ok) {
+    await deletePhoto(url);
+    return fail(esito.errore, esito.stato);
+  }
+  return ok({ url, copertina: esito.copertina }, 201);
 }

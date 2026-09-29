@@ -13,8 +13,8 @@ export async function GET(req: Request) {
   const boats = await prisma.boat.findMany({
     where: {
       uso: "noleggio",
-      ...(stato === "pubblicate" ? { pubblicata: true, inPausa: false } : {}),
-      ...(stato === "nascoste" ? { OR: [{ pubblicata: false }, { inPausa: true }] } : {}),
+      ...(stato === "pubblicate" ? { pubblicata: true, inPausa: false, bloccataAdmin: false } : {}),
+      ...(stato === "nascoste" ? { OR: [{ pubblicata: false }, { inPausa: true }, { bloccataAdmin: true }] } : {}),
       ...(cerca ? { nome: { contains: cerca, mode: "insensitive" } } : {}),
     },
     orderBy: { createdAt: "desc" },
@@ -24,7 +24,12 @@ export async function GET(req: Request) {
   return ok(boats);
 }
 
-const Schema = z.object({ boatId: z.string().uuid(), azione: z.enum(["nascondi", "mostra"]) });
+// `motivo` è obbligatorio per nascondere; l'autore è il superadmin che agisce.
+const Schema = z.object({
+  boatId: z.string().uuid(),
+  azione: z.enum(["nascondi", "mostra"]),
+  motivo: z.string().trim().min(3).max(300).optional(),
+});
 
 export async function PATCH(req: Request) {
   const g = await requireSuperadmin();
@@ -33,10 +38,26 @@ export async function PATCH(req: Request) {
   if (!p.success) return fail("Dati non validi", 422);
   const b = await prisma.boat.findUnique({ where: { id: p.data.boatId }, select: { id: true, tenantId: true } });
   if (!b) return fail("Barca non trovata", 404);
+  if (p.data.azione === "nascondi" && !p.data.motivo) return fail("Indicare il motivo del blocco", 422);
+
+  // Il blocco admin è un campo dedicato: non tocchiamo la scelta editoriale del
+  // noleggiatore (pubblicata/inPausa), così non può sbloccarsi da sé.
   await prisma.boat.update({
     where: { id: b.id },
-    data: p.data.azione === "nascondi" ? { pubblicata: false, inPausa: true } : { inPausa: false, pubblicata: true },
+    data:
+      p.data.azione === "nascondi"
+        ? { bloccataAdmin: true, motivoBlocco: p.data.motivo, bloccataAt: new Date(), bloccataDa: g.session.sub }
+        : { bloccataAdmin: false, motivoBlocco: null, bloccataAt: null, bloccataDa: null },
   });
-  await prisma.auditLog.create({ data: { tenantId: b.tenantId, actorId: g.session.sub, azione: `barca.${p.data.azione}`, entita: "Boat", entitaId: b.id } });
+  await prisma.auditLog.create({
+    data: {
+      tenantId: b.tenantId,
+      actorId: g.session.sub,
+      azione: `barca.${p.data.azione}`,
+      entita: "Boat",
+      entitaId: b.id,
+      dettagli: p.data.motivo ? JSON.stringify({ motivo: p.data.motivo }).slice(0, 20000) : null,
+    },
+  });
   return ok({ ok: true });
 }

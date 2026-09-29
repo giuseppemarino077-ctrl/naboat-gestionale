@@ -1,25 +1,72 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 
 // Dati pubblici del marketplace NaBoat. Sono letture server-side senza sessione:
 // espongono SOLO ciò che è pubblicato e approvato, mai matricola o dati fiscali.
 
-const AZIENDA_ATTIVA = { tenant: { status: "active" as const } };
+// --- M01: regola UNICA di pubblicabilità -----------------------------------
+// Idoneità al catalogo pubblico (azienda + barca + requisiti), NON disponibilità
+// in una data: la disponibilità la calcola src/lib/disponibilita.ts.
+// Questo filtro è la fonte di verità: cataloghi, schede, profilo azienda, sitemap
+// e controlli di pubblicazione devono usarlo, così la regola resta una sola.
+export const FILTRO_BARCA_CATALOGO: Prisma.BoatWhereInput = {
+  uso: "noleggio",
+  archiviato: false,
+  pubblicata: true,
+  inPausa: false,
+  bloccataAdmin: false,
+  OR: [{ fotoGallery: { isEmpty: false } }, { fotoCopertina: { not: null } }],
+  tariffe: { some: { attivo: true } },
+};
+
+export const FILTRO_CATALOGO: Prisma.BoatWhereInput = {
+  ...FILTRO_BARCA_CATALOGO,
+  tenant: { status: "active", moduloMarketplace: true },
+};
+
+// Requisiti valutati su una barca già caricata (stessa regola del filtro).
+// Serve a spiegare con un messaggio chiaro perché una barca non è pubblicabile.
+export type RequisitiCatalogo = {
+  uso: string;
+  archiviato: boolean;
+  pubblicata: boolean;
+  inPausa: boolean;
+  bloccataAdmin: boolean;
+  fotoCopertina: string | null;
+  fotoGallery: string[];
+  tariffeAttive: number;
+  aziendaStatus: string;
+  moduloMarketplace: boolean;
+};
+
+export function motivoNonIdonea(r: RequisitiCatalogo): string | null {
+  if (r.aziendaStatus !== "active") return "Azienda non attiva";
+  if (!r.moduloMarketplace) return "Il modulo Marketplace è disattivato per questa azienda";
+  if (r.uso !== "noleggio") return "La barca non è destinata al noleggio";
+  if (r.archiviato) return "Barca archiviata";
+  if (r.bloccataAdmin) return "Barca bloccata da NaBoat";
+  if (!r.pubblicata) return "Barca non pubblicata";
+  if (r.inPausa) return "Barca in pausa";
+  if (!r.fotoCopertina && r.fotoGallery.length === 0) return "Per pubblicare serve almeno una foto";
+  if (r.tariffeAttive < 1) return "Per pubblicare serve un prezzo nel listino";
+  return null;
+}
 
 export type NumeriPiattaforma = { barche: number; senzaPatente: number; conSkipper: number; localita: number };
 
 // Numeri reali della piattaforma per la home.
 export async function numeriPiattaforma(): Promise<NumeriPiattaforma> {
   const [barche, senzaPatente, conSkipper, localita] = await Promise.all([
-    prisma.boat.count({ where: { uso: "noleggio", pubblicata: true, inPausa: false, ...AZIENDA_ATTIVA } }),
-    prisma.boat.count({ where: { uso: "noleggio", pubblicata: true, inPausa: false, patenteRichiesta: false, ...AZIENDA_ATTIVA } }),
+    prisma.boat.count({ where: FILTRO_CATALOGO }),
+    prisma.boat.count({ where: { ...FILTRO_CATALOGO, patenteRichiesta: false } }),
     prisma.booking
       .findMany({
-        where: { skipperId: { not: null }, boat: { uso: "noleggio", pubblicata: true, inPausa: false }, ...AZIENDA_ATTIVA },
+        where: { skipperId: { not: null }, boat: FILTRO_CATALOGO },
         select: { boatId: true },
         distinct: ["boatId"],
       })
       .then((r) => r.length),
-    prisma.porto.count({ where: AZIENDA_ATTIVA }),
+    prisma.porto.count({ where: { tenant: { status: "active" } } }),
   ]);
   return { barche, senzaPatente, conSkipper, localita };
 }
@@ -72,7 +119,7 @@ export type SchedaEvidenza = {
 // a parità di punteggio si ordina per inserimento più recente. Con zero recensioni il punteggio è 0.
 export async function barcheInEvidenza(limite = 6): Promise<SchedaEvidenza[]> {
   const boats = await prisma.boat.findMany({
-    where: { uso: "noleggio", pubblicata: true, inPausa: false, tenant: { status: "active" } },
+    where: FILTRO_CATALOGO,
     include: {
       porto: { select: { nome: true } },
       tenant: { select: { nome: true, slug: true } },
@@ -114,7 +161,7 @@ export async function barcaPerSlug(slug: string) {
   const pagina = await prisma.seoPage.findFirst({ where: { slug, tipo: "barca" }, select: { refId: true } });
   const id = pagina?.refId ?? slug;
   const b = await prisma.boat.findFirst({
-    where: { id, uso: "noleggio", pubblicata: true, inPausa: false, tenant: { status: "active" } },
+    where: { id, ...FILTRO_CATALOGO },
     include: {
       porto: true,
       modello: { select: { marca: true, modello: true } },
@@ -135,12 +182,12 @@ export async function aziendaPerSlug(slug: string) {
   const pagina = await prisma.seoPage.findFirst({ where: { slug, tipo: "azienda" }, select: { refId: true } });
   const t = await prisma.tenant.findFirst({
     where: pagina?.refId
-      ? { id: pagina.refId, status: "active" }
-      : { OR: [{ slug }, { id: slug }], status: "active" },
+      ? { id: pagina.refId, status: "active", moduloMarketplace: true }
+      : { OR: [{ slug }, { id: slug }], status: "active", moduloMarketplace: true },
     include: {
       porti: { orderBy: { nome: "asc" } },
       boats: {
-        where: { uso: "noleggio", pubblicata: true, inPausa: false },
+        where: FILTRO_BARCA_CATALOGO,
         orderBy: { nome: "asc" },
         include: { porto: { select: { nome: true } }, tariffe: { where: { attivo: true }, select: { prezzoCent: true } } },
       },
@@ -165,7 +212,7 @@ export type CatalogoPubblico = {
 // Catalogo pubblico con i filtri usati dal percorso «Noleggia una barca».
 export async function catalogoPubblico(filtri: { tipo?: string; porto?: string } = {}): Promise<CatalogoPubblico> {
   const boats = await prisma.boat.findMany({
-    where: { uso: "noleggio", pubblicata: true, inPausa: false, tenant: { status: "active" } },
+    where: FILTRO_CATALOGO,
     include: {
       porto: { select: { nome: true } },
       tenant: { select: { nome: true, slug: true } },

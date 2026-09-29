@@ -89,6 +89,8 @@ const run = async () => {
   const b = await json("A", "/api/v1/boats", "POST", { nome: "Smoke Boat", capienza: 4, patenteRichiesta: true });
   T("crea barca", b.data?.nome === "Smoke Boat", `${b.status}`);
   T("capienza 999 -> 422", (await json("A", "/api/v1/boats", "POST", { nome: "X", capienza: 999 })).status === 422);
+  // M01: nemmeno la creazione può saltare i requisiti di pubblicazione.
+  T("POST barca pubblicata senza foto/prezzo -> 422", (await json("A", "/api/v1/boats", "POST", { nome: "Smoke Pub Vietata", capienza: 4, pubblicata: true })).status === 422);
   const dup = await json("A", `/api/v1/boats/${b.data.id}/duplicate`, "POST");
   T("duplica barca", dup.data?.nome?.includes("copia"));
   const sk = await json("A", "/api/v1/skippers", "POST", { nome: "Skipper Smoke" });
@@ -627,6 +629,47 @@ const run = async () => {
   T("marketplace spento: fee a zero anche nei pagamenti", payOff.data?.feeNaboatPct === 0 && payOff.data?.moduloMarketplace === false);
   await adm.fetch("/api/v1/admin/subscriptions", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ azione: "condizioniAzienda", id: tA.id, moduloMarketplace: true, feeNaboatPct: 10 }) });
   T("marketplace riattivato", (await json("A", "/api/v1/subscription")).data?.marketplace?.feePct === 10);
+
+  // ---- M01/M02: regola unica di pubblicabilità e moderazione admin ----
+  // Nome univoco per esecuzione: il catalogo è globale e le prove precedenti restano,
+  // quindi il controllo non deve dipendere dal nome generico.
+  const nomeCatalogo = `Smoke Catalogo ${Date.now()}`;
+  const bPub = await json("A", "/api/v1/boats", "POST", { nome: nomeCatalogo, capienza: 6 });
+  T("barca per il catalogo creata", bPub.status === 201, `${bPub.status}`);
+  T("pubblicare senza foto -> 422", (await json("A", `/api/v1/boats/${bPub.data.id}`, "PATCH", { pubblicata: true })).status === 422);
+  const fdPub = new FormData();
+  fdPub.append("file", new Blob([new Uint8Array(png)], { type: "image/png" }), "catalogo.png");
+  fdPub.append("boatId", bPub.data.id);
+  T("foto della barca pubblicabile caricata", (await jar.fetch("/api/v1/uploads", { method: "POST", body: fdPub })).status === 201);
+  T("pubblicare senza prezzo -> 422", (await json("A", `/api/v1/boats/${bPub.data.id}`, "PATCH", { pubblicata: true })).status === 422);
+  const tarPub = await json("A", "/api/v1/tariffe", "POST", { boatId: bPub.data.id, tipo: "giornata", stagione: "tutto_anno", prezzoEuro: "300,00" });
+  T("tariffa della barca creata", tarPub.status === 201, `${tarPub.status}`);
+  T("barca pubblicata con foto e prezzo", (await json("A", `/api/v1/boats/${bPub.data.id}`, "PATCH", { pubblicata: true })).status === 200);
+
+  const leggiCatalogo = async () => (await jar.fetch(`/noleggia?_=${Date.now()}`)).text();
+  T("barca idonea visibile nel catalogo pubblico", (await leggiCatalogo()).includes(nomeCatalogo));
+
+  // Marketplace spento: la regola unica esclude esposizione e richieste.
+  await adm.fetch("/api/v1/admin/subscriptions", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ azione: "condizioniAzienda", id: tA.id, moduloMarketplace: false, feeNaboatPct: 10 }) });
+  T("marketplace spento: barca esclusa dal catalogo", !(await leggiCatalogo()).includes(nomeCatalogo));
+  const richOff = await json("", "/api/v1/richieste", "POST", {
+    boatId: bPub.data.id, startAt: "2028-09-10T09:00:00.000Z", endAt: "2028-09-10T18:00:00.000Z",
+    passeggeri: 2, clienteNome: "Richiedente Smoke", telefono: "333666777", privacy: true, istante: Date.now() - 5000,
+  });
+  T("marketplace spento: richiesta pubblica rifiutata (404)", richOff.status === 404, `${richOff.status} ${JSON.stringify(richOff.data)}`);
+  await adm.fetch("/api/v1/admin/subscriptions", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ azione: "condizioniAzienda", id: tA.id, moduloMarketplace: true, feeNaboatPct: 10 }) });
+  T("marketplace riattivato: torna nel catalogo", (await leggiCatalogo()).includes("Smoke Catalogo"));
+
+  // Moderazione NaBoat: campo dedicato, non cancellato dall'editoriale del noleggiatore.
+  T("nascondi senza motivo -> 422", (await adm.fetch("/api/v1/admin/barche", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ boatId: bPub.data.id, azione: "nascondi" }) })).status === 422);
+  const bloccoAdm = await adm.fetch("/api/v1/admin/barche", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ boatId: bPub.data.id, azione: "nascondi", motivo: "Non conforme al catalogo" }) });
+  T("NaBoat blocca la barca con motivo", bloccoAdm.status === 200, `${bloccoAdm.status}`);
+  T("barca bloccata fuori dal catalogo", !(await leggiCatalogo()).includes(nomeCatalogo));
+  const riPub = await json("A", `/api/v1/boats/${bPub.data.id}`, "PATCH", { pubblicata: true, inPausa: false });
+  T("blocco NaBoat non aggirabile dal proprietario -> 409", riPub.status === 409, `${riPub.status} ${JSON.stringify(riPub.data)}`);
+  const sblocco = await adm.fetch("/api/v1/admin/barche", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ boatId: bPub.data.id, azione: "mostra" }) });
+  T("NaBoat rimuove il blocco", sblocco.status === 200);
+  T("sbloccata torna nel catalogo", (await leggiCatalogo()).includes("Smoke Catalogo"));
 
   // Accordi personalizzati per azienda
   const condPers = await adm.fetch("/api/v1/admin/subscriptions", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ azione: "condizioniAzienda", id: tA.id, moduloMarketplace: true, feeNaboatPct: 10, canoneMensileEuro: "49,00", prezzoAttivazioneEuro: "", canoneStagionaleEuro: "" }) });
