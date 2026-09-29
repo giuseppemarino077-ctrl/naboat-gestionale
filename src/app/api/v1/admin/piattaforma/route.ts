@@ -28,6 +28,9 @@ export async function GET() {
       pianoProPrezzoMensileCent: true,
       pianoProPrezzoAnnualeCent: true,
       pianoProvaGiorni: true,
+      opzioneScadenzaOre: true,
+      richiestaMaxDurataGiorni: true,
+      richiestaMaxAnticipoGiorni: true,
     },
   });
   return ok({
@@ -48,6 +51,9 @@ export async function GET() {
     pianoProPrezzoMensileCent: s?.pianoProPrezzoMensileCent ?? null,
     pianoProPrezzoAnnualeCent: s?.pianoProPrezzoAnnualeCent ?? null,
     pianoProvaGiorni: s?.pianoProvaGiorni ?? 0,
+    opzioneScadenzaOre: s?.opzioneScadenzaOre ?? 48,
+    richiestaMaxDurataGiorni: s?.richiestaMaxDurataGiorni ?? 30,
+    richiestaMaxAnticipoGiorni: s?.richiestaMaxAnticipoGiorni ?? 730,
     predefinita: "/img/sfondo-login.jpg",
   });
 }
@@ -71,6 +77,9 @@ const Schema = z
     pianoProPrezzoMensileCent: z.number().int().min(0).max(100000000).optional().nullable(),
     pianoProPrezzoAnnualeCent: z.number().int().min(0).max(100000000).optional().nullable(),
     pianoProvaGiorni: z.number().int().min(0).max(3650).optional(),
+    opzioneScadenzaOre: z.number().int().min(1).max(720).optional(),
+    richiestaMaxDurataGiorni: z.number().int().min(1).max(365).optional(),
+    richiestaMaxAnticipoGiorni: z.number().int().min(1).max(3650).optional(),
   })
   .strict();
 

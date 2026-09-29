@@ -52,8 +52,11 @@ export default function TeamPage() {
 
       {azienda && (
         <div className="card grid gap-3 p-5 text-sm">
-          <h2 className="text-lg">Dati dell'azienda</h2>
-          <p className="text-muted">Nome e logo compaiono nel menu del portale.</p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-lg">Dati dell'azienda</h2>
+            <a className="font-bold text-ocean" href="/impostazioni">Modifica il profilo pubblico →</a>
+          </div>
+          <p className="text-muted">Nome e logo compaiono nel menu del portale. Descrizione, contatti pubblici e visibilità si gestiscono dal profilo pubblico.</p>
           <div className="flex flex-wrap items-end gap-3">
             <label className="grid gap-1">Nome azienda
               <input className="rounded-md border border-line p-2" value={nomeAzienda} onChange={(e) => setNomeAzienda(e.target.value)} />

@@ -9,6 +9,7 @@ import { getSession } from "@/lib/session";
 import { clientIp, rateLimit } from "@/lib/ratelimit";
 import { verifyTurnstile } from "@/lib/turnstile";
 import type { Prisma } from "@prisma/client";
+import { createHash } from "crypto";
 import { z } from "zod";
 
 // Richiesta di prenotazione dal sito pubblico. Non è una conferma automatica:
@@ -29,7 +30,51 @@ const Schema = z.object({
   azienda: z.string().max(200).optional(),
   istante: z.number().int().optional(),
   turnstileToken: z.string().max(4000).optional(),
+  // Ripetizione dello stesso invio (doppio clic, retry di rete): stessa chiave e
+  // stessi dati -> si restituisce la richiesta già creata, senza duplicarla.
+  idempotencyKey: z.string().max(80).optional(),
 });
+
+// Impronta dell'intento. Esclude i campi variabili del tentativo (istante, token
+// anti-bot, campo esca): la stessa richiesta deve dare la stessa impronta.
+function improntaRichiesta(v: z.infer<typeof Schema>): string {
+  const canonico = {
+    boatId: v.boatId,
+    startAt: v.startAt,
+    endAt: v.endAt,
+    passeggeri: v.passeggeri,
+    clienteNome: v.clienteNome,
+    telefono: v.telefono,
+    email: v.email ?? null,
+    destinazione: v.destinazione ?? null,
+    note: v.note ?? null,
+    extras: [...(v.extras ?? [])].map((e) => `${e.extraId}:${e.quantita}`).sort(),
+  };
+  return createHash("sha256").update(JSON.stringify(canonico)).digest("hex");
+}
+
+// Forma pubblica del preventivo congelato (usata sia alla creazione sia al replay).
+function preventivoPubblico(p: {
+  stato: string;
+  motivo: string | null;
+  tipo: string;
+  stagione: string;
+  prezzoNoleggioCent: number | null;
+  extraTotaleCent: number;
+  commissioniCent: number;
+  totaleClienteCent: number | null;
+}) {
+  return {
+    stato: p.stato,
+    motivo: p.motivo,
+    tipo: p.tipo,
+    stagione: p.stagione,
+    prezzoNoleggioCent: p.prezzoNoleggioCent,
+    extraTotaleCent: p.extraTotaleCent,
+    commissioniCent: p.commissioniCent,
+    totaleClienteCent: p.totaleClienteCent,
+  };
+}
 
 // Link monouso per collegare una richiesta ospite all'area personale.
 function collegamentoBody(link: string, azienda: string, barca: string, quando: string) {
@@ -74,6 +119,28 @@ export async function POST(req: Request) {
   const end = new Date(p.data.endAt);
   if (!(start < end)) return fail("Orari incoherenti", 422);
 
+  // M05: limiti delle richieste dal sito. Durata e anticipo sono configurabili da
+  // NaBoat; un piccolo margine assorbe la latenza senza ammettere date passate.
+  const cfg = await prisma.platformSettings
+    .findUnique({
+      where: { id: "singleton" },
+      select: { opzioneScadenzaOre: true, richiestaMaxDurataGiorni: true, richiestaMaxAnticipoGiorni: true },
+    })
+    .catch(() => null);
+  const opzioneOre = Math.max(1, cfg?.opzioneScadenzaOre ?? 48);
+  const maxDurataGiorni = cfg?.richiestaMaxDurataGiorni ?? 30;
+  const maxAnticipoGiorni = cfg?.richiestaMaxAnticipoGiorni ?? 730;
+  const msGiorno = 86400000;
+  const adesso = Date.now();
+  if (start.getTime() < adesso - 5 * 60000) return fail("La data di partenza è nel passato", 422);
+  if (end.getTime() - start.getTime() > maxDurataGiorni * msGiorno) {
+    return fail(`La richiesta supera la durata massima di ${maxDurataGiorni} giorni`, 422);
+  }
+  if (start.getTime() - adesso > maxAnticipoGiorni * msGiorno) {
+    return fail(`Si può richiedere una data al massimo con ${maxAnticipoGiorni} giorni di anticipo`, 422);
+  }
+  const opzioneScadenzaAt = new Date(adesso + opzioneOre * 3600000);
+
   // M01: stessa regola unica del catalogo. Se il marketplace è spento, la barca è
   // bloccata da NaBoat o mancano foto/prezzo, non si accettano nuove richieste.
   const boat = await prisma.boat.findFirst({
@@ -85,6 +152,19 @@ export async function POST(req: Request) {
   // manutenzione, capienza rispettata.
   const errBarca = validaBarcaNoleggio(boat, p.data.passeggeri);
   if (errBarca) return fail(errBarca.startsWith("Capienza") ? `Capienza massima ${boat.capienza} persone` : "Barca non disponibile", 422);
+
+  // Idempotenza: un retry con la stessa chiave non crea un doppione. La chiave non
+  // vale per un'altra azienda; con dati diversi si risponde 409.
+  const impronta = p.data.idempotencyKey ? improntaRichiesta(p.data) : null;
+  if (p.data.idempotencyKey) {
+    const dup = await prisma.booking.findUnique({ where: { idempotencyKey: p.data.idempotencyKey } });
+    if (dup) {
+      if (dup.tenantId !== boat.tenantId) return fail("Chiave idempotenza già usata", 409);
+      if (dup.idempotencyHash && dup.idempotencyHash !== impronta) return fail("Chiave idempotenza già usata con dati diversi", 409);
+      const snap = dup.preventivoSnapshot as unknown as Parameters<typeof preventivoPubblico>[0] | null;
+      return ok({ ricevuto: true, id: dup.id, riutilizzato: true, preventivo: snap ? preventivoPubblico(snap) : undefined });
+    }
+  }
 
   // M03 — snapshot dell'offerta congelato alla richiesta. Il prezzo può essere
   // determinato oppure no: in entrambi i casi resta una richiesta "da_confermare",
@@ -115,7 +195,17 @@ export async function POST(req: Request) {
   // Il controllo di disponibilità e la creazione stanno nella stessa transazione,
   // con il lock per barca: una richiesta non scavalca una prenotazione in corso.
   const risultato = await prisma.$transaction(async (tx) => {
-    await bloccaRisorse(tx, { boatIds: [boat.id] });
+    await bloccaRisorse(tx, { boatIds: [boat.id], chiaviExtra: p.data.idempotencyKey ? [`idem:${p.data.idempotencyKey}`] : [] });
+
+    // Ricontrollo dentro il lock: due retry arrivati insieme non duplicano.
+    if (p.data.idempotencyKey) {
+      const dup = await tx.booking.findUnique({ where: { idempotencyKey: p.data.idempotencyKey } });
+      if (dup) {
+        if (dup.tenantId !== boat.tenantId) return { err: "Chiave idempotenza già usata", token: null, booking: null };
+        if (dup.idempotencyHash && dup.idempotencyHash !== impronta) return { err: "Chiave idempotenza già usata con dati diversi", token: null, booking: null };
+        return { booking: { id: dup.id }, err: null, token: null, duplicato: true, snapshot: dup.preventivoSnapshot as unknown as Parameters<typeof preventivoPubblico>[0] | null };
+      }
+    }
 
     const disp = await verificaDisponibilita(tx, { tenantId: boat.tenantId, boatId: boat.id, startAt: start, endAt: end });
     if (!disp.ok) return { err: "La barca non è disponibile in quelle date", token: null, booking: null };
@@ -144,6 +234,11 @@ export async function POST(req: Request) {
         note: p.data.note ?? null,
         stato: "da_confermare",
         origineCanale: "naboat",
+        // M05: la richiesta tiene la barca solo fino a questa ora; poi la libera il
+        // rilascio automatico (o, se il job è in ritardo, già la disponibilità).
+        opzioneScadenzaAt,
+        idempotencyKey: p.data.idempotencyKey ?? null,
+        idempotencyHash: impronta,
         ...(prezzoNoleggioCent != null && prezzoNoleggioCent > 0 ? { prezzoCent: prezzoNoleggioCent } : {}),
         prezzoDaDefinire: preventivo.stato === "da_definire",
         preventivoSnapshot: preventivo as unknown as Prisma.InputJsonValue,
@@ -159,6 +254,16 @@ export async function POST(req: Request) {
   });
 
   if (risultato.err) return fail(risultato.err, 409);
+  // Retry idempotente: nessun nuovo effetto (niente email doppie), si restituisce
+  // la richiesta già salvata con la sua offerta congelata.
+  if ("duplicato" in risultato && risultato.duplicato) {
+    return ok({
+      ricevuto: true,
+      id: risultato.booking!.id,
+      riutilizzato: true,
+      preventivo: risultato.snapshot ? preventivoPubblico(risultato.snapshot) : undefined,
+    });
+  }
 
   const base = (process.env.APP_URL || new URL(req.url).origin).replace(/\/$/, "");
   const quando = start.toLocaleString("it-IT", { timeZone: "Europe/Rome", dateStyle: "short", timeStyle: "short" });

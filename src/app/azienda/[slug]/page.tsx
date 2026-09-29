@@ -35,6 +35,17 @@ export default async function AziendaPage({
   const pagine = await prisma.seoPage.findMany({ where: { tipo: "barca", refId: { in: a.boats.map((b) => b.id) } }, select: { refId: true, slug: true } });
   const slugBarca = new Map(pagine.map((p) => [p.refId as string, p.slug as string]));
 
+  // Recensioni pubblicate: visibili solo se la visibilità è accesa. Non si mostra
+  // il nome del cliente, solo voto, commento e risposta dell'azienda.
+  const recensioni = a.mostraRecensioni
+    ? await prisma.recensione.findMany({
+        where: { tenantId: a.id, stato: "pubblicata" },
+        orderBy: { createdAt: "desc" },
+        take: 6,
+        select: { id: true, voto: true, commento: true, risposta: true, createdAt: true },
+      })
+    : [];
+
   const tipi = Array.from(new Set(a.boats.map((b) => b.tipo).filter(Boolean))) as string[];
   const portiNomi = Array.from(new Set(a.boats.map((b) => b.porto?.nome).filter(Boolean))) as string[];
   const filtrate = a.boats.filter((b) => (!sp.tipo || b.tipo === sp.tipo) && (!sp.porto || b.porto?.nome === sp.porto));
@@ -138,6 +149,24 @@ export default async function AziendaPage({
             </ul>
           </div>
         </section>
+
+        {recensioni.length > 0 && (
+          <section className="mt-8">
+            <h2 className="font-display text-2xl font-extrabold text-deep">Recensioni</h2>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              {recensioni.map((r) => (
+                <div key={r.id} className="card p-4 text-sm">
+                  <p className="font-bold text-gold">
+                    {"★".repeat(Math.max(1, Math.min(5, r.voto)))} <span className="text-muted">{r.voto}/5</span>
+                  </p>
+                  {r.commento && <p className="mt-1 whitespace-pre-line text-muted">{r.commento}</p>}
+                  {r.risposta && <p className="mt-2 rounded-2xl bg-foam p-2 text-xs"><b>Risposta dell&apos;azienda:</b> {r.risposta}</p>}
+                  <p className="mt-1 text-xs text-muted">{r.createdAt.toLocaleDateString("it-IT")}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {a.mostraPorti && a.porti.length > 0 && (
           <section className="mt-8">

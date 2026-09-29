@@ -58,7 +58,7 @@ export default function AdminPage() {
     abbonamentoObbligatorio: false,
   });
   const [cond, setCond] = useState<Record<string, { moduloMarketplace: boolean; feeNaboatPct: number; prezzoAttivazioneEuro: string; canoneMensileEuro: string; canoneStagionaleEuro: string }>>({});
-  const [aspetto, setAspetto] = useState<{ loginImmagine: string | null; loginSfocatura: number; loginMessaggio: string; homeTitolo: string; homeSottotitolo: string; homeImmagine: string | null; manutenzioneAttiva: boolean; manutenzioneTitolo: string; manutenzioneTesto: string; sogliaPatenteCv: number; tempoPreparazioneMin: number; finestraRecensioniGiorni: number; pianoFreeMaxBarche: number; pianoFreeMaxFoto: number; pianoProPrezzoMensileCent: number | null; pianoProPrezzoAnnualeCent: number | null; pianoProvaGiorni: number; predefinita: string } | null>(null);
+  const [aspetto, setAspetto] = useState<{ loginImmagine: string | null; loginSfocatura: number; loginMessaggio: string; homeTitolo: string; homeSottotitolo: string; homeImmagine: string | null; manutenzioneAttiva: boolean; manutenzioneTitolo: string; manutenzioneTesto: string; sogliaPatenteCv: number; tempoPreparazioneMin: number; finestraRecensioniGiorni: number; pianoFreeMaxBarche: number; pianoFreeMaxFoto: number; pianoProPrezzoMensileCent: number | null; pianoProPrezzoAnnualeCent: number | null; pianoProvaGiorni: number; opzioneScadenzaOre: number; richiestaMaxDurataGiorni: number; richiestaMaxAnticipoGiorni: number; predefinita: string } | null>(null);
   const [caricandoSfondo, setCaricandoSfondo] = useState(false);
   const [caricandoHome, setCaricandoHome] = useState(false);
   const [err, setErr] = useState("");
@@ -98,7 +98,7 @@ export default function AdminPage() {
     setMsg("Foto di apertura della home aggiornata."); load();
   };
 
-  const salvaAspetto = async (patch: Partial<{ loginImmagine: string | null; loginSfocatura: number; loginMessaggio: string | null; homeTitolo: string | null; homeSottotitolo: string | null; homeImmagine: string | null; manutenzioneAttiva: boolean; manutenzioneTitolo: string | null; manutenzioneTesto: string | null; sogliaPatenteCv: number; tempoPreparazioneMin: number; finestraRecensioniGiorni: number; pianoFreeMaxBarche: number; pianoFreeMaxFoto: number; pianoProPrezzoMensileCent: number | null; pianoProPrezzoAnnualeCent: number | null; pianoProvaGiorni: number }>) => {
+  const salvaAspetto = async (patch: Partial<{ loginImmagine: string | null; loginSfocatura: number; loginMessaggio: string | null; homeTitolo: string | null; homeSottotitolo: string | null; homeImmagine: string | null; manutenzioneAttiva: boolean; manutenzioneTitolo: string | null; manutenzioneTesto: string | null; sogliaPatenteCv: number; tempoPreparazioneMin: number; finestraRecensioniGiorni: number; pianoFreeMaxBarche: number; pianoFreeMaxFoto: number; pianoProPrezzoMensileCent: number | null; pianoProPrezzoAnnualeCent: number | null; pianoProvaGiorni: number; opzioneScadenzaOre: number; richiestaMaxDurataGiorni: number; richiestaMaxAnticipoGiorni: number }>) => {
     const r = await fetch("/api/v1/admin/piattaforma", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { setErr(j.error ?? "Errore"); return; }
@@ -583,20 +583,37 @@ export default function AdminPage() {
 
           <div className="rounded-3xl border border-line bg-white p-6 shadow-sm">
             <h2 className="text-xl">Parametri della piattaforma</h2>
-            <p className="mt-1 text-sm text-muted">Regole di prodotto configurabili senza toccare il codice.</p>
+            <p className="mt-1 text-sm text-muted">Regole di prodotto configurabili senza toccare il codice. Ogni campo qui sotto è <b>collegato a un comportamento reale</b>; i campi disattivati non sono ancora usati dal gestionale.</p>
             <div className="mt-4 grid gap-3 md:grid-cols-3">
-              <label className="grid gap-1 text-sm">Soglia patente (CV)
-                <input type="number" min={0} max={2000} className="rounded-2xl border border-line p-3" value={aspetto?.sogliaPatenteCv ?? 40} onChange={(e) => setAspetto((a) => (a ? { ...a, sogliaPatenteCv: Number(e.target.value) } : a))} onBlur={() => salvaAspetto({ sogliaPatenteCv: aspetto?.sogliaPatenteCv ?? 40 })} />
-              </label>
               <label className="grid gap-1 text-sm">Preparazione fra noleggi (minuti)
                 <input type="number" min={0} max={10080} className="rounded-2xl border border-line p-3" value={aspetto?.tempoPreparazioneMin ?? 0} onChange={(e) => setAspetto((a) => (a ? { ...a, tempoPreparazioneMin: Number(e.target.value) } : a))} onBlur={() => salvaAspetto({ tempoPreparazioneMin: aspetto?.tempoPreparazioneMin ?? 0 })} />
               </label>
               <label className="grid gap-1 text-sm">Finestra recensioni (giorni)
                 <input type="number" min={1} max={365} className="rounded-2xl border border-line p-3" value={aspetto?.finestraRecensioniGiorni ?? 60} onChange={(e) => setAspetto((a) => (a ? { ...a, finestraRecensioniGiorni: Number(e.target.value) } : a))} onBlur={() => salvaAspetto({ finestraRecensioniGiorni: aspetto?.finestraRecensioniGiorni ?? 60 })} />
               </label>
+              <label className="grid gap-1 text-sm" title="Non collegato: cambia il campo «Serve patente» sulla singola barca">
+                Soglia patente (CV) <span className="text-xs font-normal text-muted">non collegata</span>
+                <input type="number" disabled className="rounded-2xl border border-line bg-[#f3eee9] p-3 text-muted" value={aspetto?.sogliaPatenteCv ?? 40} onChange={() => {}} />
+              </label>
             </div>
+            <p className="mt-2 text-xs text-muted">Soglia patente: l&apos;obbligo di patente dipende solo dall&apos;interruttore «Serve patente» impostato sulla singola barca, non dai CV del motore. Il valore resta in archivio ma non produce effetti.</p>
+
+            <h3 className="mt-6 font-display text-lg">Richieste dal sito</h3>
+            <p className="mt-1 text-sm text-muted">Valgono per le richieste inviate dal sito pubblico: la barca resta occupata solo per il tempo dell&apos;opzione, poi viene liberata automaticamente.</p>
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              <label className="grid gap-1 text-sm">Validità dell&apos;opzione (ore)
+                <input type="number" min={1} max={720} className="rounded-2xl border border-line p-3" value={aspetto?.opzioneScadenzaOre ?? 48} onChange={(e) => setAspetto((a) => (a ? { ...a, opzioneScadenzaOre: Number(e.target.value) } : a))} onBlur={() => salvaAspetto({ opzioneScadenzaOre: aspetto?.opzioneScadenzaOre ?? 48 })} />
+              </label>
+              <label className="grid gap-1 text-sm">Durata massima (giorni)
+                <input type="number" min={1} max={365} className="rounded-2xl border border-line p-3" value={aspetto?.richiestaMaxDurataGiorni ?? 30} onChange={(e) => setAspetto((a) => (a ? { ...a, richiestaMaxDurataGiorni: Number(e.target.value) } : a))} onBlur={() => salvaAspetto({ richiestaMaxDurataGiorni: aspetto?.richiestaMaxDurataGiorni ?? 30 })} />
+              </label>
+              <label className="grid gap-1 text-sm">Anticipo massimo (giorni)
+                <input type="number" min={1} max={3650} className="rounded-2xl border border-line p-3" value={aspetto?.richiestaMaxAnticipoGiorni ?? 730} onChange={(e) => setAspetto((a) => (a ? { ...a, richiestaMaxAnticipoGiorni: Number(e.target.value) } : a))} onBlur={() => salvaAspetto({ richiestaMaxAnticipoGiorni: aspetto?.richiestaMaxAnticipoGiorni ?? 730 })} />
+              </label>
+            </div>
+
             <h3 className="mt-6 font-display text-lg">Piani Free e Pro dei noleggiatori</h3>
-            <p className="mt-1 text-sm text-muted">Importi e limiti sono da definire: qui restano configurabili.</p>
+            <p className="mt-1 text-sm text-muted">I limiti del piano Free sono applicati al momento della pubblicazione delle barche e delle foto.</p>
             <div className="mt-3 grid gap-3 md:grid-cols-3">
               <label className="grid gap-1 text-sm">Free · barche massime
                 <input type="number" min={0} className="rounded-2xl border border-line p-3" value={aspetto?.pianoFreeMaxBarche ?? 3} onChange={(e) => setAspetto((a) => (a ? { ...a, pianoFreeMaxBarche: Number(e.target.value) } : a))} onBlur={() => salvaAspetto({ pianoFreeMaxBarche: aspetto?.pianoFreeMaxBarche ?? 3 })} />
@@ -604,14 +621,17 @@ export default function AdminPage() {
               <label className="grid gap-1 text-sm">Free · foto massime
                 <input type="number" min={0} className="rounded-2xl border border-line p-3" value={aspetto?.pianoFreeMaxFoto ?? 5} onChange={(e) => setAspetto((a) => (a ? { ...a, pianoFreeMaxFoto: Number(e.target.value) } : a))} onBlur={() => salvaAspetto({ pianoFreeMaxFoto: aspetto?.pianoFreeMaxFoto ?? 5 })} />
               </label>
-              <label className="grid gap-1 text-sm">Giorni di prova
-                <input type="number" min={0} className="rounded-2xl border border-line p-3" value={aspetto?.pianoProvaGiorni ?? 0} onChange={(e) => setAspetto((a) => (a ? { ...a, pianoProvaGiorni: Number(e.target.value) } : a))} onBlur={() => salvaAspetto({ pianoProvaGiorni: aspetto?.pianoProvaGiorni ?? 0 })} />
+            </div>
+            <p className="mt-3 text-xs text-muted">Piano Pro: i prezzi e i giorni di prova non sono ancora collegati a un pagamento o a una scadenza automatica, quindi non sono modificabili da qui. Il passaggio a Pro resta manuale da <b>Piani</b>.</p>
+            <div className="mt-2 grid gap-3 md:grid-cols-3">
+              <label className="grid gap-1 text-sm">Giorni di prova <span className="text-xs font-normal text-muted">non collegato</span>
+                <input type="number" disabled className="rounded-2xl border border-line bg-[#f3eee9] p-3 text-muted" value={aspetto?.pianoProvaGiorni ?? 0} onChange={() => {}} />
               </label>
-              <label className="grid gap-1 text-sm">Pro · prezzo al mese (€)
-                <input type="number" min={0} step="0.01" className="rounded-2xl border border-line p-3" value={aspetto?.pianoProPrezzoMensileCent != null ? aspetto.pianoProPrezzoMensileCent / 100 : ""} onChange={(e) => setAspetto((a) => (a ? { ...a, pianoProPrezzoMensileCent: e.target.value === "" ? null : Math.round(Number(e.target.value) * 100) } : a))} onBlur={() => salvaAspetto({ pianoProPrezzoMensileCent: aspetto?.pianoProPrezzoMensileCent ?? null })} />
+              <label className="grid gap-1 text-sm">Pro · prezzo al mese (€) <span className="text-xs font-normal text-muted">non collegato</span>
+                <input type="number" disabled className="rounded-2xl border border-line bg-[#f3eee9] p-3 text-muted" value={aspetto?.pianoProPrezzoMensileCent != null ? aspetto.pianoProPrezzoMensileCent / 100 : ""} onChange={() => {}} />
               </label>
-              <label className="grid gap-1 text-sm">Pro · prezzo all'anno (€)
-                <input type="number" min={0} step="0.01" className="rounded-2xl border border-line p-3" value={aspetto?.pianoProPrezzoAnnualeCent != null ? aspetto.pianoProPrezzoAnnualeCent / 100 : ""} onChange={(e) => setAspetto((a) => (a ? { ...a, pianoProPrezzoAnnualeCent: e.target.value === "" ? null : Math.round(Number(e.target.value) * 100) } : a))} onBlur={() => salvaAspetto({ pianoProPrezzoAnnualeCent: aspetto?.pianoProPrezzoAnnualeCent ?? null })} />
+              <label className="grid gap-1 text-sm">Pro · prezzo all&apos;anno (€) <span className="text-xs font-normal text-muted">non collegato</span>
+                <input type="number" disabled className="rounded-2xl border border-line bg-[#f3eee9] p-3 text-muted" value={aspetto?.pianoProPrezzoAnnualeCent != null ? aspetto.pianoProPrezzoAnnualeCent / 100 : ""} onChange={() => {}} />
               </label>
             </div>
           </div>

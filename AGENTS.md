@@ -156,6 +156,30 @@ Nota: il DB locale è esposto sulla porta **5434** (la 5432 è spesso occupata).
 - **Archivio barche**: `Boat.archiviato` (la lista esclude le archiviate salvo `?archiviate=1`); toggle in `/flotta`.
 - **Ormeggio**: autore nei verbali check-in/out e audit su attività/addebiti; catalogo servizi con CRUD in `/ormeggio/configurazione` (`/api/v1/ormeggio/servizi/[id]`); conti con **dettaglio per barca/permanenza** espandibile.
 
+## Impostazioni e loro effetto (M05/M06)
+Tabella di riferimento: ogni impostazione ha un unico punto di modifica e un effetto verificabile.
+
+| Impostazione | Dove si modifica | Chi la legge | Effetto reale |
+|---|---|---|---|
+| `opzioneScadenzaOre` | `/admin` → Parametri | `POST /api/v1/richieste`, `POST /api/v1/admin/piani` | Ore di validità dell'opzione di una richiesta dal sito (`Booking.opzioneScadenzaAt`) |
+| `richiestaMaxDurataGiorni` | `/admin` → Parametri | `POST /api/v1/richieste` | Durata massima accettata (422 oltre) |
+| `richiestaMaxAnticipoGiorni` | `/admin` → Parametri | `POST /api/v1/richieste` | Quanto in anticipo si può chiedere la data (422 oltre) |
+| `tempoPreparazioneMin` | `/admin` → Parametri | `src/lib/disponibilita.ts` | Margine fra due noleggi della stessa barca |
+| `finestraRecensioniGiorni` | `/admin` → Parametri | `POST /api/v1/cliente/recensioni` | Tempo entro cui il cliente può recensire |
+| `pianoFreeMaxBarche` / `pianoFreeMaxFoto` | `/admin` → Parametri | `src/lib/piani.ts` | Limiti di pubblicazione del piano Free |
+| `sogliaPatenteCv` | solo DB (non esposto) | nessuno | **Non collegato**: l'obbligo di patente dipende solo da `Boat.patenteRichiesta` |
+| `pianoProvaGiorni`, `pianoProPrezzo*` | solo DB (non esposto) | nessuno | **Non collegati**: nessun pagamento o scadenza automatica li usa. Nel pannello sono disattivati con spiegazione; il passaggio a Pro è manuale |
+| Profilo pubblico azienda (descrizione, città, lingue, orari, politiche, sito/social, copertina) | `/impostazioni` (link in `/team`) | pagine `/azienda/[slug]` e `/barca/[slug]` | Testi e contatti del profilo e delle schede barca |
+| `mostraTelefono` / `mostraEmail` / `mostraSocial` / `mostraChiSiamo` / `mostraPorti` / `mostraRecensioni` | `/impostazioni` | pagine pubbliche | Nasconde la sezione corrispondente senza cancellare i dati |
+| `Tenant.slug`, `verificata` | solo NaBoat (SEO) | pagine pubbliche | Indirizzo pubblico e indicatore «verificata» (sola lettura per l'azienda) |
+
+### M05 — scadenza delle richieste non confermate
+- Una richiesta dal sito nasce `da_confermare` con `opzioneScadenzaAt = adesso + opzioneScadenzaOre`.
+- `src/lib/disponibilita.ts` (`filtroOccupazione`) considera occupante una richiesta `da_confermare` **solo se l'opzione non è scaduta**: la barca torna libera subito, anche se il rilascio automatico non è ancora passato. Il trigger DB `check_booking_no_overlap` applica la stessa regola (migrazione `opzioni_scadenza`).
+- `POST /api/v1/admin/piani` (staff NaBoat o header `x-cron-secret`) rilascia in modo **idempotente** le opzioni scadute (`stato -> cancellata`, solo da `da_confermare`) e avvisa il noleggiatore per email; prima della scadenza invia un **promemoria** (una volta per richiesta, tracciato da `opzionePromemoriaAt`).
+- **Nessuna scadenza retroattiva**: le richieste storiche hanno `opzioneScadenzaAt = NULL` e restano occupanti. La scadenza si applica solo alle richieste create dopo questa modifica.
+- `POST /api/v1/richieste` accetta `idempotencyKey` opzionale: un retry con la stessa chiave non duplica la richiesta (stessa impronta) e con dati diversi risponde 409.
+
 ## File di riferimento
 - `README.md` — avvio e panoramica
 - `DEPLOY.md` — messa online (Aruba VPS), backup, restore, Cloudflare. **In cima c'è la sezione 0 «PROMEMORIA»**: leggila e ricordala all'utente prima di ogni messa online (pulizia dati di test, niente smoke test in produzione, RLS, segreti, configurazioni post-avvio).

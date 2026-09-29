@@ -16,6 +16,8 @@ for (const file of [".env.local", ".env"]) {
 
 const BASE = process.argv[2] || process.env.SMOKE_BASE || "http://localhost:3000";
 import sharp from "sharp";
+// Usato solo per forzare la scadenza dell'opzione (non è pilotabile dall'API).
+import { PrismaClient } from "@prisma/client";
 // Nessuna password predefinita: il test rifiuta di partire senza credenziali esplicite.
 if (!process.env.SUPERADMIN_EMAIL || !process.env.SUPERADMIN_PASSWORD) {
   console.error("Imposta SUPERADMIN_EMAIL e SUPERADMIN_PASSWORD (es. in .env.local) prima di eseguire lo smoke test.");
@@ -689,7 +691,7 @@ const run = async () => {
 
   // Durata senza tariffa in listino: «da definire», mai un prezzo inventato.
   const richDaDef = await json("", "/api/v1/richieste", "POST", {
-    boatId: bPub.data.id, startAt: "2028-10-01T09:00:00.000Z", endAt: "2028-10-05T18:00:00.000Z", passeggeri: 2,
+    boatId: bPub.data.id, startAt: "2028-07-01T09:00:00.000Z", endAt: "2028-07-05T18:00:00.000Z", passeggeri: 2,
     clienteNome: "Richiedente Def", telefono: "333666002", privacy: true, istante: Date.now() - 5000,
   });
   T("richiesta senza prezzo determinato: preventivo da definire",
@@ -707,6 +709,83 @@ const run = async () => {
 
   // La ricerca con date usa la disponibilità reale: ora la barca è occupata.
   T("ricerca con date: barca occupata esclusa", !(await leggiNoleggia("?dal=2028-09-10&al=2028-09-10")).includes(nomeCatalogo));
+
+  // ---- M05: scadenza dell'opzione e limiti delle richieste dal sito ----
+  // IP dedicato: le richieste di questo blocco non consumano il limite delle altre.
+  const IP_M05 = "198.51.100.7";
+  const richiestaPub = async (body, ip = IP_M05) => {
+    const r = await jar.fetch("/api/v1/richieste", { method: "POST", headers: { "Content-Type": "application/json", "x-forwarded-for": ip }, body: JSON.stringify(body) });
+    return { status: r.status, data: await r.json().catch(() => null) };
+  };
+
+  const richPassata = await richiestaPub({
+    boatId: bPub.data.id, startAt: "2020-01-01T09:00:00.000Z", endAt: "2020-01-01T18:00:00.000Z",
+    passeggeri: 2, clienteNome: "Richiedente Passato", telefono: "333666004", privacy: true, istante: Date.now() - 5000,
+  });
+  T("richiesta nel passato -> 422", richPassata.status === 422, `${richPassata.status} ${JSON.stringify(richPassata.data)}`);
+
+  const richLunga = await richiestaPub({
+    boatId: bPub.data.id, startAt: "2028-06-01T09:00:00.000Z", endAt: "2028-08-15T18:00:00.000Z",
+    passeggeri: 2, clienteNome: "Richiedente Lungo", telefono: "333666005", privacy: true, istante: Date.now() - 5000,
+  });
+  T("richiesta oltre la durata massima -> 422", richLunga.status === 422, `${richLunga.status}`);
+
+  const richLontana = await richiestaPub({
+    boatId: bPub.data.id, startAt: "2030-01-01T09:00:00.000Z", endAt: "2030-01-01T18:00:00.000Z",
+    passeggeri: 2, clienteNome: "Richiedente Lontano", telefono: "333666006", privacy: true, istante: Date.now() - 5000,
+  });
+  T("richiesta oltre l'anticipo massimo -> 422", richLontana.status === 422, `${richLontana.status}`);
+
+  const richOpzione = await richiestaPub({
+    boatId: bPub.data.id, startAt: "2028-09-01T09:00:00.000Z", endAt: "2028-09-01T18:00:00.000Z",
+    passeggeri: 2, clienteNome: "Richiedente Opzione", telefono: "333666007", privacy: true, istante: Date.now() - 5000,
+  });
+  const lettaOpzione = await json("A", `/api/v1/bookings/${richOpzione.data.id}`);
+  T("richiesta dal sito: l'opzione ha una scadenza", richOpzione.status === 201 && !!lettaOpzione.data?.opzioneScadenzaAt, `${richOpzione.status} ${JSON.stringify(lettaOpzione.data?.opzioneScadenzaAt)}`);
+  T("finché l'opzione è valida la barca è occupata", !(await leggiNoleggia("?dal=2028-09-01&al=2028-09-01")).includes(nomeCatalogo));
+
+  // Idempotenza: stesso invio, stessa richiesta; dati diversi, conflitto.
+  const ikey = "smoke-opt-" + Date.now();
+  const baseReq = { boatId: bPub.data.id, startAt: "2028-08-10T09:00:00.000Z", endAt: "2028-08-10T18:00:00.000Z", passeggeri: 2, clienteNome: "Richiedente Idem", telefono: "333666008", privacy: true, istante: Date.now() - 5000, idempotencyKey: ikey };
+  const idem1 = await richiestaPub(baseReq);
+  T("richiesta dal sito creata", idem1.status === 201, `${idem1.status} ${JSON.stringify(idem1.data)}`);
+  const idem2 = await richiestaPub(baseReq);
+  T("richiesta idempotente: nessun doppione", idem2.status === 200 && idem2.data?.id === idem1.data?.id && idem2.data?.riutilizzato === true, `${idem2.status} ${JSON.stringify(idem2.data)}`);
+  T("stessa chiave con dati diversi -> 409", (await richiestaPub({ ...baseReq, passeggeri: 3 })).status === 409);
+
+  // Il rilascio spegne anche le azioni pubbliche future (contratto non firmato).
+  const contrOpz = await json("A", `/api/v1/bookings/${richOpzione.data.id}/contratto`, "POST");
+  const tokenContrOpz = String(contrOpz.data?.url ?? "").split("/contratto/")[1] ?? "";
+  T("contratto generato sulla richiesta in attesa", contrOpz.status === 200 && (await fetch(`${BASE}/api/v1/contratto/public/${tokenContrOpz}`)).status === 200, `${contrOpz.status}`);
+
+  // Scadenza reale: l'opzione scaduta non tiene più la barca, anche prima del job.
+  const prismaTest = new PrismaClient();
+  await prismaTest.booking.update({ where: { id: richOpzione.data.id }, data: { opzioneScadenzaAt: new Date(Date.now() - 1000) } });
+  T("opzione scaduta: la barca è di nuovo libera senza attendere il job", (await leggiNoleggia("?dal=2028-09-01&al=2028-09-01")).includes(nomeCatalogo));
+  const job1 = await (await adm.fetch("/api/v1/admin/piani", { method: "POST" })).json();
+  T("rilascio opzioni scadute dal cron", (job1?.opzioni?.rilasciate ?? 0) >= 1, JSON.stringify(job1?.opzioni));
+  const job2 = await (await adm.fetch("/api/v1/admin/piani", { method: "POST" })).json();
+  T("rilascio idempotente: il secondo giro non rilascia nulla", job2?.opzioni?.rilasciate === 0, JSON.stringify(job2?.opzioni));
+  const dopoScadenza = await json("A", `/api/v1/bookings/${richOpzione.data.id}`);
+  T("richiesta scaduta portata a cancellata", dopoScadenza.data?.stato === "cancellata", `${dopoScadenza.data?.stato}`);
+  T("opzione scaduta: contratto non più raggiungibile", (await fetch(`${BASE}/api/v1/contratto/public/${tokenContrOpz}`)).status === 404);
+  await prismaTest.$disconnect();
+
+  // ---- M06: profilo pubblico dell'azienda ----
+  const prof0 = await json("A", "/api/v1/tenant");
+  T("profilo: campi pubblici esposti", prof0.status === 200 && "descrizione" in prof0.data && typeof prof0.data.mostraTelefono === "boolean", `${prof0.status}`);
+  const prof1 = await json("A", "/api/v1/tenant", "PATCH", { descrizione: "Noleggio barche a Sorrento dal 1990.", citta: "Sorrento", lingue: "Italiano, inglese", orarioImbarco: "9:00", orarioRientro: "18:00", politicaCancellazione: "Rimborso fino a 7 giorni prima.", sito: "www.esempio.it", social: "instagram.com/esempio", mostraTelefono: false, mostraRecensioni: false });
+  T("profilo: modifica salvata", prof1.status === 200 && prof1.data?.descrizione?.includes("Sorrento") && prof1.data?.mostraTelefono === false, `${prof1.status} ${JSON.stringify(prof1.data?.descrizione)}`);
+  T("profilo: sito senza schema normalizzato", prof1.data?.sito === "https://www.esempio.it", JSON.stringify(prof1.data?.sito));
+  T("profilo: nessuna modifica -> 422", (await json("A", "/api/v1/tenant", "PATCH", {})).status === 422);
+  const fdCopKo = new FormData();
+  fdCopKo.append("file", new Blob([new Uint8Array([1, 2, 3])], { type: "application/pdf" }), "x.pdf");
+  T("copertina non immagine -> 422", (await jar.fetch("/api/v1/tenant", { method: "POST", body: fdCopKo })).status === 422);
+  const fdCop = new FormData();
+  fdCop.append("file", new Blob([new Uint8Array(png)], { type: "image/png" }), "copertina.png");
+  const copRes = await jar.fetch("/api/v1/tenant", { method: "POST", body: fdCop });
+  const copJson = await copRes.json().catch(() => ({}));
+  T("copertina caricata e ottimizzata", copRes.status === 201 && String(copJson.copertinaUrl).startsWith("/uploads/"), `${copRes.status} ${JSON.stringify(copJson)}`);
 
   // ---- Moderazione NaBoat: campo dedicato, non cancellato dall'editoriale del noleggiatore. ----
   const riePrima = (await (await adm.fetch("/api/v1/admin/riepilogo")).json()).barchePubblicate;

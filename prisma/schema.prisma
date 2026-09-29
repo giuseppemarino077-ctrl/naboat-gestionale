@@ -408,6 +408,13 @@ model Booking {
   // --- Promemoria al cliente ---
   promemoriaInviatoAt DateTime?
 
+  // --- M05: scadenza dell'opzione di una richiesta dal sito ---
+  // Una richiesta "da_confermare" nata dal sito occupa la barca solo fino a questa
+  // ora: poi viene rilasciata automaticamente. NULL = nessuna scadenza (richieste
+  // storiche, che restano occupanti come prima).
+  opzioneScadenzaAt   DateTime?
+  opzionePromemoriaAt DateTime? // quando il noleggiatore è stato avvisato della scadenza imminente
+
   // Contatto della singola prenotazione: resta qui anche quando non esiste
   // un'anagrafica Customer (richieste ospiti). Non sovrascrive mai il Customer.
   email String?
@@ -424,6 +431,7 @@ model Booking {
   recensione Recensione?
 
   @@index([tenantId, boatId, startAt])
+  @@index([tenantId, stato, opzioneScadenzaAt])
 }
 
 model Block {
@@ -581,11 +589,20 @@ model PlatformSettings {
   canoneOrmeggioMensileCent     Int?
 
   // --- Parametri di prodotto configurabili da NaBoat ---
-  sogliaPatenteCv          Int @default(40) // sopra questa potenza scatta l'obbligo di patente (regola da validare)
+  sogliaPatenteCv          Int @default(40) // NON collegato: l'obbligo di patente dipende solo da Boat.patenteRichiesta
   tempoPreparazioneMin     Int @default(0)  // preparazione fra due noleggi della stessa barca (pulizia/rifornimento)
   finestraRecensioniGiorni Int @default(60) // tempo entro cui il cliente può recensire/modificare
 
-  // --- Piani Free/Pro dei noleggiatori (importi e limiti da definire) ---
+  // --- M05: regole delle richieste dal sito pubblico ---
+  opzioneScadenzaOre         Int @default(48)  // ore di validità dell'opzione prima del rilascio automatico
+  richiestaMaxDurataGiorni   Int @default(30)  // durata massima accettata per una richiesta dal sito
+  richiestaMaxAnticipoGiorni Int @default(730) // quanto in anticipo si può richiedere una data
+
+  // --- Piani Free/Pro dei noleggiatori ---
+  // Barche e foto Free sono applicati da src/lib/piani.ts. I prezzi Pro e i giorni
+  // di prova NON sono collegati ad alcun comportamento (nessun pagamento li legge):
+  // restano in schema per non perdere la configurazione, ma non vanno presentati
+  // come funzionanti nel pannello.
   pianoFreeMaxBarche        Int @default(3)
   pianoFreeMaxFoto          Int @default(5)
   pianoProPrezzoMensileCent Int?
