@@ -395,6 +395,13 @@ model Booking {
   contrattoFirmatoAt DateTime?
   contrattoFirmaNome String?
   contrattoFirmaIp   String?
+  // C01: versione immutabile del documento presentato al cliente. Il contenuto
+  // (testo, dati, importi, condizioni) è congelato in contrattoSnapshot al momento
+  // della generazione e legato alle firma da contrattoHash + contrattoVersione.
+  contrattoVersione  Int       @default(1)
+  contrattoHash      String?
+  contrattoSnapshot  Json?
+  contrattoCreatoAt  DateTime?
 
   // --- Check-in / check-out ---
   checkinAt             DateTime?
@@ -1030,7 +1037,9 @@ model ContrattoOrmeggio {
   permanenza     Permanenza           @relation(fields: [permanenzaId], references: [id], onDelete: Cascade)
   tipo           ContrattoOrmeggioTipo
   token          String               @unique
-  testoSnapshot  Json? // dati al momento della firma (barca, proprietario, importi)
+  testoSnapshot  Json? // versione congelata del documento (barca, proprietario, importi, testo)
+  versione       Int                  @default(1) // revisione della versione congelata
+  hash           String? // impronta dei contenuti congelati (null per i contratti storici)
   richiestoAt    DateTime             @default(now())
   firmatoAt      DateTime?
   firmaNome      String?

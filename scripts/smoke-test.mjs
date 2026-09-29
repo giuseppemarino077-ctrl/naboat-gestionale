@@ -391,15 +391,32 @@ const run = async () => {
   T("link contratto generato", linkContratto.status === 200 && String(linkContratto.data?.url).includes("/contratto/"), `${linkContratto.status} ${JSON.stringify(linkContratto.data)}`);
   const tokenContratto = String(linkContratto.data?.url ?? "").split("/contratto/")[1] ?? "";
   const contrattoPub = await fetch(`${BASE}/api/v1/contratto/public/${tokenContratto}`);
-  const contrattoDati = await contrattoPub.json();
+  let contrattoDati = await contrattoPub.json();
   T("contratto pubblico senza login", contrattoPub.status === 200 && contrattoDati?.barca?.nome === "Smoke Boat", `status=${contrattoPub.status}`);
   T("contratto contiene punto di partenza", contrattoDati?.puntoPartenza === "Porto Smoke, Molo 1");
+  const linkContratto2 = await json("A", `/api/v1/bookings/${bk.data.id}/contratto`, "POST");
+  T("rigenerare il link non cambia versione né impronta", linkContratto2.status === 200 && linkContratto2.data?.versione === contrattoDati.versione && linkContratto2.data?.hash === contrattoDati.hash, JSON.stringify(linkContratto2.data));
+  T("modifica della prenotazione dopo la generazione", (await json("A", `/api/v1/bookings/${bk.data.id}`, "PATCH", { destinazione: "Ischia" })).status === 200);
+  const linkContratto3 = await json("A", `/api/v1/bookings/${bk.data.id}/contratto`, "POST");
+  T("una modifica crea una nuova revisione da accettare", linkContratto3.status === 200 && linkContratto3.data?.versione === contrattoDati.versione + 1 && linkContratto3.data?.hash !== contrattoDati.hash, JSON.stringify(linkContratto3.data));
+  contrattoDati = await (await fetch(`${BASE}/api/v1/contratto/public/${tokenContratto}`)).json();
+  T("la pagina pubblica rende la nuova versione", contrattoDati?.destinazione === "Ischia" && contrattoDati?.versione === linkContratto3.data?.versione, JSON.stringify({ destinazione: contrattoDati?.destinazione, versione: contrattoDati?.versione }));
   T("contratto token inesistente -> 404", (await fetch(`${BASE}/api/v1/contratto/public/tokentinvalido12345`)).status === 404);
+  T("contratto espone versione e impronta", Number.isInteger(contrattoDati?.versione) && contrattoDati?.versione >= 1 && typeof contrattoDati?.hash === "string" && contrattoDati.hash.length === 64, JSON.stringify({ versione: contrattoDati?.versione, hash: contrattoDati?.hash }));
   T("firma senza accettazione -> 422", (await fetch(`${BASE}/api/v1/contratto/public/${tokenContratto}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nome: "Mario Rossi", accettato: false }) })).status === 422);
-  const firma = await fetch(`${BASE}/api/v1/contratto/public/${tokenContratto}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nome: "Mario Rossi", accettato: true }) });
-  const firmaDati = await firma.json();
-  T("contratto firmato dal cliente", firma.status === 200 && firmaDati?.firmaNome === "Mario Rossi" && !!firmaDati?.firmatoAt, `${firma.status} ${JSON.stringify(firmaDati)}`);
-  T("doppia firma rifiutata -> 422", (await fetch(`${BASE}/api/v1/contratto/public/${tokenContratto}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nome: "Altro Nome", accettato: true }) })).status === 422);
+  const corpoFirma = (nome) => ({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nome, accettato: true, versione: contrattoDati.versione, hash: contrattoDati.hash }) });
+  const firmaVersioneErr = await fetch(`${BASE}/api/v1/contratto/public/${tokenContratto}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nome: "Mario Rossi", accettato: true, versione: contrattoDati.versione + 1, hash: contrattoDati.hash }) });
+  T("firma su una versione diversa -> 409", firmaVersioneErr.status === 409, `${firmaVersioneErr.status}`);
+  const [firmaA, firmaB] = await Promise.all([
+    fetch(`${BASE}/api/v1/contratto/public/${tokenContratto}`, corpoFirma("Mario Rossi")),
+    fetch(`${BASE}/api/v1/contratto/public/${tokenContratto}`, corpoFirma("Luigi Verdi")),
+  ]);
+  const esiti = [firmaA.status, firmaB.status];
+  const firmaOk = esiti[0] === 200 ? firmaA : firmaB;
+  const firmaDati = await firmaOk.json();
+  T("due firme simultanee: una sola accettata", esiti.filter((s) => s === 200).length === 1 && esiti.filter((s) => s >= 400).length === 1, JSON.stringify(esiti));
+  T("contratto firmato dal cliente", firmaOk.status === 200 && ["Mario Rossi", "Luigi Verdi"].includes(firmaDati?.firmaNome) && !!firmaDati?.firmatoAt, `${firmaOk.status} ${JSON.stringify(firmaDati)}`);
+  T("doppia firma rifiutata -> 422", (await fetch(`${BASE}/api/v1/contratto/public/${tokenContratto}`, corpoFirma("Altro Nome"))).status === 422);
   T("nuovo link su contratto firmato -> 422", (await json("A", `/api/v1/bookings/${bk.data.id}/contratto`, "POST")).status === 422);
 
   // ---- Check-in / check-out: presenza e stato avanzano insieme ----

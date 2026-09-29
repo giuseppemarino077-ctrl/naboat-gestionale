@@ -6,7 +6,9 @@ type Contratto = {
   cliente: string | null; passeggeri: number; inizioAt: string; fineAt: string; destinazione: string | null;
   formula: string | null; barca: { nome: string; tipo: string | null; capienza: number; potenzaCv: number | null; patenteRichiesta: boolean };
   skipper: string | null; patenteOk: boolean; prezzoCent: number | null; cauzioneCent: number | null;
+  condizioni: string[];
   firmatoAt: string | null; firmaNome: string | null;
+  versione: number | null; hash: string | null; legacy: boolean;
 };
 
 const euro = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
@@ -36,7 +38,7 @@ export default function ContrattoPage({ params }: { params: Promise<{ token: str
     const r = await fetch(`/api/v1/contratto/public/${token}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nome, accettato }),
+      body: JSON.stringify({ nome, accettato, versione: c?.versione, hash: c?.hash }),
     });
     const j = await r.json().catch(() => ({}));
     setBusy(false);
@@ -84,12 +86,18 @@ export default function ContrattoPage({ params }: { params: Promise<{ token: str
 
           <div className="grid gap-2 border-t border-line pt-3 text-xs text-muted">
             <p className="font-bold text-ink">Condizioni</p>
-            <p>1. Il cliente dichiara di aver ricevuto l'imbarcazione in buono stato e di riconsegnarla nelle stesse condizioni, salvo normale usura.</p>
-            <p>2. Il cliente si impegna a rispettare le norme di navigazione, la capienza massima e a non condurre l'imbarcazione in condizioni meteomarine sfavorevoli.</p>
-            <p>3. I danni causati da uso improprio sono a carico del cliente; eventuali addebiti vengono trattenuti dalla cauzione.</p>
-            <p>4. Il carburante mancante al rientro è a carico del cliente.</p>
-            <p>5. L'uscita può essere annullata per motivi di sicurezza o condizioni meteo sfavorevoli.</p>
+            {c.condizioni.map((riga, i) => <p key={i}>{riga}</p>)}
           </div>
+
+          {c.legacy ? (
+            <p className="rounded-md bg-[#fff4e5] p-2 text-xs text-muted">
+              Documento anteriore all&apos;introduzione dell&apos;impronta digitale: il testo è ricostruito dai dati attuali e non è legato a una versione congelata.
+            </p>
+          ) : c.versione ? (
+            <p className="text-[11px] text-muted">
+              Versione documento {c.versione}{c.hash ? ` · impronta ${c.hash.slice(0, 12)}…` : ""}
+            </p>
+          ) : null}
 
           {c.firmatoAt ? (
             <div className="rounded-md bg-[#e1f5f1] p-3">

@@ -28,7 +28,7 @@ export default function ContrattoOrmeggioPage() {
   const firma = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true); setErr("");
-    const r = await fetch(`/api/v1/ormeggio/contratto-public/${token}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nome, accettato }) });
+    const r = await fetch(`/api/v1/ormeggio/contratto-public/${token}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nome, accettato, versione: c?.versione, hash: c?.hash }) });
     const j = await r.json().catch(() => ({}));
     setBusy(false);
     if (!r.ok) { setErr(j.error ?? "Firma non riuscita"); return; }
@@ -80,6 +80,13 @@ export default function ContrattoOrmeggioPage() {
           </div>
         )}
         <p className="text-xs text-muted">Il presente contratto è compilato automaticamente con i dati concordati. La sola messa a disposizione del posto non implica custodia: le prestazioni di custodia e servizi accessori sono quelle sopra indicate.</p>
+        {c.legacy ? (
+          <p className="rounded-md bg-[#fff4e5] p-2 text-xs text-muted">
+            Documento anteriore all&apos;introduzione dell&apos;impronta digitale: il testo è ricostruito dai dati attuali e non è legato a una versione congelata.
+          </p>
+        ) : c.versione ? (
+          <p className="text-[11px] text-muted">Versione documento {c.versione}{c.hash ? ` · impronta ${String(c.hash).slice(0, 12)}…` : ""}</p>
+        ) : null}
       </div>
 
       <div className="card mt-4 grid gap-3 p-5 text-sm">

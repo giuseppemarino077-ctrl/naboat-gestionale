@@ -1,25 +1,106 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
+import { Prisma } from "@prisma/client";
+import {
+  CONDIZIONI_NOLEGGIO,
+  improntaContratto,
+  ipRichiesta,
+  snapshotNoleggio,
+  type SnapshotNoleggio,
+} from "@/lib/contratti";
 
 // Contratto di noleggio: pagina pubblica accessibile solo con il token della prenotazione.
+// La lettura rende la versione congelata (snapshot), mai i dati correnti modificabili.
+const SELECT_CONTRATTO = {
+  id: true,
+  tenantId: true,
+  clienteNome: true,
+  passeggeri: true,
+  startAt: true,
+  endAt: true,
+  destinazione: true,
+  formula: true,
+  patenteOk: true,
+  prezzoCent: true,
+  cauzioneCent: true,
+  contrattoToken: true,
+  contrattoFirmatoAt: true,
+  contrattoFirmaNome: true,
+  contrattoVersione: true,
+  contrattoHash: true,
+  contrattoSnapshot: true,
+  boat: { select: { nome: true, tipo: true, capienza: true, potenzaCv: true, patenteRichiesta: true } },
+  skipper: { select: { nome: true } },
+  tenant: { select: { nome: true, indirizzoPartenza: true, telefonoContatto: true, logoUrl: true } },
+} satisfies Prisma.BookingSelect;
+
 async function daToken(token: string) {
   if (!token || token.length < 16) return null;
-  return prisma.booking.findUnique({
-    where: { contrattoToken: token },
-    include: {
-      boat: { select: { nome: true, tipo: true, capienza: true, potenzaCv: true, patenteRichiesta: true } },
-      skipper: { select: { nome: true } },
-      tenant: { select: { nome: true, indirizzoPartenza: true, telefonoContatto: true, logoUrl: true } },
-    },
-  });
+  return prisma.booking.findUnique({ where: { contrattoToken: token }, select: SELECT_CONTRATTO });
 }
 
-export async function GET(req: Request, ctx: { params: Promise<{ token: string }> }) {
-  const { token } = await ctx.params;
-  const b = await daToken(token);
-  if (!b) return fail("Link non valido", 404);
+type PrenotazioneContratto = NonNullable<Awaited<ReturnType<typeof daToken>>>;
 
-  return ok({
+function snapshotDaLive(b: PrenotazioneContratto, adesso = new Date()): SnapshotNoleggio {
+  return snapshotNoleggio(
+    {
+      azienda: {
+        nome: b.tenant.nome,
+        logo: b.tenant.logoUrl,
+        puntoPartenza: b.tenant.indirizzoPartenza,
+        telefono: b.tenant.telefonoContatto,
+      },
+      cliente: b.clienteNome,
+      passeggeri: b.passeggeri,
+      inizioAt: b.startAt,
+      fineAt: b.endAt,
+      destinazione: b.destinazione,
+      formula: b.formula,
+      barca: {
+        nome: b.boat.nome,
+        tipo: b.boat.tipo,
+        capienza: b.boat.capienza,
+        potenzaCv: b.boat.potenzaCv,
+        patenteRichiesta: b.boat.patenteRichiesta,
+      },
+      skipper: b.skipper?.nome ?? null,
+      patenteOk: b.patenteOk,
+      prezzoCent: b.prezzoCent,
+      cauzioneCent: b.cauzioneCent,
+    },
+    adesso
+  );
+}
+
+const isSnapshot = (v: unknown): v is SnapshotNoleggio =>
+  !!v && typeof v === "object" && (v as { schema?: unknown }).schema === "noleggio/v1";
+
+// Dati mostrati al cliente, presi esclusivamente dallo snapshot congelato.
+function rendi(s: SnapshotNoleggio) {
+  return {
+    azienda: s.azienda.nome,
+    logo: s.azienda.logo,
+    puntoPartenza: s.azienda.puntoPartenza,
+    telefono: s.azienda.telefono,
+    cliente: s.cliente,
+    passeggeri: s.passeggeri,
+    inizioAt: s.periodo.inizioAt,
+    fineAt: s.periodo.fineAt,
+    destinazione: s.destinazione,
+    formula: s.formula,
+    barca: s.barca,
+    skipper: s.skipper,
+    patenteOk: s.patenteOk,
+    prezzoCent: s.importi.prezzoCent,
+    cauzioneCent: s.importi.cauzioneCent,
+    condizioni: s.condizioni,
+  };
+}
+
+// Documento firmato prima dell'introduzione dell'impronta: si documentano i limiti
+// (nessun hash retroattivo) e si evita di riscrivere la storia.
+function rendiLegacy(b: PrenotazioneContratto) {
+  return {
     azienda: b.tenant.nome,
     logo: b.tenant.logoUrl,
     puntoPartenza: b.tenant.indirizzoPartenza,
@@ -30,17 +111,69 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
     fineAt: b.endAt,
     destinazione: b.destinazione,
     formula: b.formula,
-    barca: b.boat,
+    barca: {
+      nome: b.boat.nome,
+      tipo: b.boat.tipo,
+      capienza: b.boat.capienza,
+      potenzaCv: b.boat.potenzaCv,
+      patenteRichiesta: b.boat.patenteRichiesta,
+    },
     skipper: b.skipper?.nome ?? null,
     patenteOk: b.patenteOk,
     prezzoCent: b.prezzoCent,
     cauzioneCent: b.cauzioneCent,
-    firmatoAt: b.contrattoFirmatoAt,
-    firmaNome: b.contrattoFirmaNome,
-  });
+    condizioni: CONDIZIONI_NOLEGGIO,
+  };
 }
 
-// Firma: il cliente conferma i dati e scrive nome e cognome.
+// Per i link generati prima di C01 ma non ancora firmati si congela adesso la
+// versione mostrata: da qui in avanti la firma è legata a questa impronta.
+async function congelaSeServe(b: PrenotazioneContratto): Promise<PrenotazioneContratto> {
+  if (b.contrattoSnapshot || b.contrattoFirmatoAt) return b;
+  const snapshot = snapshotDaLive(b);
+  const hash = improntaContratto(snapshot);
+  await prisma.booking.updateMany({
+    where: { id: b.id, contrattoHash: null, contrattoFirmatoAt: null },
+    data: {
+      contrattoSnapshot: snapshot,
+      contrattoHash: hash,
+      contrattoVersione: b.contrattoVersione ?? 1,
+      contrattoCreatoAt: new Date(),
+    },
+  });
+  const ri = await prisma.booking.findUnique({
+    where: { id: b.id },
+    select: { contrattoVersione: true, contrattoHash: true, contrattoSnapshot: true },
+  });
+  return {
+    ...b,
+    contrattoVersione: ri?.contrattoVersione ?? b.contrattoVersione,
+    contrattoHash: ri?.contrattoHash ?? null,
+    contrattoSnapshot: ri?.contrattoSnapshot ?? null,
+  };
+}
+
+export async function GET(req: Request, ctx: { params: Promise<{ token: string }> }) {
+  const { token } = await ctx.params;
+  let b = await daToken(token);
+  if (!b) return fail("Link non valido", 404);
+  b = await congelaSeServe(b);
+
+  const comune = { firmatoAt: b.contrattoFirmatoAt, firmaNome: b.contrattoFirmaNome };
+  if (isSnapshot(b.contrattoSnapshot)) {
+    return ok({
+      ...rendi(b.contrattoSnapshot),
+      ...comune,
+      versione: b.contrattoVersione,
+      hash: b.contrattoHash,
+      legacy: false,
+    });
+  }
+  return ok({ ...rendiLegacy(b), ...comune, versione: null, hash: null, legacy: true });
+}
+
+// Firma: il cliente conferma i dati e scrive nome e cognome. È un aggiornamento
+// condizionale sulla stessa versione: due firme simultanee non possono divergere.
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params;
   const b = await daToken(token);
@@ -53,17 +186,30 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   if (!accettato) return fail("Devi accettare le condizioni per firmare", 422);
   if (nome.length < 3 || nome.length > 120) return fail("Scrivi nome e cognome completi", 422);
 
-  const ip =
-    req.headers.get("cf-connecting-ip") ??
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-    "non rilevato";
+  // La firma vale solo per la versione effettivamente letta.
+  if (!isSnapshot(b.contrattoSnapshot)) return fail("Documento non disponibile: ricarica la pagina", 409);
+  const versione = Number(body?.versione);
+  if (!Number.isInteger(versione) || versione !== b.contrattoVersione)
+    return fail("Il documento è cambiato: ricarica la pagina", 409);
+  if (typeof body?.hash === "string" && body.hash !== b.contrattoHash)
+    return fail("Il documento è cambiato: ricarica la pagina", 409);
 
-  const upd = await prisma.booking.update({
-    where: { id: b.id },
-    data: { contrattoFirmatoAt: new Date(), contrattoFirmaNome: nome, contrattoFirmaIp: ip },
+  const adesso = new Date();
+  const aggiornato = await prisma.booking.updateMany({
+    where: { id: b.id, tenantId: b.tenantId, contrattoFirmatoAt: null, contrattoVersione: versione },
+    data: { contrattoFirmatoAt: adesso, contrattoFirmaNome: nome, contrattoFirmaIp: ipRichiesta(req) },
   });
+  // Nessuna riga aggiornata: la revisione è cambiata o una firma concorrente ha
+  // vinto la corsa. In entrambi i casi non si produce una seconda accettazione.
+  if (aggiornato.count === 0) return fail("Contratto già firmato o documento cambiato: ricarica la pagina", 409);
   await prisma.auditLog.create({
-    data: { tenantId: b.tenantId, azione: "contratto.firmato", entita: "Booking", entitaId: b.id },
+    data: {
+      tenantId: b.tenantId,
+      azione: "contratto.firmato",
+      entita: "Booking",
+      entitaId: b.id,
+      dettagli: JSON.stringify({ versione, hash: b.contrattoHash }),
+    },
   });
-  return ok({ firmatoAt: upd.contrattoFirmatoAt, firmaNome: upd.contrattoFirmaNome });
+  return ok({ firmatoAt: adesso, firmaNome: nome, versione });
 }
