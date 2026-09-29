@@ -1,6 +1,7 @@
 "use client";
 import { copiaTesto } from "@/lib/browser";
 import { etichettaGiorno, oggi as giornoOggi } from "@/lib/calendario";
+import { useAggiornamenti, segnalaCambiamento } from "@/lib/aggiorna";
 import { useEffect, useState } from "react";
 
 type Partenza = {
@@ -27,6 +28,8 @@ export default function OggiPage() {
     fetch("/api/v1/auth/me").then((r) => r.json()).then((j) => setMe(j.user)).catch(() => {});
     load();
   }, []);
+  // Calendario, Prenotazioni e l'altra postazione possono cambiare la giornata.
+  useAggiornamenti(load, ["prenotazioni"]);
 
   const api = async (url: string, method: string, body?: any) => {
     setMsg("");
@@ -34,6 +37,8 @@ export default function OggiPage() {
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { setErr(j.error ?? "Errore"); return null; }
     setErr(""); load();
+    // Check-in/check-out cambiano la prenotazione: le altre viste si riallineano.
+    segnalaCambiamento("prenotazioni");
     return j;
   };
 

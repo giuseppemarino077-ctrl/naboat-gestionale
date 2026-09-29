@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useAggiornamenti } from "@/lib/aggiorna";
 
 const euro = (c: number | null | undefined) => (c == null ? "—" : (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" }));
 const codice = (b: any) => `NB-${new Date(b.startAt).getFullYear()}-${String(b.id).slice(0, 6).toUpperCase()}`;
@@ -25,7 +26,7 @@ export default function PrenotazioniPage() {
   const [dal, setDal] = useState("");
   const [al, setAl] = useState("");
 
-  useEffect(() => {
+  const carica = () =>
     Promise.all([
       fetch("/api/v1/bookings").then((r) => { if (!r.ok) throw new Error(); return r.json(); }),
       fetch("/api/v1/payments").then((r) => r.json()).catch(() => []),
@@ -39,7 +40,10 @@ export default function PrenotazioniPage() {
         }
       })
       .catch(() => setErr("Serve login con azienda attiva."));
-  }, []);
+
+  useEffect(() => { carica(); }, []);
+  // Elenco sempre allineato: i filtri sono locali e non vengono toccati dal ricarico.
+  useAggiornamenti(carica, ["prenotazioni"]);
 
   const q = cerca.trim().toLowerCase();
   const visibili = useMemo(() => {

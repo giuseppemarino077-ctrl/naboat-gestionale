@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useAggiornamenti, segnalaCambiamento } from "@/lib/aggiorna";
 
 type Stato = "in_sosta" | "da_fare" | "in_mare" | "bloccata";
 type Perm = {
@@ -98,6 +99,9 @@ export default function OrmeggioPage() {
     setGriglia(j); setErr("");
   };
   useEffect(() => { carica(); }, [data]);
+  // Un'altra postazione può assegnare/spostare una barca: ci si riallinea, ma non
+  // mentre un modulo con una bozza è aperto (assegnazione o spostamento).
+  useAggiornamenti(() => { if (postoScelto || move.aperto) return; return carica(); }, ["ormeggio"]);
   useEffect(() => {
     fetch("/api/v1/ormeggio/proprietari").then((r) => r.json()).then((j) => Array.isArray(j) && setProprietari(j)).catch(() => {});
     fetch("/api/v1/boats?uso=custodia").then((r) => r.json()).then((j) => Array.isArray(j) && setBarche(j)).catch(() => {});
@@ -110,6 +114,7 @@ export default function OrmeggioPage() {
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { setErr(j.error ?? "Errore"); return null; }
     await carica();
+    segnalaCambiamento("ormeggio");
     return j;
   };
 
@@ -158,6 +163,7 @@ export default function OrmeggioPage() {
     setMsg(`Barca assegnata al posto ${postoScelto.codice}.`);
     setPostoScelto(null);
     carica();
+    segnalaCambiamento("ormeggio");
   };
 
   const sposta = async (e: React.FormEvent) => {

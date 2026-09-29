@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { copiaTesto } from "@/lib/browser";
+import { useAggiornamenti, segnalaCambiamento } from "@/lib/aggiorna";
 
 const euro = (c: number | null | undefined) => (c == null ? "—" : (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" }));
 const dt = (v: string | null) => (v ? new Date(v).toLocaleString("it-IT", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
@@ -33,23 +34,31 @@ export default function PrenotazionePage() {
   const [busy, setBusy] = useState(false);
   const [linkContratto, setLinkContratto] = useState("");
   const [linkPagamento, setLinkPagamento] = useState("");
+  const [conflitto, setConflitto] = useState(false);
 
   const load = () => {
     if (!id) return;
     fetch(`/api/v1/bookings/${id}`).then((r) => { if (!r.ok) throw new Error(); return r.json(); }).then((j) => { setB(j); setErr(""); }).catch(() => setErr("Prenotazione non trovata."));
   };
   useEffect(load, [id]);
+  // Un altro operatore può cambiare stato o skipper: il dettaglio si riallinea da solo.
+  useAggiornamenti(load, ["prenotazioni"]);
   useEffect(() => { fetch("/api/v1/skippers").then((r) => r.json()).then((j) => Array.isArray(j) && setSkippers(j)).catch(() => {}); }, []);
 
   const azione = async (okMsg: string, url: string, method: string, body?: any) => {
-    setBusy(true); setErr("");
+    setBusy(true); setErr(""); setConflitto(false);
     const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
     const j = await r.json().catch(() => ({}));
     setBusy(false);
+    if (r.status === 409) { setConflitto(true); return null; }
     if (!r.ok) { setErr(j.error ?? "Errore"); return null; }
     setMsg(okMsg); load();
+    // Elenco, calendario e Oggi si riallineano subito.
+    segnalaCambiamento("prenotazioni");
     return j;
   };
+  // Conflitto: si rileggono i dati (non ci sono campi digitati da perdere qui).
+  const ricaricaDopoConflitto = () => { setConflitto(false); setErr(""); load(); setMsg("Dati aggiornati."); };
 
   const avvia = async () => {
     const carb = prompt("Carburante alla partenza in % (vuoto = non indicato):", "100");
@@ -64,8 +73,10 @@ export default function PrenotazionePage() {
     await azione("Noleggio completato.", `/api/v1/bookings/${id}/checkout`, "POST", { carburantePct: carb.trim() === "" ? null : Number(carb), danniEuro: danni.trim() || null });
   };
   const annulla = async () => { if (confirm("Annullare la prenotazione?")) await azione("Prenotazione annullata.", `/api/v1/bookings/${id}`, "DELETE"); };
-  const cambiaStato = async (stato: string, okMsg: string) => azione(okMsg, `/api/v1/bookings/${id}`, "PATCH", { stato });
-  const assegnaSkipper = async (skipperId: string) => azione("Skipper aggiornato.", `/api/v1/bookings/${id}`, "PATCH", { skipperId: skipperId || null });
+  // Si invia la versione letta: se nel frattempo un altro utente ha salvato, il server
+  // risponde 409 e si mostra il conflitto senza applicare la modifica.
+  const cambiaStato = async (stato: string, okMsg: string) => azione(okMsg, `/api/v1/bookings/${id}`, "PATCH", { stato, updatedAt: b?.updatedAt });
+  const assegnaSkipper = async (skipperId: string) => azione("Skipper aggiornato.", `/api/v1/bookings/${id}`, "PATCH", { skipperId: skipperId || null, updatedAt: b?.updatedAt });
   const contratto = async () => { const j = await azione("Link contratto generato.", `/api/v1/bookings/${id}/contratto`, "POST"); if (j?.url) { setLinkContratto(j.url); await copiaTesto(j.url); } };
   const generaLinkPagamento = async () => { const j = await azione("Link di pagamento generato.", "/api/v1/payments/checkout", "POST", { bookingId: id }); if (j?.url) { setLinkPagamento(j.url); await copiaTesto(j.url); } };
 
@@ -100,6 +111,12 @@ export default function PrenotazionePage() {
 
       {err && <p className="rounded-2xl border border-coral/40 bg-[#fdeeea] p-3 text-sm font-semibold text-coral">{err}</p>}
       {msg && <p className="rounded-2xl border border-[#bfe6dc] bg-[#eafaf5] p-3 text-sm font-semibold text-[#177469]">{msg}</p>}
+      {conflitto && (
+        <div className="rounded-2xl border border-gold/50 bg-[#fff7e6] p-3 text-sm">
+          <p className="font-semibold text-[#9a6406]">Questa prenotazione è stata modificata da un altro utente: ricarica per vedere le novità.</p>
+          <button className="btn-soft mt-2" disabled={busy} onClick={ricaricaDopoConflitto}>Ricarica i dati</button>
+        </div>
+      )}
 
       <div className="rounded-3xl border border-line bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">

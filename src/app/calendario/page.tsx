@@ -6,6 +6,7 @@ import {
   aggiungiGiorni, lunediDi, giorniTra, GIORNI_BREVI,
 } from "@/lib/calendario";
 import { uuidSicuro, copiaTesto } from "@/lib/browser";
+import { useAggiornamenti, segnalaCambiamento } from "@/lib/aggiorna";
 
 type Cal = { boats: any[]; bookings: any[]; blocks: any[] };
 type Vista = "giorno" | "settimana" | "mese" | "agenda";
@@ -46,6 +47,10 @@ export default function CalendarioPage() {
   const [fTipo, setFTipo] = useState<"tutti" | "prenotazioni" | "blocchi">("tutti");
   const [sel, setSel] = useState<Sel>(null);
   const [busy, setBusy] = useState(false);
+  // Versione letta della prenotazione aperta: serve al PATCH per accorgersi se un
+  // altro operatore l'ha modificata nel frattempo (409) senza perdere la bozza.
+  const [versione, setVersione] = useState<string | null>(null);
+  const [conflitto, setConflitto] = useState(false);
 
   // form
   const [crea, setCrea] = useState({ inizioData: "", dalle: "09:00", fineData: "", alle: "17:00", passeggeri: 1, formula: "", clienteNome: "", telefono: "", email: "", destinazione: "", patenteOk: false, skipperId: "", note: "", prezzoEuro: "" });
@@ -80,7 +85,16 @@ export default function CalendarioPage() {
     else setErr("Serve login con azienda attiva.");
     return j;
   };
-  useEffect(() => { ricarica(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [vista, base]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { ricarica(); }, [vista, base]);
+  // Le altre viste possono cambiare il calendario: ci si riallinea, ma non mentre un
+  // pannello è aperto (una bozza in corso non deve essere sovrascritta).
+  useAggiornamenti(() => { if (sel) return; return ricarica(); }, ["prenotazioni"]);
+  const aggiornaVersione = async (id: string) => {
+    const j = await fetch(`/api/v1/bookings/${id}`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    setVersione(j?.updatedAt ?? null);
+    return j?.updatedAt ?? null;
+  };
   useEffect(() => {
     fetch("/api/v1/skippers").then((r) => r.json()).then((j) => Array.isArray(j) && setSkippers(j)).catch(() => {});
     fetch("/api/v1/auth/me").then((r) => r.json()).then((j) => setMe(j.user)).catch(() => {});
@@ -90,13 +104,15 @@ export default function CalendarioPage() {
   const barche = (data?.boats ?? []).filter((b) => (!fBarca || b.id === fBarca) && (!fPorto || b.portoId === fPorto));
 
   const chiama = async (okMsg: string, url: string, method: string, body?: any, chiudi = false) => {
-    setBusy(true); setErr("");
+    setBusy(true); setErr(""); setConflitto(false);
     const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
     const j = await r.json().catch(() => ({}));
     setBusy(false);
     if (!r.ok) { setErr(j.error ?? "Errore"); return null; }
     setMsg(okMsg);
     await ricarica();
+    // Le altre viste (Prenotazioni, Oggi, Ormeggio) si riallineano subito.
+    segnalaCambiamento("prenotazioni");
     if (chiudi) setSel(null);
     return j;
   };
@@ -112,11 +128,14 @@ export default function CalendarioPage() {
   const apriPrenotazione = (id: string) => {
     const b = (data?.bookings ?? []).find((x) => x.id === id);
     if (!b) return;
-    setErr(""); setMsg(""); setLinkContratto(""); setLinkPagamento(""); setSez("sposta");
+    setErr(""); setMsg(""); setLinkContratto(""); setLinkPagamento(""); setSez("sposta"); setConflitto(false);
     setMod({ clienteNome: b.clienteNome ?? "", telefono: b.telefono ?? "", boatId: b.boatId, inizioData: giornoDi(b.startAt), inizioOra: oreDi(b.startAt), fineData: giornoDi(b.endAt), fineOra: oreDi(b.endAt) });
     setPartenza({ carburante: b.checkinCarburantePct != null ? String(b.checkinCarburantePct) : "100", note: "" });
     setRientro({ carburante: "", danni: "", note: "" });
     setSel({ modo: "prenotazione", id });
+    // Il calendario non porta updatedAt nell'elenco: si legge la versione dal dettaglio.
+    setVersione(null);
+    aggiornaVersione(id);
   };
   const apriBlocco = (id: string) => { setErr(""); setMsg(""); setSel({ modo: "blocco", id }); };
 
@@ -159,7 +178,30 @@ export default function CalendarioPage() {
     if (!mod.inizioData || !mod.fineData) { setErr("Indica data e ora di inizio e fine."); return; }
     const start = istante(mod.inizioData, mod.inizioOra); const end = istante(mod.fineData, mod.fineOra);
     if (!(start < end)) { setErr("Orari incoerenti."); return; }
-    await chiama("Prenotazione aggiornata.", `/api/v1/bookings/${b.id}`, "PATCH", { boatId: mod.boatId, startAt: start.toISOString(), endAt: end.toISOString(), clienteNome: mod.clienteNome, telefono: mod.telefono });
+    setBusy(true); setErr(""); setMsg(""); setConflitto(false);
+    const r = await fetch(`/api/v1/bookings/${b.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      // Si invia la versione letta: se un altro operatore ha salvato nel frattempo, il
+      // server risponde 409 e si conserva la bozza.
+      body: JSON.stringify({ boatId: mod.boatId, startAt: start.toISOString(), endAt: end.toISOString(), clienteNome: mod.clienteNome, telefono: mod.telefono, ...(versione ? { updatedAt: versione } : {}) }),
+    });
+    const j = await r.json().catch(() => ({}));
+    setBusy(false);
+    if (r.status === 409) { setConflitto(true); return; }
+    if (!r.ok) { setErr(j.error ?? "Errore"); return; }
+    setMsg("Prenotazione aggiornata.");
+    await ricarica();
+    await aggiornaVersione(b.id);
+    segnalaCambiamento("prenotazioni");
+  };
+  // Conflitto: si ricaricano i dati di sfondo senza toccare i campi in modifica, poi
+  // si allinea la versione così il prossimo "Salva" riparte da quella corretta.
+  const ricaricaDopoConflitto = async () => {
+    setConflitto(false); setErr("");
+    await ricarica();
+    if (sel?.modo === "prenotazione") await aggiornaVersione(sel.id);
+    setMsg("Dati aggiornati. I valori che stavi modificando sono rimasti.");
   };
   const contratto = async (b: any) => { const j = await chiama("Link contratto generato.", `/api/v1/bookings/${b.id}/contratto`, "POST"); if (j?.url) { setLinkContratto(j.url); await copiaTesto(j.url); } };
   const pagamento = async (b: any) => { const j = await chiama("Link di pagamento generato.", "/api/v1/payments/checkout", "POST", { bookingId: b.id }); if (j?.url) { setLinkPagamento(j.url); await copiaTesto(j.url); } };
@@ -408,6 +450,12 @@ export default function CalendarioPage() {
 
             {err && <p className="mt-4 rounded-2xl border border-coral/40 bg-[#fdeeea] p-3 text-sm font-semibold text-coral">{err}</p>}
             {msg && <p className="mt-4 rounded-2xl border border-[#bfe6dc] bg-[#eafaf5] p-3 text-sm font-semibold text-[#177469]">{msg}</p>}
+            {conflitto && (
+              <div className="mt-4 rounded-2xl border border-gold/50 bg-[#fff7e6] p-3 text-sm">
+                <p className="font-semibold text-[#9a6406]">Questa prenotazione è stata modificata da un altro utente: ricarica per vedere le novità.</p>
+                <button className="btn-soft mt-2" disabled={busy} onClick={ricaricaDopoConflitto}>Ricarica i dati (la bozza resta)</button>
+              </div>
+            )}
 
             {/* NUOVO */}
             {sel.modo === "nuovo" && (

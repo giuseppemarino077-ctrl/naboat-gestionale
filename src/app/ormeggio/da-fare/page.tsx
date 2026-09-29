@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useAggiornamenti, segnalaCambiamento } from "@/lib/aggiorna";
 
 export default function DaFarePage() {
   const [attivita, setAttivita] = useState<any[]>([]);
@@ -8,10 +9,13 @@ export default function DaFarePage() {
 
   const carica = () => fetch("/api/v1/ormeggio/attivita?daFare=1").then((r) => r.json()).then((j) => { if (Array.isArray(j)) setAttivita(j); else setErr(j.error ?? "Errore"); }).catch(() => setErr("Errore"));
   useEffect(() => { carica(); }, []);
+  // La griglia e le altre postazioni vedono lo stato aggiornato dei lavori.
+  useAggiornamenti(carica, ["ormeggio"]);
 
   const cambia = async (a: any, stato: string) => {
     await fetch(`/api/v1/ormeggio/attivita/${a.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stato }) });
     carica();
+    segnalaCambiamento("ormeggio");
   };
 
   return (
