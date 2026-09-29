@@ -26,17 +26,21 @@ jobs:
     env:
       DATABASE_URL: postgresql://naboat:naboat@localhost:5432/naboat?schema=public
       AUTH_SECRET: ci-auth-secret-0123456789ABCDEFGHIJKLMNOP
-      NODE_ENV: production
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-      - run: npm ci
+      # Le devDependencies (eslint, typescript, prisma CLI) servono a lint/typecheck/build:
+      # vanno installate anche in un job impostato come produzione.
+      - run: npm ci --include=dev
       - run: npx prisma generate
       - name: Applica le migrazioni su un database vuoto
         run: npx prisma migrate deploy
       - run: npm run lint
       - run: npm run typecheck
-      - run: npm run build
+      - name: Build di produzione
+        run: npm run build
+        env:
+          NODE_ENV: production
