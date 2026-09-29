@@ -2,7 +2,7 @@
 
 Riferimenti: `Prompt_DeepSeek_NaBoat.md` (incarico), `Audit_NaBoat.md` (evidenze).
 Baseline: commit `c8c41fc3dea4eec4ff0a17c75a70e29ee4f99ef0` (28/09/2026).
-Ramo di lavoro: `stabilizzazione-audit`.
+Ramo: `main` (il lavoro è stato fuso da `stabilizzazione-audit` con fast-forward).
 Consegna e matrici di verifica: `CONSEGNA-AUDIT.md`. Mappa URL: `MIGRAZIONE-URL.md`.
 
 Stati: **corretto e verificato** · **corretto, verifica parziale** · **decisione richiesta** · **dipende da configurazione**.

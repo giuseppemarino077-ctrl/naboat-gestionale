@@ -1,6 +1,6 @@
 # Consegna — stabilizzazione NaBoat
 
-Baseline `c8c41fc`, ramo `stabilizzazione-audit`. Questo documento raccoglie le prove
+Baseline `c8c41fc`, ramo `main`. Questo documento raccoglie le prove
 richieste dal §15 del prompt: esito dei 50 rilievi (vedi `AUDIT-LAVORO.md`), matrice
 delle verifiche V01–V48, mappa URL, ruoli, prodotto/diritti, istruzioni e rischi residui.
 
