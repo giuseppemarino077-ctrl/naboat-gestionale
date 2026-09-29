@@ -1,5 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
+import { Avviso } from "@/components/ui/Avviso";
+import { Icona } from "@/components/ui/Icona";
+import { useConferma } from "@/components/ui/Dialogo";
 
 type Porto = {
   id: string;
@@ -21,6 +24,7 @@ export default function PortiPage() {
   const [modificaId, setModificaId] = useState<string | null>(null);
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
+  const conferma = useConferma();
 
   const carica = () => {
     fetch("/api/v1/porti")
@@ -62,7 +66,14 @@ export default function PortiPage() {
   };
 
   const elimina = async (p: Porto) => {
-    if (!confirm(`Eliminare il porto "${p.nome}"?`)) return;
+    const ok = await conferma.chiedi({
+      titolo: `Eliminare il porto "${p.nome}"?`,
+      messaggio: "Il porto verrà rimosso dal calendario, dal profilo pubblico e dalle schede barca.",
+      dettaglio: p._count?.boats ? `${p._count.boats} barca/barca risulta collegata: resterà senza porto.` : "Nessuna barca è collegata a questo porto.",
+      confermaLabel: "Elimina porto",
+      pericoloso: true,
+    });
+    if (!ok) return;
     const r = await fetch(`/api/v1/porti/${p.id}`, { method: "DELETE" });
     if (!r.ok) { const j = await r.json().catch(() => ({})); setErr(j.error ?? "Errore"); return; }
     carica();
@@ -76,8 +87,8 @@ export default function PortiPage() {
         <p className="mt-1 text-sm text-muted">Gli stessi dati alimentano calendario, profilo pubblico, schede barca e dettagli delle prenotazioni.</p>
       </div>
 
-      {err && <p className="rounded-2xl border border-coral/40 bg-[#fdeeea] p-3 text-sm font-semibold text-coral">{err}</p>}
-      {msg && <p className="rounded-2xl border border-[#bfe6dc] bg-[#eafaf5] p-3 text-sm font-semibold text-[#177469]">{msg}</p>}
+      {err && <Avviso tono="errore">{err}</Avviso>}
+      {msg && <Avviso tono="ok">{msg}</Avviso>}
 
       <form className="card grid gap-3 p-4 md:grid-cols-12 md:items-end" onSubmit={salva}>
         <h2 className="text-lg md:col-span-12">{modificaId ? "Modifica il porto" : "Aggiungi un porto o una base"}</h2>
@@ -100,7 +111,7 @@ export default function PortiPage() {
           <input className="rounded-2xl border border-line p-3" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
         </label>
         <div className="flex gap-2 md:col-span-12">
-          <button className="btn-primary" type="submit">{modificaId ? "Salva modifiche" : "＋ Aggiungi porto"}</button>
+          <button className="btn-primary flex items-center gap-1.5" type="submit">{modificaId ? <Icona nome="check" className="h-4 w-4" /> : <Icona nome="piu" className="h-4 w-4" />}{modificaId ? "Salva modifiche" : "Aggiungi porto"}</button>
           {modificaId && <button type="button" className="btn-soft" onClick={() => { setModificaId(null); setForm({ ...vuoto }); }}>Annulla</button>}
         </div>
       </form>
@@ -123,7 +134,7 @@ export default function PortiPage() {
                       <a className="text-ocean" href={`https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lon}`} target="_blank" rel="noreferrer">Mappa</a>
                     )}
                     <button className="text-ocean" onClick={() => modifica(p)}>Modifica</button>
-                    <button className="text-coral" onClick={() => elimina(p)}>Elimina</button>
+                    <button className="text-danger" onClick={() => elimina(p)}>Elimina</button>
                   </div>
                 </td>
               </tr>
@@ -132,6 +143,7 @@ export default function PortiPage() {
           </tbody>
         </table>
       </div>
+      {conferma.dialogo}
     </div>
   );
 }

@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { Icona } from "@/components/ui/Icona";
+import { useConferma } from "@/components/ui/Dialogo";
 
 type RigaBarca = {
   boatId: string | null; barca: string; incassatoCent: number; rimborsatoCent: number;
@@ -31,6 +33,7 @@ export default function ResocontoPage() {
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
   const [f, setF] = useState({ boatId: "", categoria: "carburante", descrizione: "", importoEuro: "", data: giorno(oggi), note: "" });
+  const conferma = useConferma();
 
   const query = useMemo(() => `from=${from}T00:00:00.000Z&to=${to}T23:59:59.999Z`, [from, to]);
 
@@ -56,6 +59,16 @@ export default function ResocontoPage() {
     e.preventDefault();
     const r = await api("/api/v1/expenses", "POST", { ...f, boatId: f.boatId || null });
     if (r) { setF({ ...f, descrizione: "", importoEuro: "", note: "" }); setMsg("Spesa registrata."); }
+  };
+
+  const eliminaSpesa = async (s: Spesa) => {
+    const ok = await conferma.chiedi({
+      titolo: "Eliminare la spesa?",
+      messaggio: `«${s.descrizione}» (${euro(s.importoCent)}) verrà rimossa dal resoconto.`,
+      confermaLabel: "Elimina spesa",
+      pericoloso: true,
+    });
+    if (ok) await api(`/api/v1/expenses?id=${s.id}`, "DELETE");
   };
 
   const preset = (tipo: string) => {
@@ -165,7 +178,7 @@ export default function ResocontoPage() {
           </select>
           <input className="rounded-md border border-line p-2" type="date" value={f.data} onChange={(e) => setF({ ...f, data: e.target.value })} required />
           <input className="rounded-md border border-line p-2 md:col-span-5" placeholder="Note" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} />
-          <button className="btn-primary" type="submit">＋ Aggiungi</button>
+          <button className="btn-primary flex items-center justify-center gap-1.5" type="submit"><Icona nome="piu" className="h-4 w-4" /> Aggiungi</button>
         </form>
       </div>
 
@@ -184,13 +197,14 @@ export default function ResocontoPage() {
                 <td className="p-2">{s.boat?.nome ?? "—"}</td>
                 <td className="p-2 font-semibold">{euro(s.importoCent)}</td>
                 <td className="p-2 text-muted">{s.note ?? ""}</td>
-                <td className="p-2"><button className="font-bold text-coral" onClick={() => confirm("Eliminare la spesa?") && api(`/api/v1/expenses?id=${s.id}`, "DELETE")}>Elimina</button></td>
+                <td className="p-2"><button className="font-bold text-danger" onClick={() => eliminaSpesa(s)}>Elimina</button></td>
               </tr>
             ))}
             {!spese.length && <tr><td className="p-3 text-muted" colSpan={7}>Nessuna spesa registrata nel periodo.</td></tr>}
           </tbody>
         </table>
       </div>
+      {conferma.dialogo}
     </div>
   );
 }

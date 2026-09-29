@@ -2,9 +2,19 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useAggiornamenti } from "@/lib/aggiorna";
+import { Caricamento } from "@/components/ui/Caricamento";
 
 const euro = (c: number | null | undefined) => (c == null ? "—" : (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" }));
 const codice = (b: any) => `NB-${new Date(b.startAt).getFullYear()}-${String(b.id).slice(0, 6).toUpperCase()}`;
+const ora = (d: Date) => d.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+// Su più giorni la data di rientro è distinta da quella di partenza.
+const periodo = (b: any) => {
+  const inizio = new Date(b.startAt);
+  const fine = new Date(b.endAt);
+  const data = inizio.toLocaleDateString("it-IT", { day: "2-digit", month: "short" });
+  if (inizio.toDateString() === fine.toDateString()) return `${data} · ${ora(inizio)}–${ora(fine)}`;
+  return `${data} ${ora(inizio)} → ${fine.toLocaleDateString("it-IT", { day: "2-digit", month: "short" })} ${ora(fine)}`;
+};
 
 const STATO: Record<string, { l: string; c: string }> = {
   da_confermare: { l: "Da confermare", c: "bg-[#fff0cc] text-[#9a6406]" },
@@ -25,6 +35,7 @@ export default function PrenotazioniPage() {
   const [pagamento, setPagamento] = useState("tutti");
   const [dal, setDal] = useState("");
   const [al, setAl] = useState("");
+  const [caricato, setCaricato] = useState(false);
 
   const carica = () =>
     Promise.all([
@@ -39,7 +50,8 @@ export default function PrenotazioniPage() {
           setPagamenti(m);
         }
       })
-      .catch(() => setErr("Serve login con azienda attiva."));
+      .catch(() => setErr("Serve login con azienda attiva."))
+      .finally(() => setCaricato(true));
 
   useEffect(() => { carica(); }, []);
   // Elenco sempre allineato: i filtri sono locali e non vengono toccati dal ricarico.
@@ -66,7 +78,7 @@ export default function PrenotazioniPage() {
         <div>
           <p className="text-sm text-muted">Noleggio</p>
           <h1 className="text-2xl">Prenotazioni</h1>
-          <p className="text-sm text-muted">Marketplace e prenotazioni manuali in un unico elenco.</p>
+          <p className="text-sm text-muted">Richieste dal sito e prenotazioni manuali in un unico elenco.</p>
         </div>
         <Link className="btn-primary" href="/gestionale/calendario">＋ Nuova prenotazione</Link>
       </div>
@@ -97,38 +109,44 @@ export default function PrenotazioniPage() {
         </div>
       </div>
 
-      <p className="px-1 text-sm text-muted">{visibili.length} {visibili.length === 1 ? "prenotazione" : "prenotazioni"}</p>
+      {!caricato ? (
+        <Caricamento testo="Carico le prenotazioni…" />
+      ) : (
+        <>
+          <p className="px-1 text-sm text-muted">{visibili.length} {visibili.length === 1 ? "prenotazione" : "prenotazioni"}</p>
 
-      <div className="overflow-x-auto rounded-3xl border border-line bg-white shadow-sm">
-        <table className="w-full min-w-[860px] text-sm">
-          <thead className="border-b border-line text-left text-xs uppercase tracking-wide text-muted">
-            <tr>
-              <th className="p-3">Codice</th><th className="p-3">Cliente</th><th className="p-3">Barca</th><th className="p-3">Data / Ora</th>
-              <th className="p-3">Fonte</th><th className="p-3">Stato</th><th className="p-3">Pagamento</th><th className="p-3 text-right">Totale</th><th className="p-3"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {visibili.map((b) => {
-              const st = STATO[b.stato] ?? { l: b.stato, c: "badge-block" };
-              const pagato = (pagamenti[b.id] ?? 0) > 0;
-              return (
-                <tr key={b.id} className="border-t border-line hover:bg-foam/50">
-                  <td className="p-3 font-semibold whitespace-nowrap">{codice(b)}</td>
-                  <td className="p-3">{b.clienteNome ?? "—"}{b.telefono ? <span className="block text-xs text-muted">{b.telefono}</span> : null}</td>
-                  <td className="p-3">{b.boat?.nome ?? "—"}</td>
-                  <td className="p-3 whitespace-nowrap">{new Date(b.startAt).toLocaleDateString("it-IT", { day: "2-digit", month: "short" })} · {new Date(b.startAt).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}–{new Date(b.endAt).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}</td>
-                  <td className="p-3"><span className={b.origineCanale === "naboat" ? "badge-ready" : "badge-block"}>{b.origineCanale === "naboat" ? "NaBoat" : "Diretta"}</span></td>
-                  <td className="p-3"><span className={"rounded-full px-2.5 py-1 text-xs font-semibold " + st.c}>{st.l}</span></td>
-                  <td className="p-3"><span className={pagato ? "badge-ready" : "badge-pending"}>{pagato ? "Pagata" : "Da pagare"}</span></td>
-                  <td className="p-3 text-right font-semibold">{euro(b.prezzoCent)}</td>
-                  <td className="p-3 text-right"><Link className="font-bold text-ocean whitespace-nowrap" href={`/gestionale/prenotazioni/${b.id}`}>Apri →</Link></td>
+          <div className="overflow-x-auto rounded-3xl border border-line bg-white shadow-sm">
+            <table className="w-full min-w-[860px] text-sm">
+              <thead className="border-b border-line text-left text-xs uppercase tracking-wide text-muted">
+                <tr>
+                  <th className="p-3">Codice</th><th className="p-3">Cliente</th><th className="p-3">Barca</th><th className="p-3">Periodo</th>
+                  <th className="p-3">Fonte</th><th className="p-3">Stato</th><th className="p-3">Pagamento</th><th className="p-3 text-right">Totale</th><th className="p-3"></th>
                 </tr>
-              );
-            })}
-            {visibili.length === 0 && !err && <tr><td className="p-6 text-center text-muted" colSpan={9}>Nessuna prenotazione con questi filtri.</td></tr>}
-          </tbody>
-        </table>
-      </div>
+              </thead>
+              <tbody>
+                {visibili.map((b) => {
+                  const st = STATO[b.stato] ?? { l: b.stato, c: "badge-block" };
+                  const pagato = (pagamenti[b.id] ?? 0) > 0;
+                  return (
+                    <tr key={b.id} className="border-t border-line hover:bg-foam/50">
+                      <td className="p-3 font-semibold whitespace-nowrap">{codice(b)}</td>
+                      <td className="p-3">{b.clienteNome ?? "—"}{b.telefono ? <span className="block text-xs text-muted">{b.telefono}</span> : null}</td>
+                      <td className="p-3">{b.boat?.nome ?? "—"}</td>
+                      <td className="p-3 whitespace-nowrap">{periodo(b)}</td>
+                      <td className="p-3"><span className={b.origineCanale === "naboat" ? "badge-ready" : "badge-block"}>{b.origineCanale === "naboat" ? "NaBoat" : "Diretta"}</span></td>
+                      <td className="p-3"><span className={"rounded-full px-2.5 py-1 text-xs font-semibold " + st.c}>{st.l}</span></td>
+                      <td className="p-3"><span className={pagato ? "badge-ready" : "badge-pending"}>{pagato ? "Pagata" : "Da pagare"}</span></td>
+                      <td className="p-3 text-right font-semibold">{euro(b.prezzoCent)}</td>
+                      <td className="p-3 text-right"><Link className="font-bold text-ocean whitespace-nowrap" href={`/gestionale/prenotazioni/${b.id}`}>Apri →</Link></td>
+                    </tr>
+                  );
+                })}
+                {visibili.length === 0 && !err && <tr><td className="p-6 text-center text-muted" colSpan={9}>Nessuna prenotazione con questi filtri.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -1,6 +1,9 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { Avviso } from "@/components/ui/Avviso";
+import { useConferma } from "@/components/ui/Dialogo";
+import { useModulo } from "@/components/ui/ModuloDialogo";
 
 const euro = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
 const dataIt = (d?: string | null) => (d ? new Date(d).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }) : "—");
@@ -19,6 +22,8 @@ export default function SchedaPermanenzaPage() {
   const [nuovoIncasso, setNuovoIncasso] = useState({ importoEuro: "", metodo: "contanti", descrizione: "" });
   const [nuovoAddebito, setNuovoAddebito] = useState({ descrizione: "", importoEuro: "", origine: "altro" });
   const [vedeImporti, setVedeImporti] = useState(true);
+  const conferma = useConferma();
+  const modulo = useModulo();
 
   const carica = useCallback(() => {
     fetch(`/api/v1/ormeggio/permanenze/${id}`).then((r) => r.json()).then((j) => { if (j?.id) setDati(j); else setErr(j?.error ?? "Non trovata"); }).catch(() => setErr("Errore"));
@@ -41,25 +46,42 @@ export default function SchedaPermanenzaPage() {
   };
 
   const movimento = (tipo: "uscita" | "rientro") => api("/api/v1/ormeggio/movimenti", "POST", { permanenzaId: id, tipo });
-  const sposta = () => {
-    const codice = prompt("Codice del nuovo posto (es. B3):", dati?.posto?.codice ?? "");
-    if (!codice) return;
-    const target = posti.find((p: any) => p.codice.toLowerCase() === codice.trim().toLowerCase());
-    if (!target) { setErr("Posto non trovato"); return; }
-    api(`/api/v1/ormeggio/permanenze/${id}`, "PATCH", { azione: "sposta", postoId: target.id });
+  const sposta = async () => {
+    const v = await modulo.apri("Sposta la barca", [
+      {
+        nome: "postoId",
+        etichetta: "Nuovo posto",
+        valore: posti.find((p: any) => p.codice === dati?.posto?.codice)?.id ?? "",
+        opzioni: posti.map((p: any) => ({ valore: p.id, label: p.codice })),
+      },
+    ], { confermaLabel: "Sposta", descrizione: "Il trasferimento chiude la posizione precedente e apre quella nuova." });
+    if (!v) return;
+    if (!v.postoId) { setErr("Scegli un posto"); return; }
+    await api(`/api/v1/ormeggio/permanenze/${id}`, "PATCH", { azione: "sposta", postoId: v.postoId });
   };
-  const chiudi = () => confirm("Chiudere definitivamente la sosta? Il posto viene liberato.") && api(`/api/v1/ormeggio/permanenze/${id}`, "PATCH", { azione: "chiudi" });
+  const chiudi = async () => {
+    const ok = await conferma.chiedi({
+      titolo: "Chiudere la sosta?",
+      messaggio: "La permanenza si chiude definitivamente e il posto viene liberato.",
+      dettaglio: "Il conto e lo storico restano consultabili.",
+      confermaLabel: "Chiudi sosta",
+      pericoloso: true,
+    });
+    if (ok) await api(`/api/v1/ormeggio/permanenze/${id}`, "PATCH", { azione: "chiudi" });
+  };
 
   const generaContratto = async () => {
     const j = await api(`/api/v1/ormeggio/permanenze/${id}/contratto`, "POST");
     if (j?.link) window.open(j.link, "_blank");
   };
-  const apriWhatsapp = () => {
+  const apriWhatsapp = async () => {
     const tel = dati?.boat?.proprietario?.telefono?.replace(/\D/g, "") ?? "";
     if (!tel) { setErr("Il proprietario non ha un telefono in anagrafica"); return; }
-    const testo = prompt("Messaggio WhatsApp (puoi modificarlo):", `Gentile ${dati.boat.proprietario.nome}, la sua barca ${dati.boat.nome} è pronta. Posto ${dati.posto?.codice}.`);
-    if (testo === null) return;
-    window.open(`https://wa.me/${tel}?text=${encodeURIComponent(testo)}`, "_blank");
+    const v = await modulo.apri("Messaggio WhatsApp", [
+      { nome: "testo", etichetta: "Messaggio", tipo: "textarea", valore: `Gentile ${dati.boat.proprietario.nome}, la sua barca ${dati.boat.nome} è pronta. Posto ${dati.posto?.codice}.` },
+    ], { confermaLabel: "Apri WhatsApp" });
+    if (!v) return;
+    window.open(`https://wa.me/${tel}?text=${encodeURIComponent(v.testo)}`, "_blank");
   };
 
   const aggiungiAttivita = async (e: React.FormEvent) => {
@@ -117,8 +139,8 @@ export default function SchedaPermanenzaPage() {
         </div>
       </div>
 
-      {err && <p className="card p-3 text-sm font-semibold text-coral">{err}</p>}
-      {msg && <p className="card p-3 text-sm font-semibold text-[#177469]">{msg}</p>}
+      {err && <Avviso tono="errore">{err}</Avviso>}
+      {msg && <Avviso tono="ok">{msg}</Avviso>}
 
       <div className="flex gap-2 text-sm">
         {(["scheda", "attivita", "conto"] as const).filter((t) => t !== "conto" || vedeImporti).map((t) => (
@@ -267,6 +289,8 @@ export default function SchedaPermanenzaPage() {
           <p className="text-xs text-muted">L'addebito è la voce da pagare; l'incasso è il denaro ricevuto. Un pagamento online (fase O4) aggiornerà il conto automaticamente.</p>
         </div>
       )}
+      {conferma.dialogo}
+      {modulo.dialogo}
     </div>
   );
 }

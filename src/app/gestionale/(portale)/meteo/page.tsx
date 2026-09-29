@@ -1,5 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
+import { Avviso } from "@/components/ui/Avviso";
+import { StatoVuoto } from "@/components/ui/StatoVuoto";
+import { useConferma } from "@/components/ui/Dialogo";
 
 type Giorno = { data: string; ventoMaxKmh: number; rafficaMaxKmh: number; ondaMaxM: number | null; pioggiaMm: number; livello: string; motivo: string };
 type Barca = { boatId: string; barca: string; giorni: Giorno[]; errore?: string };
@@ -12,16 +15,23 @@ export default function MeteoPage() {
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
   const [boatId, setBoatId] = useState("");
+  const conferma = useConferma();
 
   const load = () => {
     fetch(`/api/v1/meteo${boatId ? `?boatId=${boatId}` : ""}`)
-      .then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error); setDati(j); })
+      .then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error); setDati(j); setErr(""); })
       .catch((e) => setErr(e.message));
   };
   useEffect(load, [boatId]);
 
   const blocca = async (boatId: string, barca: string, giorno: Giorno) => {
-    if (!confirm(`Bloccare ${barca} il ${giornoIt(giorno.data)} per condizioni sfavorevoli?`)) return;
+    const ok = await conferma.chiedi({
+      titolo: `Bloccare ${barca}?`,
+      messaggio: `La barca risulterà non disponibile il ${giornoIt(giorno.data)} per condizioni sfavorevoli.`,
+      dettaglio: `Motivo: ${giorno.motivo}. Potrai rimuovere il blocco dal Calendario.`,
+      confermaLabel: "Blocca uscita",
+    });
+    if (!ok) return;
     const startAt = new Date(`${giorno.data}T00:00:00`).toISOString();
     const endAt = new Date(`${giorno.data}T23:59:59`).toISOString();
     const r = await fetch("/api/v1/blocks", {
@@ -34,21 +44,25 @@ export default function MeteoPage() {
     setErr(""); setMsg(`${barca} bloccata il ${giornoIt(giorno.data)}. La trovi in grigio nel Calendario.`);
   };
 
-  const colore = (l: string) => (l === "ok" ? "badge-ready" : l === "attenzione" ? "badge-pending" : "bg-[#f9e4df] text-[#914435] rounded-full px-2 py-1 text-xs font-semibold");
+  const colore = (l: string) => (l === "ok" ? "badge-ready" : l === "attenzione" ? "badge-pending" : "badge-info");
 
   return (
     <div className="grid gap-4">
       <div><p className="text-sm text-muted">Meteo</p><h1 className="text-2xl">Vento e onde dei prossimi giorni.</h1></div>
-      {err && <p className="card p-3 text-sm font-semibold text-coral">{err}</p>}
-      {msg && <p className="card p-3 text-sm font-semibold text-[#177469]">{msg}</p>}
+      {err && <Avviso tono="errore">{err}</Avviso>}
+      {msg && <Avviso tono="ok">{msg}</Avviso>}
 
-      {dati?.messaggio && <p className="card p-3 text-sm text-muted">{dati.messaggio}</p>}
+      {dati?.messaggio && <Avviso tono="info">{dati.messaggio}</Avviso>}
+
+      {dati && dati.barche.length === 0 && !dati.messaggio && (
+        <StatoVuoto icona="barca" titolo="Nessuna barca da controllare" testo="Aggiungi una posizione alle barche in Flotta per vedere il meteo della loro base." azione={{ label: "Vai a Flotta", href: "/gestionale/flotta" }} />
+      )}
 
       {dati?.barche.map((b) => (
         <div key={b.boatId} className="card overflow-x-auto">
           <div className="border-b border-line p-3 text-sm font-bold">{b.barca}</div>
           {b.errore ? (
-            <p className="p-3 text-sm text-coral">{b.errore}</p>
+            <p className="p-3 text-sm text-danger">{b.errore}</p>
           ) : (
             <table className="w-full text-sm">
               <thead className="text-muted"><tr className="text-left">
@@ -66,7 +80,7 @@ export default function MeteoPage() {
                     <td className="p-2"><span className={colore(g.livello)}>{g.livello}</span> <span className="text-xs text-muted">{g.motivo}</span></td>
                     <td className="p-2">
                       {g.livello !== "ok" && (
-                        <button className="font-bold text-coral" onClick={() => blocca(b.boatId, b.barca, g)}>Blocca uscita</button>
+                        <button className="font-bold text-danger" onClick={() => blocca(b.boatId, b.barca, g)}>Blocca uscita</button>
                       )}
                     </td>
                   </tr>
@@ -77,6 +91,7 @@ export default function MeteoPage() {
         </div>
       ))}
       <p className="text-xs text-muted">Dati meteo da Open-Meteo (gratuito). Il giudizio è indicativo: la decisione di uscire resta sempre del noleggiatore.</p>
+      {conferma.dialogo}
     </div>
   );
 }

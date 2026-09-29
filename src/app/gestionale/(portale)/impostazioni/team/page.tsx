@@ -1,5 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
+import { Avviso } from "@/components/ui/Avviso";
+import { Icona } from "@/components/ui/Icona";
+import { useConferma } from "@/components/ui/Dialogo";
+import { useModulo } from "@/components/ui/ModuloDialogo";
 
 export default function TeamPage() {
   const [users, setUsers] = useState<any[]>([]);
@@ -11,6 +15,8 @@ export default function TeamPage() {
   const [contatti, setContatti] = useState({ indirizzoPartenza: "", telefonoContatto: "" });
   const [skippers, setSkippers] = useState<any[]>([]);
   const [scelta, setScelta] = useState<Record<string, string>>({});
+  const conferma = useConferma();
+  const modulo = useModulo();
 
   const load = () => {
     fetch("/api/v1/users").then((r) => { if (!r.ok) throw new Error(); return r.json(); }).then(setUsers).catch(() => setErr("Riservato al proprietario (azienda attiva)."));
@@ -42,13 +48,39 @@ export default function TeamPage() {
     setErr(""); setMsg("Logo aggiornato."); load();
   };
 
+  const cambiaRuolo = async (u: any) => {
+    const v = await modulo.apri(`Ruolo di ${u.nome ?? u.email}`, [
+      {
+        nome: "role",
+        etichetta: "Ruolo",
+        opzioni: [
+          { valore: "operatore", label: "Operatore (gestisce l'operatività)" },
+          { valore: "skipper", label: "Skipper (solo consultazione)" },
+        ],
+        valore: u.role,
+      },
+    ], { confermaLabel: "Aggiorna ruolo" });
+    if (v) await api(`/api/v1/users/${u.id}`, "PATCH", { role: v.role });
+  };
+
+  const rimuoviUtente = async (u: any) => {
+    const ok = await conferma.chiedi({
+      titolo: `Rimuovere ${u.nome ?? u.email}?`,
+      messaggio: "L'utente perderà subito l'accesso al gestionale.",
+      dettaglio: "Prenotazioni e storico restano; l'utente non comparirà più nel team.",
+      confermaLabel: "Rimuovi utente",
+      pericoloso: true,
+    });
+    if (ok) await api(`/api/v1/users/${u.id}`, "DELETE");
+  };
+
   return (
     <div className="grid gap-4">
       <div><p className="text-sm text-muted">Team</p><h1 className="text-2xl">Operatori interni.</h1>
         <a className="text-sm font-bold text-ocean" href="/gestionale/registro">Vedi il registro delle modifiche →</a>
       </div>
-      {err && <p className="card p-3 text-sm font-semibold text-coral">{err}</p>}
-      {msg && <p className="card p-3 text-sm font-semibold text-[#177469]">{msg}</p>}
+      {err && <Avviso tono="errore">{err}</Avviso>}
+      {msg && <Avviso tono="ok">{msg}</Avviso>}
 
       {azienda && (
         <div className="card grid gap-3 p-5 text-sm">
@@ -90,7 +122,7 @@ export default function TeamPage() {
           <option value="operatore">Operatore</option>
           <option value="skipper">Skipper</option>
         </select>
-        <button className="btn-primary" type="submit">＋ Invita</button>
+        <button className="btn-primary flex items-center justify-center gap-1.5" type="submit"><Icona nome="piu" className="h-4 w-4" /> Invita</button>
       </form>
       {users.map((u: any) => {
         const collegato = skippers.find((s: any) => s.userId === u.id);
@@ -99,8 +131,8 @@ export default function TeamPage() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span><b>{u.nome ?? u.email}</b> <span className="text-muted">{u.email} · {u.role}</span></span>
               <div className="flex gap-3 font-bold">
-                <button className="text-ocean" onClick={() => { const r = prompt("Nuovo ruolo (operatore/skipper):", u.role); if (r) api(`/api/v1/users/${u.id}`, "PATCH", { role: r }); }}>Ruolo</button>
-                <button className="text-coral" onClick={() => confirm("Rimuovere?") && api(`/api/v1/users/${u.id}`, "DELETE")}>Rimuovi</button>
+                <button className="text-ocean" onClick={() => cambiaRuolo(u)}>Ruolo</button>
+                <button className="text-danger" onClick={() => rimuoviUtente(u)}>Rimuovi</button>
               </div>
             </div>
 
@@ -137,6 +169,8 @@ export default function TeamPage() {
           </div>
         );
       })}
+      {conferma.dialogo}
+      {modulo.dialogo}
     </div>
   );
 }

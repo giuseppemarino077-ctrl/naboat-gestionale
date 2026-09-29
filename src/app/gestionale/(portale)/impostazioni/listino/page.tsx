@@ -1,5 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
+import { Avviso } from "@/components/ui/Avviso";
+import { Icona } from "@/components/ui/Icona";
+import { useConferma } from "@/components/ui/Dialogo";
 
 type Tariffa = { id: string; boatId: string | null; tipo: string; stagione: string; prezzoCent: number; attivo: boolean; boat?: { nome: string } | null };
 type Boat = { id: string; nome: string };
@@ -14,6 +17,7 @@ export default function ListinoPage() {
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
   const [f, setF] = useState({ boatId: "", tipo: "giornata", stagione: "tutto_anno", prezzoEuro: "" });
+  const conferma = useConferma();
 
   const load = () => {
     fetch("/api/v1/tariffe").then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error); setTariffe(j); }).catch((e) => setErr(e.message));
@@ -37,12 +41,22 @@ export default function ListinoPage() {
   };
 
   const raggruppa = (tipo: string) => tariffe.filter((t) => t.tipo === tipo);
+  const elimina = async (t: Tariffa) => {
+    const ok = await conferma.chiedi({
+      titolo: "Eliminare la tariffa?",
+      messaggio: `La tariffa ${t.stagione.replace("_", " ")} di ${t.boat?.nome ?? "tutte le barche"} verrà eliminata.`,
+      dettaglio: "I preventivi useranno un'altra tariffa o resteranno senza prezzo.",
+      confermaLabel: "Elimina",
+      pericoloso: true,
+    });
+    if (ok) await api(`/api/v1/tariffe?id=${t.id}`, "DELETE");
+  };
 
   return (
     <div className="grid gap-4">
       <div><p className="text-sm text-muted">Listino</p><h1 className="text-2xl">Prezzi per barca e stagione.</h1></div>
-      {err && <p className="card p-3 text-sm font-semibold text-coral">{err}</p>}
-      {msg && <p className="card p-3 text-sm font-semibold text-[#177469]">{msg}</p>}
+      {err && <Avviso tono="errore">{err}</Avviso>}
+      {msg && <Avviso tono="ok">{msg}</Avviso>}
 
       <div className="card grid gap-3 p-5 text-sm">
         <h2 className="text-lg">Imposta una tariffa</h2>
@@ -59,7 +73,7 @@ export default function ListinoPage() {
             {STAGIONI.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
           <input className="rounded-md border border-line p-2" placeholder="Prezzo € *" value={f.prezzoEuro} onChange={(e) => setF({ ...f, prezzoEuro: e.target.value })} required />
-          <button className="btn-primary" type="submit">＋ Salva</button>
+          <button className="btn-primary flex items-center justify-center gap-1.5" type="submit"><Icona nome="piu" className="h-4 w-4" /> Salva</button>
         </form>
       </div>
 
@@ -80,7 +94,7 @@ export default function ListinoPage() {
                   <td className="p-2">
                     <div className="flex gap-2 font-bold">
                       <button className="text-ocean" onClick={() => api("/api/v1/tariffe", "POST", { boatId: t.boatId, tipo: t.tipo, stagione: t.stagione, prezzoEuro: (t.prezzoCent / 100).toFixed(2).replace(".", ","), attivo: !t.attivo })}>{t.attivo ? "Sospendi" : "Riattiva"}</button>
-                      <button className="text-coral" onClick={() => confirm("Eliminare la tariffa?") && api(`/api/v1/tariffe?id=${t.id}`, "DELETE")}>Elimina</button>
+                      <button className="text-danger" onClick={() => elimina(t)}>Elimina</button>
                     </div>
                   </td>
                 </tr>
@@ -90,6 +104,7 @@ export default function ListinoPage() {
           </table>
         </div>
       ))}
+      {conferma.dialogo}
     </div>
   );
 }

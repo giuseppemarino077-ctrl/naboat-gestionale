@@ -581,7 +581,8 @@ const run = async () => {
 
   // Cambio indirizzo: il vecchio link continua a funzionare con un reindirizzamento
   const slugVecchio = pagDopo.slug;
-  const slugNuovo = `${slugVecchio}-r${Date.now()}`;
+  // Slug nuovo limitato in lunghezza: il test deve restare ripetibile senza superare i limiti del campo.
+  const slugNuovo = `${slugVecchio.slice(0, 40).replace(/-r\d+$/, "")}-r${Date.now()}`;
   const cambiaSlug = await adm.fetch("/api/v1/admin/seo", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ azione: "pagina", id: pagAzienda.id, slug: slugNuovo }) });
   T("U04 cambio indirizzo della pagina SEO", cambiaSlug.status === 200, `${cambiaSlug.status}`);
   const redirectVecchio = await fetch(`${BASE}/azienda/${slugVecchio}`, { redirect: "manual" });

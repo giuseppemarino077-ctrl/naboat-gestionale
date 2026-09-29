@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { TERMINI_VERSIONE } from "@/lib/termini";
+import { useConferma } from "@/components/ui/Dialogo";
+import { Icona } from "@/components/ui/Icona";
 
 const euro = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
 const eurInput = (c: number | null | undefined) => (c === null || c === undefined ? "" : (c / 100).toFixed(2).replace(".", ","));
@@ -75,6 +77,7 @@ export default function AdminPage() {
   const [filtroModulo, setFiltroModulo] = useState<ModuloFiltro>("tutti");
   const [cerca, setCerca] = useState("");
   const initRef = useRef(false);
+  const conferma = useConferma();
 
   const caricaSfondo = async (file: File) => {
     setCaricandoSfondo(true); setErr("");
@@ -161,6 +164,16 @@ export default function AdminPage() {
   const salvaListino = () => chiama({ azione: "listino", ...form }, "Listino aggiornato.");
   const salvaCondizioni = (id: string) => chiama({ azione: "condizioniAzienda", id, ...cond[id] }, "Condizioni dell'azienda aggiornate.");
   const abbonamentoAzione = (id: string, azione: "attiva" | "annulla") => chiama({ azione, id }, azione === "attiva" ? "Voce attivata." : "Voce annullata.");
+  const annullaVoce = async (s: any) => {
+    const ok = await conferma.chiedi({
+      titolo: "Annullare questa voce?",
+      messaggio: `«${etichettaTipo(s.tipo, s.quantita)}» di ${s.tenant?.nome ?? "questa azienda"} verrà annullata.`,
+      dettaglio: "Il servizio non risulterà più attivo per l'azienda.",
+      confermaLabel: "Annulla voce",
+      pericoloso: true,
+    });
+    if (ok) abbonamentoAzione(s.id, "annulla");
+  };
 
   const azione = async (id: string, a: string) => {
     const r = await fetch("/api/v1/admin/tenants", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, azione: a }) });
@@ -168,7 +181,15 @@ export default function AdminPage() {
     setErr(""); load();
   };
   const elimina = async (id: string) => {
-    if (!confirm("Eliminare definitivamente azienda e dati?")) return;
+    const t = tenants.find((x: any) => x.id === id);
+    const ok = await conferma.chiedi({
+      titolo: `Eliminare «${t?.nome ?? "questa azienda"}»?`,
+      messaggio: "Verranno eliminati definitivamente l'azienda, i suoi utenti, le barche, le prenotazioni e i documenti collegati. L'operazione non è reversibile.",
+      dettaglio: "Per sospendere senza cancellare usa «Sospendi»: l'azienda resta in archivio.",
+      confermaLabel: "Elimina definitivamente",
+      pericoloso: true,
+    });
+    if (!ok) return;
     const r = await fetch(`/api/v1/admin/tenants?id=${id}`, { method: "DELETE" });
     if (!r.ok) { const j = await r.json().catch(() => ({})); setErr(j.error ?? "Errore"); return; }
     setErr(""); load();
@@ -190,7 +211,14 @@ export default function AdminPage() {
     if (apri) caricaUtenti(tenantId);
   };
   const reset2fa = async (tenantId: string, userId: string) => {
-    if (!confirm("Azzerare la 2FA di questo utente? Dovrà configurarla di nuovo al prossimo accesso.")) return;
+    const ok = await conferma.chiedi({
+      titolo: "Azzerare la 2FA di questo utente?",
+      messaggio: "La doppia verifica viene rimossa: al prossimo accesso l'utente dovrà riconfigurarla.",
+      dettaglio: "Finché non la riconfigura, l'accesso è protetto solo da email e password.",
+      confermaLabel: "Azzera 2FA",
+      pericoloso: true,
+    });
+    if (!ok) return;
     const r = await fetch("/api/v1/admin/utenti", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId }) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { setErr(j.error ?? "Errore"); return; }
@@ -230,16 +258,16 @@ export default function AdminPage() {
         <h1 className="mt-1 text-3xl">Pannello di controllo</h1>
         <p className="mt-1 text-sm text-white/85">Aziende, servizi e sito pubblico in un unico posto.</p>
         <div className="mt-4 flex flex-wrap gap-2">
-          <a className="rounded-full bg-white/15 px-4 py-2 text-sm font-bold backdrop-blur hover:bg-white/25" href="/admin/backup">🗄 Copie di sicurezza</a>
-          <a className="rounded-full bg-white/15 px-4 py-2 text-sm font-bold backdrop-blur hover:bg-white/25" href="/admin/seo">🔎 SEO pagine pubbliche</a>
-          <a className="rounded-full bg-white/15 px-4 py-2 text-sm font-bold backdrop-blur hover:bg-white/25" href="/admin/contatti">✉ Messaggi dal sito</a>
-          <a className="rounded-full bg-white/15 px-4 py-2 text-sm font-bold backdrop-blur hover:bg-white/25" href="/admin/recensioni">★ Recensioni</a>
-          <a className="rounded-full bg-white/15 px-4 py-2 text-sm font-bold backdrop-blur hover:bg-white/25" href="/admin/catalogo">⚙ Catalogo modelli</a>
-          <a className="rounded-full bg-white/15 px-4 py-2 text-sm font-bold backdrop-blur hover:bg-white/25" href="/admin/patenti">🪪 Patenti</a>
-          <a className="rounded-full bg-white/15 px-4 py-2 text-sm font-bold backdrop-blur hover:bg-white/25" href="/admin/clienti">👤 Clienti</a>
-          <a className="rounded-full bg-white/15 px-4 py-2 text-sm font-bold backdrop-blur hover:bg-white/25" href="/admin/barche">⛵ Barche</a>
-          <a className="rounded-full bg-white/15 px-4 py-2 text-sm font-bold backdrop-blur hover:bg-white/25" href="/admin/piani">📊 Piani</a>
-          <a className="rounded-full bg-white/15 px-4 py-2 text-sm font-bold backdrop-blur hover:bg-white/25" href="/admin/nuova-azienda">＋ Nuova azienda</a>
+          <a className="flex items-center gap-1.5 rounded-full bg-white/15 px-4 py-2 text-sm font-bold backdrop-blur hover:bg-white/25" href="/admin/backup"><Icona nome="documento" className="h-4 w-4" /> Copie di sicurezza</a>
+          <a className="flex items-center gap-1.5 rounded-full bg-white/15 px-4 py-2 text-sm font-bold backdrop-blur hover:bg-white/25" href="/admin/seo"><Icona nome="cerca" className="h-4 w-4" /> SEO pagine pubbliche</a>
+          <a className="flex items-center gap-1.5 rounded-full bg-white/15 px-4 py-2 text-sm font-bold backdrop-blur hover:bg-white/25" href="/admin/contatti"><Icona nome="mail" className="h-4 w-4" /> Messaggi dal sito</a>
+          <a className="flex items-center gap-1.5 rounded-full bg-white/15 px-4 py-2 text-sm font-bold backdrop-blur hover:bg-white/25" href="/admin/recensioni"><Icona nome="stella" className="h-4 w-4" /> Recensioni</a>
+          <a className="flex items-center gap-1.5 rounded-full bg-white/15 px-4 py-2 text-sm font-bold backdrop-blur hover:bg-white/25" href="/admin/catalogo"><Icona nome="ingranaggio" className="h-4 w-4" /> Catalogo modelli</a>
+          <a className="flex items-center gap-1.5 rounded-full bg-white/15 px-4 py-2 text-sm font-bold backdrop-blur hover:bg-white/25" href="/admin/patenti"><Icona nome="scudo" className="h-4 w-4" /> Patenti</a>
+          <a className="flex items-center gap-1.5 rounded-full bg-white/15 px-4 py-2 text-sm font-bold backdrop-blur hover:bg-white/25" href="/admin/clienti"><Icona nome="utente" className="h-4 w-4" /> Clienti</a>
+          <a className="flex items-center gap-1.5 rounded-full bg-white/15 px-4 py-2 text-sm font-bold backdrop-blur hover:bg-white/25" href="/admin/barche"><Icona nome="barca" className="h-4 w-4" /> Barche</a>
+          <a className="flex items-center gap-1.5 rounded-full bg-white/15 px-4 py-2 text-sm font-bold backdrop-blur hover:bg-white/25" href="/admin/piani"><Icona nome="pacchetto" className="h-4 w-4" /> Piani</a>
+          <a className="flex items-center gap-1.5 rounded-full bg-white/15 px-4 py-2 text-sm font-bold backdrop-blur hover:bg-white/25" href="/admin/nuova-azienda"><Icona nome="piu" className="h-4 w-4" /> Nuova azienda</a>
         </div>
       </div>
 
@@ -314,7 +342,13 @@ export default function AdminPage() {
               const attivi = p?.pagamentiAttivi && !p?.pagamentiBloccatiNaBoat;
               const st = STATO[t.status] ?? { label: t.status, classe: "badge-block" };
               return (
-                <div key={t.id} className="rounded-3xl border border-line bg-white p-5 shadow-sm transition hover:shadow-md">
+                <div key={t.id} className={"rounded-3xl border bg-white p-5 shadow-sm transition hover:shadow-md " + (t.status === "pending" ? "border-warn-line ring-2 ring-warn-line/50" : "border-line")}>
+                  {t.status === "pending" && (
+                    <p className="mb-3 flex items-center gap-2 rounded-2xl bg-warn-soft px-3 py-2 text-sm font-bold text-warn">
+                      <Icona nome="avviso" className="h-4 w-4" /> In attesa di approvazione
+                      <span className="font-normal">· registrata il {new Date(t.createdAt).toLocaleDateString("it-IT")}</span>
+                    </p>
+                  )}
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <p className="text-lg font-extrabold">{t.nome}</p>
@@ -327,8 +361,8 @@ export default function AdminPage() {
                   </div>
 
                   <div className="mt-4 flex flex-wrap gap-2 text-sm font-bold">
-                    {t.status === "pending" && <button className="rounded-full bg-[#177469] px-4 py-2 text-white" onClick={() => azione(t.id, "approve")}>Approva</button>}
-                    {t.status === "pending" && <button className="rounded-full border border-line px-4 py-2 text-coral" onClick={() => azione(t.id, "reject")}>Rifiuta</button>}
+                    {t.status === "pending" && <button className="flex items-center gap-1.5 rounded-full bg-ok px-4 py-2 text-white" onClick={() => azione(t.id, "approve")}><Icona nome="check" className="h-4 w-4" /> Approva</button>}
+                    {t.status === "pending" && <button className="flex items-center gap-1.5 rounded-full border border-danger-line px-4 py-2 text-danger" onClick={() => azione(t.id, "reject")}><Icona nome="chiudi" className="h-4 w-4" /> Rifiuta</button>}
                     {t.status === "active" && <button className="rounded-full border border-line px-4 py-2 text-gold" onClick={() => azione(t.id, "suspend")}>Sospendi</button>}
                     {t.status === "suspended" && <button className="rounded-full bg-[#177469] px-4 py-2 text-white" onClick={() => azione(t.id, "reactivate")}>Riattiva</button>}
                     <button className="rounded-full px-4 py-2 text-coral hover:bg-[#fdeeea]" onClick={() => elimina(t.id)}>Elimina</button>
@@ -488,7 +522,7 @@ export default function AdminPage() {
                       <td className="p-3">
                         <div className="flex gap-2 font-bold">
                           {s.stato !== "attivo" && s.stato !== "annullato" && <button className="text-[#177469]" onClick={() => abbonamentoAzione(s.id, "attiva")}>Attiva</button>}
-                          {s.stato !== "annullato" && <button className="text-coral" onClick={() => confirm("Annullare?") && abbonamentoAzione(s.id, "annulla")}>Annulla</button>}
+                          {s.stato !== "annullato" && <button className="text-danger" onClick={() => annullaVoce(s)}>Annulla</button>}
                         </div>
                       </td>
                     </tr>
@@ -670,6 +704,7 @@ export default function AdminPage() {
           </div>
         </div>
       )}
+      {conferma.dialogo}
     </div>
   );
 }

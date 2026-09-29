@@ -7,6 +7,10 @@ import {
 } from "@/lib/calendario";
 import { uuidSicuro, copiaTesto } from "@/lib/browser";
 import { useAggiornamenti, segnalaCambiamento } from "@/lib/aggiorna";
+import { Avviso } from "@/components/ui/Avviso";
+import { Caricamento } from "@/components/ui/Caricamento";
+import { Icona } from "@/components/ui/Icona";
+import { useConferma } from "@/components/ui/Dialogo";
 
 type Cal = { boats: any[]; bookings: any[]; blocks: any[] };
 type Vista = "giorno" | "settimana" | "mese" | "agenda";
@@ -24,6 +28,9 @@ const waLink = (tel: string | null | undefined, testo: string) => {
   const n = (tel ?? "").replace(/\D/g, "");
   return n ? `https://wa.me/${n.startsWith("39") ? n : `39${n}`}?text=${encodeURIComponent(testo)}` : null;
 };
+// Un noleggio su più giorni mostra anche la data di rientro, distinta dalla partenza.
+const piuGiorni = (k: any) => giornoDi(k.startAt) !== giornoDi(k.endAt);
+const fineBreve = (iso: string) => aData(giornoDi(iso)).toLocaleDateString("it-IT", { day: "numeric", month: "short" });
 
 function coloreEvento(b: any) {
   if (b.stato === "cancellata" || b.stato === "no_show") return "border-[#f6c9be] bg-[#fdeeea] text-coral";
@@ -51,6 +58,7 @@ export default function CalendarioPage() {
   // altro operatore l'ha modificata nel frattempo (409) senza perdere la bozza.
   const [versione, setVersione] = useState<string | null>(null);
   const [conflitto, setConflitto] = useState(false);
+  const conferma = useConferma();
 
   // form
   const [crea, setCrea] = useState({ inizioData: "", dalle: "09:00", fineData: "", alle: "17:00", passeggeri: 1, formula: "", clienteNome: "", telefono: "", email: "", destinazione: "", patenteOk: false, skipperId: "", note: "", prezzoEuro: "" });
@@ -169,8 +177,14 @@ export default function CalendarioPage() {
     if (sel?.modo !== "nuovo") return;
     await chiama("Giornata resa non disponibile.", "/api/v1/blocks", "POST", { boatId: sel.boatId, startAt: inizioGiorno(sel.giorno).toISOString(), endAt: fineGiorno(sel.giorno).toISOString(), motivo: blocco.motivo || undefined }, true);
   };
-  const rimuoviBlocco = async (id: string) => { if (confirm("Rendere di nuovo libera questa giornata?")) await chiama("Giornata di nuovo libera.", `/api/v1/blocks/${id}`, "DELETE", undefined, true); };
-  const annullaPren = async (id: string) => { if (confirm("Annullare la prenotazione?")) await chiama("Prenotazione annullata.", `/api/v1/bookings/${id}`, "DELETE", undefined, true); };
+  const rimuoviBlocco = async (id: string) => {
+    const ok = await conferma.chiedi({ titolo: "Rendere di nuovo libera la giornata?", messaggio: "Il blocco verrà rimosso e la barca tornerà prenotabile in quelle date.", confermaLabel: "Rimuovi blocco" });
+    if (ok) await chiama("Giornata di nuovo libera.", `/api/v1/blocks/${id}`, "DELETE", undefined, true);
+  };
+  const annullaPren = async (id: string) => {
+    const ok = await conferma.chiedi({ titolo: "Annullare la prenotazione?", messaggio: "La barca torna disponibile per quelle date e il cliente non riceverà più promemoria.", confermaLabel: "Annulla prenotazione", pericoloso: true });
+    if (ok) await chiama("Prenotazione annullata.", `/api/v1/bookings/${id}`, "DELETE", undefined, true);
+  };
   const partenzaOra = async (b: any) => azionePren(b, "Barca segnata in mare.", "checkin", { carburantePct: partenza.carburante === "" ? null : Number(partenza.carburante), note: partenza.note || null });
   const rientroOra = async (b: any) => azionePren(b, "Rientro registrato.", "checkout", { carburantePct: rientro.carburante === "" ? null : Number(rientro.carburante), danniEuro: rientro.danni || null, note: rientro.note || null });
   const azionePren = async (b: any, ok: string, az: string, body: any) => { await chiama(ok, `/api/v1/bookings/${b.id}/${az}`, "POST", body); };
@@ -234,8 +248,9 @@ export default function CalendarioPage() {
 
   return (
     <div className="grid gap-4">
-      {err && <p className="rounded-2xl border border-coral/40 bg-[#fdeeea] p-3 text-sm font-semibold text-coral">{err}</p>}
-      {msg && <p className="rounded-2xl border border-[#bfe6dc] bg-[#eafaf5] p-3 text-sm font-semibold text-[#177469]">{msg}</p>}
+      {err && <Avviso tono="errore">{err}</Avviso>}
+      {msg && <Avviso tono="ok">{msg}</Avviso>}
+      {!data && !err && <Caricamento testo="Carico il calendario…" />}
 
       {/* Barra strumenti */}
       <div className="flex flex-wrap items-center gap-3 rounded-3xl border border-line bg-white p-3 shadow-sm">
@@ -245,9 +260,9 @@ export default function CalendarioPage() {
           ))}
         </div>
         <div className="flex items-center gap-1">
-          <button className="btn-soft" onClick={() => nav(-1)}>‹</button>
+          <button className="btn-soft" aria-label="Periodo precedente" onClick={() => nav(-1)}><Icona nome="freccia-sinistra" className="h-4 w-4" /></button>
           <button className="btn-soft" onClick={() => setBase(oggi())}>Oggi</button>
-          <button className="btn-soft" onClick={() => nav(1)}>›</button>
+          <button className="btn-soft" aria-label="Periodo successivo" onClick={() => nav(1)}><Icona nome="freccia-destra" className="h-4 w-4" /></button>
         </div>
         <strong className="text-sm capitalize">{etichettaRange}</strong>
         <div className="ml-auto flex flex-wrap items-center gap-2 text-sm">
@@ -346,7 +361,7 @@ export default function CalendarioPage() {
                         const w = Math.max(2, ((new Date(k.endAt).getTime() - new Date(k.startAt).getTime()) / 3600000) / 24 * 100);
                         return (
                           <button key={k.id} onClick={() => apriPrenotazione(k.id)} className={"absolute top-2 h-12 overflow-hidden rounded-lg border px-2 py-1 text-left text-[11px] font-semibold hover:brightness-105 " + coloreEvento(k)} style={{ left: `${l}%`, width: `${Math.min(100 - l, w)}%` }}>
-                            {oreDi(k.startAt)}–{oreDi(k.endAt)} {k.clienteNome}
+                            {oreDi(k.startAt)}–{piuGiorni(k) ? ` ${fineBreve(k.endAt)}` : oreDi(k.endAt)} {k.clienteNome}
                             {k.origineCanale === "naboat" && <span className="ml-1 rounded bg-white/70 px-1 text-[9px]">NaBoat</span>}
                           </button>
                         );
@@ -389,13 +404,13 @@ export default function CalendarioPage() {
                       <div key={bt.id + g} className={"min-h-[80px] space-y-1 border-b border-l border-line p-1.5 " + (g === oggi() ? "bg-[#fffaf2]" : "")}>
                         {fTipo !== "blocchi" && bks.map((k) => (
                           <button key={k.id} onClick={() => apriPrenotazione(k.id)} className={"block w-full rounded-lg border px-2 py-1 text-left text-[11px] font-semibold hover:brightness-105 " + coloreEvento(k)}>
-                            {oreDi(k.startAt)} {k.clienteNome}{k.origineCanale === "naboat" ? <span className="ml-1 rounded bg-white/70 px-1 text-[9px]">NaBoat</span> : null}
+                            {oreDi(k.startAt)}{piuGiorni(k) ? ` → ${fineBreve(k.endAt)}` : ""} {k.clienteNome}{k.origineCanale === "naboat" ? <span className="ml-1 rounded bg-white/70 px-1 text-[9px]">NaBoat</span> : null}
                           </button>
                         ))}
                         {fTipo !== "prenotazioni" && blk && (
                           <button onClick={() => apriBlocco(blk.id)} className="block w-full rounded-lg border border-[#f6c9be] bg-[#fdeeea] px-2 py-1 text-left text-[11px] font-semibold text-coral">Blocco{blk.motivo ? `: ${blk.motivo}` : ""}</button>
                         )}
-                        {bks.length === 0 && !blk && <button onClick={() => apriNuovo(bt.id, g)} className="block w-full rounded-lg border border-dashed border-line py-2 text-[11px] text-muted hover:border-ocean hover:bg-foam">＋ libera</button>}
+                        {bks.length === 0 && !blk && <button onClick={() => apriNuovo(bt.id, g)} className="flex w-full items-center justify-center gap-1 rounded-lg border border-dashed border-line py-2 text-[11px] text-muted hover:border-ocean hover:bg-foam"><Icona nome="piu" className="h-3.5 w-3.5" /> libera</button>}
                       </div>
                     );
                   })}
@@ -423,7 +438,7 @@ export default function CalendarioPage() {
                 <div className="mt-2 grid gap-2">
                   {righe.map((r) => (
                     <button key={r.tipo + r.k.id} onClick={() => (r.tipo === "p" ? apriPrenotazione(r.k.id) : apriBlocco(r.k.id))} className={"flex items-center justify-between rounded-xl border px-3 py-2 text-left text-sm " + (r.tipo === "p" ? coloreEvento(r.k) : "border-[#f6c9be] bg-[#fdeeea] text-coral")}>
-                      <span>{r.tipo === "p" ? `${oreDi(r.k.startAt)}–${oreDi(r.k.endAt)} · ${r.bt.nome} · ${r.k.clienteNome ?? ""}` : `Blocco · ${r.bt.nome}${r.k.motivo ? ` · ${r.k.motivo}` : ""}`}</span>
+                      <span>{r.tipo === "p" ? `${oreDi(r.k.startAt)}${piuGiorni(r.k) ? ` ${fineBreve(r.k.startAt)}` : ""}–${piuGiorni(r.k) ? `${fineBreve(r.k.endAt)} ` : ""}${oreDi(r.k.endAt)} · ${r.bt.nome} · ${r.k.clienteNome ?? ""}` : `Blocco · ${r.bt.nome}${r.k.motivo ? ` · ${r.k.motivo}` : ""}`}</span>
                       <span className="text-xs">{r.tipo === "p" ? (r.k.origineCanale === "naboat" ? "NaBoat" : "Diretta") : "blocco"}</span>
                     </button>
                   ))}
@@ -445,11 +460,11 @@ export default function CalendarioPage() {
                 {sel.modo === "prenotazione" && prenSel && <><p className="text-xs font-semibold uppercase tracking-widest text-ocean">{codice(prenSel)}</p><h2 className="text-xl">{barcaDi(prenSel.boatId)?.nome}</h2><p className="text-sm text-muted">{aData(giornoDi(prenSel.startAt)).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })}</p></>}
                 {sel.modo === "blocco" && blkSel && <><p className="text-xs font-semibold uppercase tracking-widest text-coral">Blocco</p><h2 className="text-xl">{barcaDi(blkSel.boatId)?.nome}</h2><p className="text-sm text-muted">{aData(giornoDi(blkSel.startAt)).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })}</p></>}
               </div>
-              <button className="grid h-9 w-9 place-items-center rounded-full bg-[#faf6f2] text-muted" onClick={() => setSel(null)}>✕</button>
+              <button className="grid h-9 w-9 place-items-center rounded-full bg-[#faf6f2] text-muted" aria-label="Chiudi" onClick={() => setSel(null)}><Icona nome="chiudi" className="h-4 w-4" /></button>
             </div>
 
-            {err && <p className="mt-4 rounded-2xl border border-coral/40 bg-[#fdeeea] p-3 text-sm font-semibold text-coral">{err}</p>}
-            {msg && <p className="mt-4 rounded-2xl border border-[#bfe6dc] bg-[#eafaf5] p-3 text-sm font-semibold text-[#177469]">{msg}</p>}
+            {err && <Avviso tono="errore" className="mt-4">{err}</Avviso>}
+            {msg && <Avviso tono="ok" className="mt-4">{msg}</Avviso>}
             {conflitto && (
               <div className="mt-4 rounded-2xl border border-gold/50 bg-[#fff7e6] p-3 text-sm">
                 <p className="font-semibold text-[#9a6406]">Questa prenotazione è stata modificata da un altro utente: ricarica per vedere le novità.</p>
@@ -526,7 +541,7 @@ export default function CalendarioPage() {
                       <label className="grid gap-1 text-sm">Carburante %<input className="rounded-2xl border border-line p-3" type="number" min={0} max={100} value={partenza.carburante} onChange={(e) => setPartenza({ ...partenza, carburante: e.target.value })} /></label>
                       <label className="grid gap-1 text-sm">Note<input className="rounded-2xl border border-line p-3" value={partenza.note} onChange={(e) => setPartenza({ ...partenza, note: e.target.value })} /></label>
                     </div>
-                    <button className="btn-primary mt-2 w-full" disabled={busy} onClick={() => partenzaOra(prenSel)}>✓ Barca partita</button>
+                    <button className="btn-primary mt-2 flex w-full items-center justify-center gap-1.5" disabled={busy} onClick={() => partenzaOra(prenSel)}><Icona nome="barca" className="h-4 w-4" /> Barca partita</button>
                   </div>
                 )}
                 {prenSel.stato === "in_mare" && (
@@ -537,7 +552,7 @@ export default function CalendarioPage() {
                       <label className="grid gap-1 text-sm">Danni €<input className="rounded-2xl border border-line p-3" value={rientro.danni} onChange={(e) => setRientro({ ...rientro, danni: e.target.value })} /></label>
                       <label className="grid gap-1 text-sm">Note<input className="rounded-2xl border border-line p-3" value={rientro.note} onChange={(e) => setRientro({ ...rientro, note: e.target.value })} /></label>
                     </div>
-                    <button className="btn-primary mt-2 w-full" disabled={busy} onClick={() => rientroOra(prenSel)}>⚓ Barca rientrata</button>
+                    <button className="btn-primary mt-2 flex w-full items-center justify-center gap-1.5" disabled={busy} onClick={() => rientroOra(prenSel)}><Icona nome="ancora" className="h-4 w-4" /> Barca rientrata</button>
                   </div>
                 )}
                 <button className="btn-soft" disabled={busy || !prenSel.prezzoCent} onClick={() => pagamento(prenSel)}>{prenSel.prezzoCent ? "Link pagamento" : "Imposta il prezzo per il pagamento"}</button>
@@ -573,6 +588,7 @@ export default function CalendarioPage() {
           </div>
         </div>
       )}
+      {conferma.dialogo}
     </div>
   );
 }

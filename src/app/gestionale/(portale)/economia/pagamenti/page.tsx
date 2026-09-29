@@ -2,6 +2,9 @@
 import { copiaTesto } from "@/lib/browser";
 import { useUtente } from "@/components/Utente";
 import { useEffect, useState } from "react";
+import { Avviso } from "@/components/ui/Avviso";
+import { useConferma } from "@/components/ui/Dialogo";
+import { useModulo } from "@/components/ui/ModuloDialogo";
 
 type Imp = {
   pagamentiAttivi: boolean;
@@ -38,6 +41,8 @@ export default function PagamentiPage() {
   const [msg, setMsg] = useState("");
   const [chiavi, setChiavi] = useState({ stripeSecretKey: "", stripeWebhookSecret: "", stripePublicKey: "" });
   const [manuale, setManuale] = useState({ bookingId: "", importoEuro: "", metodo: "contanti", tipo: "totale", descrizione: "" });
+  const conferma = useConferma();
+  const modulo = useModulo();
   const [cauzioni, setCauzioni] = useState<any[]>([]);
   const [link, setLink] = useState("");
 
@@ -87,26 +92,46 @@ export default function PagamentiPage() {
   };
 
   const rimborsa = async (p: Payment, completo: boolean) => {
-    const testo = completo ? "Rimborsare l'intero importo?" : "Applicare il rimborso secondo la regola configurata?";
-    if (!confirm(testo)) return;
+    const ok = await conferma.chiedi({
+      titolo: completo ? "Rimborsare l'intero importo?" : "Applicare il rimborso parziale?",
+      messaggio: completo
+        ? `Verrà rimborsato l'intero importo di ${euro(p.totaleCent)}.`
+        : "Verrà applicata la regola di rimborso parziale configurata.",
+      dettaglio: "La fee NaBoat non viene rimborsata.",
+      confermaLabel: "Esegui rimborso",
+      pericoloso: true,
+    });
+    if (!ok) return;
     const r = await api(`/api/v1/payments?id=${p.id}`, "PATCH", { azione: "rimborso", completo });
     if (r) setMsg(r.stato === "rimborsato" ? "Rimborso totale eseguito." : "Rimborso parziale eseguito.");
   };
 
   const avviaCauzione = async (c: any) => {
-    const importo = prompt(`Importo cauzione in euro per ${c.clienteNome ?? "il cliente"}:`, c.cauzioneCent ? (c.cauzioneCent / 100).toFixed(2).replace(".", ",") : "500,00");
-    if (importo === null) return;
-    const r = await api("/api/v1/payments/cauzione", "POST", { bookingId: c.id, cauzioneEuro: importo });
+    const v = await modulo.apri(`Cauzione per ${c.clienteNome ?? "il cliente"}`, [
+      { nome: "importo", etichetta: "Importo cauzione (€)", valore: c.cauzioneCent ? (c.cauzioneCent / 100).toFixed(2).replace(".", ",") : "500,00", aiuto: "Il blocco sulla carta non addebita finché non lo confermi." },
+    ], { confermaLabel: "Genera link cauzione" });
+    if (!v) return;
+    const r = await api("/api/v1/payments/cauzione", "POST", { bookingId: c.id, cauzioneEuro: v.importo });
     if (r?.url) { setLink(r.url); await copiaTesto(r.url); setMsg("Link cauzione copiato: invialo al cliente per il blocco sulla carta."); }
   };
 
   const cauzioneAzione = async (c: any, azione: "rilascia" | "addebita") => {
     let importo: string | undefined;
     if (azione === "addebita") {
-      const v = prompt("Importo da addebitare in euro:", c.danniCent ? (c.danniCent / 100).toFixed(2).replace(".", ",") : (c.cauzioneCent / 100).toFixed(2).replace(".", ","));
-      if (v === null) return;
-      importo = v;
-    } else if (!confirm("Rilasciare la cauzione? Il blocco viene annullato.")) return;
+      const v = await modulo.apri("Addebitare la cauzione", [
+        { nome: "importo", etichetta: "Importo da addebitare (€)", valore: c.danniCent ? (c.danniCent / 100).toFixed(2).replace(".", ",") : (c.cauzioneCent / 100).toFixed(2).replace(".", ","), aiuto: "L'addebito viene registrato tra gli incassi." },
+      ], { confermaLabel: "Addebita" });
+      if (!v) return;
+      importo = v.importo;
+    } else {
+      const ok = await conferma.chiedi({
+        titolo: "Rilasciare la cauzione?",
+        messaggio: "Il blocco sulla carta viene annullato e il cliente non verrà addebitato.",
+        confermaLabel: "Rilascia cauzione",
+        pericoloso: true,
+      });
+      if (!ok) return;
+    }
     const r = await api(`/api/v1/payments/cauzione?id=${c.id}`, "PATCH", { azione, importoEuro: importo ?? null });
     if (r) setMsg(azione === "rilascia" ? "Cauzione rilasciata." : "Cauzione addebitata e registrata tra gli incassi.");
   };
@@ -120,8 +145,8 @@ export default function PagamentiPage() {
         <p className="text-sm text-muted">Pagamenti</p>
         <h1 className="text-2xl">Incassi online, accesi quando vuoi.</h1>
       </div>
-      {err && <p className="card p-3 text-sm font-semibold text-coral">{err}</p>}
-      {msg && <p className="card p-3 text-sm font-semibold text-[#177469]">{msg}</p>}
+      {err && <Avviso tono="errore">{err}</Avviso>}
+      {msg && <Avviso tono="ok">{msg}</Avviso>}
 
       {imp && sonoProprietario && (
         <div className="card grid gap-3 p-5 text-sm">
@@ -290,6 +315,8 @@ export default function PagamentiPage() {
           </tbody>
         </table>
       </div>
+      {conferma.dialogo}
+      {modulo.dialogo}
     </div>
   );
 }

@@ -1,52 +1,74 @@
 "use client";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useUtente, dimenticaUtente } from "@/components/Utente";
 import { aziendaNonAttiva, percorsoConsentitoInAttesa } from "@/lib/accesso";
+import { Icona, type NomeIcona } from "@/components/ui/Icona";
 
-// Voci di navigazione del gestionale, ognuna con i ruoli che possono vederla e il gruppo
-// a cui appartiene. Il menù si adatta al ruolo e ai moduli attivi: niente voci che poi
-// darebbero errore. I percorsi sono tutti sotto /gestionale.
-type Gruppo = "noleggio" | "ormeggio" | "gestione";
-type Voce = { href: string; icona: string; nome: string; ruoli: string[]; modulo: "noleggio" | "ormeggio" | "comune"; gruppo: Gruppo };
+type Modulo = "noleggio" | "ormeggio" | "comune";
+type Gruppo = "noleggio" | "ormeggio" | "marketplace" | "gestione";
+type Voce = {
+  href: string;
+  icona: NomeIcona;
+  nome: string;
+  ruoli: string[];
+  modulo: Modulo;
+  gruppo: Gruppo;
+  primaria: boolean;
+};
 
 const AZIENDA = ["owner", "operatore"];
 const AZIENDA_E_SKIPPER = ["owner", "operatore", "skipper"];
 
 const VOCI: Voce[] = [
-  { href: "/gestionale/oggi", icona: "⌂", nome: "Oggi", ruoli: AZIENDA_E_SKIPPER, modulo: "noleggio", gruppo: "noleggio" },
-  { href: "/gestionale/calendario", icona: "▦", nome: "Calendario", ruoli: AZIENDA_E_SKIPPER, modulo: "noleggio", gruppo: "noleggio" },
-  { href: "/gestionale/prenotazioni", icona: "☰", nome: "Prenotazioni", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio" },
-  { href: "/gestionale/turni", icona: "⏱", nome: "Turni", ruoli: AZIENDA_E_SKIPPER, modulo: "noleggio", gruppo: "noleggio" },
-  { href: "/gestionale/meteo", icona: "☁", nome: "Meteo", ruoli: AZIENDA_E_SKIPPER, modulo: "noleggio", gruppo: "noleggio" },
-  { href: "/gestionale/flotta", icona: "⌁", nome: "Flotta", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio" },
-  { href: "/gestionale/impostazioni/porti", icona: "⌖", nome: "Porti", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio" },
-  { href: "/gestionale/impostazioni/listino", icona: "⌸", nome: "Listino", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio" },
-  { href: "/gestionale/manutenzione", icona: "⚙", nome: "Manutenzione", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio" },
-  { href: "/gestionale/clienti", icona: "☷", nome: "Clienti", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio" },
-  { href: "/gestionale/economia", icona: "€", nome: "Economia", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio" },
-  { href: "/gestionale/recensioni", icona: "★", nome: "Recensioni", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio" },
-  { href: "/gestionale/ormeggio", icona: "⚓", nome: "Ormeggio", ruoli: AZIENDA, modulo: "ormeggio", gruppo: "ormeggio" },
-  { href: "/gestionale/ormeggio/da-fare", icona: "☑", nome: "Da fare", ruoli: AZIENDA, modulo: "ormeggio", gruppo: "ormeggio" },
-  { href: "/gestionale/ormeggio/movimenti", icona: "⇅", nome: "Movimenti", ruoli: AZIENDA, modulo: "ormeggio", gruppo: "ormeggio" },
-  { href: "/gestionale/ormeggio/conti", icona: "＄", nome: "Conti", ruoli: AZIENDA, modulo: "ormeggio", gruppo: "ormeggio" },
-  { href: "/gestionale/registro", icona: "✎", nome: "Registro", ruoli: AZIENDA, modulo: "comune", gruppo: "gestione" },
-  { href: "/gestionale/impostazioni/piano", icona: "◷", nome: "Servizi NaBoat", ruoli: ["owner"], modulo: "comune", gruppo: "gestione" },
-  { href: "/gestionale/impostazioni/team", icona: "⚓", nome: "Team", ruoli: ["owner"], modulo: "comune", gruppo: "gestione" },
-  { href: "/gestionale/impostazioni", icona: "⌂", nome: "Impostazioni", ruoli: AZIENDA, modulo: "comune", gruppo: "gestione" },
-  { href: "/gestionale/impostazioni/sicurezza", icona: "🔒", nome: "Sicurezza", ruoli: AZIENDA_E_SKIPPER, modulo: "comune", gruppo: "gestione" },
+  { href: "/gestionale/oggi", icona: "casa", nome: "Oggi", ruoli: AZIENDA_E_SKIPPER, modulo: "noleggio", gruppo: "noleggio", primaria: true },
+  { href: "/gestionale/calendario", icona: "calendario", nome: "Calendario", ruoli: AZIENDA_E_SKIPPER, modulo: "noleggio", gruppo: "noleggio", primaria: true },
+  { href: "/gestionale/prenotazioni", icona: "lista", nome: "Prenotazioni", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio", primaria: true },
+  { href: "/gestionale/flotta", icona: "barca", nome: "Flotta", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio", primaria: true },
+  { href: "/gestionale/clienti", icona: "clienti", nome: "Clienti", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio", primaria: true },
+  { href: "/gestionale/economia", icona: "euro", nome: "Economia", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio", primaria: true },
+  { href: "/gestionale/turni", icona: "orologio", nome: "Turni", ruoli: AZIENDA_E_SKIPPER, modulo: "noleggio", gruppo: "noleggio", primaria: false },
+  { href: "/gestionale/meteo", icona: "meteo", nome: "Meteo", ruoli: AZIENDA_E_SKIPPER, modulo: "noleggio", gruppo: "noleggio", primaria: false },
+  { href: "/gestionale/manutenzione", icona: "manutenzione", nome: "Manutenzione", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio", primaria: false },
+  { href: "/gestionale/impostazioni/porti", icona: "pin", nome: "Porti", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio", primaria: false },
+  { href: "/gestionale/impostazioni/listino", icona: "etichetta", nome: "Listino", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio", primaria: false },
+
+  { href: "/gestionale/ormeggio", icona: "moduli", nome: "Quadro posti", ruoli: AZIENDA, modulo: "ormeggio", gruppo: "ormeggio", primaria: true },
+  { href: "/gestionale/ormeggio/da-fare", icona: "checklist", nome: "Attività", ruoli: AZIENDA, modulo: "ormeggio", gruppo: "ormeggio", primaria: true },
+  { href: "/gestionale/ormeggio/movimenti", icona: "movimenti", nome: "Movimenti", ruoli: AZIENDA, modulo: "ormeggio", gruppo: "ormeggio", primaria: true },
+  { href: "/gestionale/ormeggio/proprietari", icona: "utente", nome: "Proprietari", ruoli: AZIENDA, modulo: "ormeggio", gruppo: "ormeggio", primaria: true },
+  { href: "/gestionale/ormeggio/conti", icona: "portafoglio", nome: "Economia", ruoli: AZIENDA, modulo: "ormeggio", gruppo: "ormeggio", primaria: true },
+  { href: "/gestionale/ormeggio/configurazione", icona: "ingranaggio", nome: "Configurazione", ruoli: AZIENDA, modulo: "ormeggio", gruppo: "ormeggio", primaria: false },
+
+  { href: "/gestionale/marketplace", icona: "occhio", nome: "Presenza e richieste", ruoli: AZIENDA, modulo: "noleggio", gruppo: "marketplace", primaria: true },
+  { href: "/gestionale/recensioni", icona: "stella", nome: "Recensioni", ruoli: AZIENDA, modulo: "noleggio", gruppo: "marketplace", primaria: true },
+
+  { href: "/gestionale/registro", icona: "registro", nome: "Registro", ruoli: AZIENDA, modulo: "comune", gruppo: "gestione", primaria: false },
+  { href: "/gestionale/impostazioni/piano", icona: "pacchetto", nome: "Servizi NaBoat", ruoli: ["owner"], modulo: "comune", gruppo: "gestione", primaria: false },
+  { href: "/gestionale/impostazioni/team", icona: "utente", nome: "Team", ruoli: ["owner"], modulo: "comune", gruppo: "gestione", primaria: false },
+  { href: "/gestionale/impostazioni", icona: "ingranaggio", nome: "Impostazioni", ruoli: AZIENDA, modulo: "comune", gruppo: "gestione", primaria: false },
+  { href: "/gestionale/impostazioni/sicurezza", icona: "scudo", nome: "Sicurezza", ruoli: AZIENDA_E_SKIPPER, modulo: "comune", gruppo: "gestione", primaria: false },
 ];
 
 const NOMI_GRUPPO: Record<Gruppo, string> = {
   noleggio: "Noleggio",
   ormeggio: "Ormeggio",
+  marketplace: "Marketplace",
   gestione: "Gestione",
 };
 
+const EQUIVALENZE: { chiave: string; noleggio: string; ormeggio: string }[] = [
+  { chiave: "/gestionale/oggi", noleggio: "/gestionale/oggi", ormeggio: "/gestionale/ormeggio" },
+  { chiave: "/gestionale/calendario", noleggio: "/gestionale/calendario", ormeggio: "/gestionale/ormeggio" },
+  { chiave: "/gestionale/prenotazioni", noleggio: "/gestionale/prenotazioni", ormeggio: "/gestionale/ormeggio/da-fare" },
+  { chiave: "/gestionale/flotta", noleggio: "/gestionale/flotta", ormeggio: "/gestionale/ormeggio/proprietari" },
+  { chiave: "/gestionale/clienti", noleggio: "/gestionale/clienti", ormeggio: "/gestionale/ormeggio/proprietari" },
+  { chiave: "/gestionale/economia", noleggio: "/gestionale/economia", ormeggio: "/gestionale/ormeggio/conti" },
+];
+
 function vociVisibili(role: string | undefined, ormeggio: boolean, modulo: string | null, statoAzienda?: string | null) {
   if (!role) return [];
-  // Azienda non ancora attiva: si può solo gestire la sicurezza e consultare lo stato.
   if (aziendaNonAttiva(statoAzienda)) return VOCI.filter((v) => v.href === "/gestionale/impostazioni/sicurezza");
   const noleggioAttivo = !ormeggio || modulo === "entrambi";
   return VOCI.filter((v) => {
@@ -57,131 +79,267 @@ function vociVisibili(role: string | undefined, ormeggio: boolean, modulo: strin
   });
 }
 
-function gruppi(voci: Voce[]) {
-  const ordine: Gruppo[] = ["noleggio", "ormeggio", "gestione"];
-  return ordine
-    .map((g) => ({ g, voci: voci.filter((v) => v.gruppo === g) }))
-    .filter((x) => x.voci.length > 0);
+function moduloAttivo(path: string): "noleggio" | "ormeggio" {
+  return path.startsWith("/gestionale/ormeggio") ? "ormeggio" : "noleggio";
 }
 
 function voceAttiva(path: string, href: string) {
+  if (href === "/gestionale/impostazioni") return path === href;
   return path === href || path.startsWith(`${href}/`);
 }
 
-function VoceLink({ v, attiva, onClick }: { v: Voce; attiva: boolean; onClick?: () => void }) {
+function VoceLink({
+  v,
+  attiva,
+  onClick,
+  compatto = false,
+}: {
+  v: Voce;
+  attiva: boolean;
+  onClick?: () => void;
+  compatto?: boolean;
+}) {
   return (
     <Link
       href={v.href}
       onClick={onClick}
+      aria-current={attiva ? "page" : undefined}
       className={
-        "flex items-center gap-2.5 rounded-full px-3 py-2 transition " +
+        "flex items-center gap-2.5 rounded-xl px-3 py-2 transition " +
+        (compatto ? "" : "text-sm ") +
         (attiva ? "bg-white/15 font-semibold text-white shadow-inner" : "text-[#ffe0c2] hover:bg-white/10 hover:text-white")
       }
     >
-      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-white/10 text-[13px]">{v.icona}</span>
+      <Icona nome={v.icona} className="h-[18px] w-[18px] shrink-0" />
       <span className="truncate">{v.nome}</span>
     </Link>
   );
 }
 
+function GruppoVoci({
+  gruppo,
+  lista,
+  path,
+  onNavigate,
+  scuro = true,
+}: {
+  gruppo: Gruppo;
+  lista: Voce[];
+  path: string;
+  onNavigate?: () => void;
+  scuro?: boolean;
+}) {
+  const [mostraAltre, setMostraAltre] = useState(false);
+  const primarie = lista.filter((v) => v.primaria);
+  const secondarie = lista.filter((v) => !v.primaria);
+  if (lista.length === 0) return null;
+  return (
+    <div className="grid gap-0.5">
+      <p className={"px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-widest " + (scuro ? "text-[#f3cba6]" : "text-muted")}>
+        {NOMI_GRUPPO[gruppo]}
+      </p>
+      {primarie.map((v) => (
+        <VoceLink key={v.href} v={v} attiva={voceAttiva(path, v.href)} onClick={onNavigate} />
+      ))}
+      {secondarie.length > 0 && (
+        <>
+          <button
+            type="button"
+            aria-expanded={mostraAltre}
+            onClick={() => setMostraAltre((x) => !x)}
+            className={
+              "flex items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm transition " +
+              (scuro ? "text-[#ffe0c2] hover:bg-white/10 hover:text-white" : "text-ocean hover:bg-foam")
+            }
+          >
+            <Icona nome={mostraAltre ? "freccia-giu" : "freccia-destra"} className="h-[18px] w-[18px] shrink-0" />
+            <span>Altre funzioni</span>
+            <span className="ml-auto rounded-full bg-white/15 px-1.5 text-[11px] font-bold">{secondarie.length}</span>
+          </button>
+          {mostraAltre && <div className="ml-3 grid gap-0.5 border-l border-white/15 pl-1">{secondarie.map((v) => (
+            <VoceLink key={v.href} v={v} attiva={voceAttiva(path, v.href)} onClick={onNavigate} />
+          ))}</div>}
+        </>
+      )}
+    </div>
+  );
+}
+
+function SelettoreModulo({
+  attivo,
+  onChange,
+}: {
+  attivo: "noleggio" | "ormeggio";
+  onChange: (m: "noleggio" | "ormeggio") => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-1 rounded-2xl bg-black/20 p-1" role="group" aria-label="Modulo">
+      {(["noleggio", "ormeggio"] as const).map((m) => (
+        <button
+          key={m}
+          type="button"
+          aria-pressed={attivo === m}
+          onClick={() => onChange(m)}
+          className={
+            "flex items-center justify-center gap-1.5 rounded-xl px-2 py-2 text-xs font-bold transition " +
+            (attivo === m ? "bg-white text-deep shadow" : "text-white/80 hover:bg-white/10 hover:text-white")
+          }
+        >
+          <Icona nome={m === "noleggio" ? "barca" : "ancora"} className="h-4 w-4" />
+          {m === "noleggio" ? "Noleggio" : "Ormeggio"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function LinkSitoPubblico({ scuro = true, onClick }: { scuro?: boolean; onClick?: () => void }) {
+  return (
+    <a
+      href="/"
+      target="_blank"
+      rel="noreferrer"
+      onClick={onClick}
+      className={
+        "flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-semibold transition " +
+        (scuro ? "text-[#ffe0c2] hover:bg-white/10 hover:text-white" : "text-ocean hover:bg-foam")
+      }
+    >
+      <Icona nome="esterno" className="h-[18px] w-[18px] shrink-0" />
+      Apri sito pubblico
+    </a>
+  );
+}
+
 export function NavLaterale({ chiuso, onChiudi }: { chiuso: boolean; onChiudi: () => void }) {
   const path = usePathname();
+  const router = useRouter();
   const utente = useUtente({ redirect: true });
   const voci = vociVisibili(utente?.role, utente?.tenantOrmeggio ?? false, utente?.tenantModulo ?? null, utente?.tenantStatus);
+  const entrambi = !!utente?.tenantOrmeggio && utente?.tenantModulo === "entrambi";
+  const attivo = moduloAttivo(path);
 
   if (chiuso) {
     return (
       <button
         onClick={onChiudi}
         title="Mostra il menù"
-        className="fixed left-2 top-3 z-40 grid h-9 w-9 place-items-center rounded-full border border-line bg-white text-ocean shadow-sm"
+        aria-label="Mostra il menù"
+        className="fixed left-2 top-3 z-40 grid h-10 w-10 place-items-center rounded-full border border-line bg-white text-ocean shadow-sm"
       >
-        ▶
+        <Icona nome="freccia-destra" />
       </button>
     );
   }
 
+  const cambiaModulo = (dest: "noleggio" | "ormeggio") => {
+    const eq = EQUIVALENZE.find((e) => path === e.chiave || path.startsWith(`${e.chiave}/`));
+    const destinazione = eq ? eq[dest] : dest === "ormeggio" ? "/gestionale/ormeggio" : "/gestionale/oggi";
+    localStorage.setItem("nb_modulo", dest);
+    router.push(destinazione);
+    onChiudi();
+  };
+
+  const gruppiVisibili: Gruppo[] = ["noleggio", "ormeggio", "marketplace", "gestione"].filter((g) => {
+    if (g === "noleggio") return attivo === "noleggio";
+    if (g === "ormeggio") return attivo === "ormeggio";
+    return true;
+  }) as Gruppo[];
+
   return (
-    <nav className="grid gap-4 pb-2">
-      {gruppi(voci).map(({ g, voci: lista }) => (
-        <div key={g} className="grid gap-1">
-          <p className="px-3 text-[11px] font-semibold uppercase tracking-widest text-[#f3cba6]">{NOMI_GRUPPO[g]}</p>
-          {lista.map((v) => (
-            <VoceLink key={v.href} v={v} attiva={voceAttiva(path, v.href)} />
-          ))}
+    <nav className="grid gap-1 pb-2" aria-label="Sezioni del gestionale">
+      {entrambi && (
+        <div className="mb-2">
+          <SelettoreModulo attivo={attivo} onChange={cambiaModulo} />
         </div>
+      )}
+      {gruppiVisibili.map((g) => (
+        <GruppoVoci key={g} gruppo={g} lista={voci.filter((v) => v.gruppo === g)} path={path} />
       ))}
+      <div className="mt-1 border-t border-white/10 pt-1">
+        <LinkSitoPubblico />
+      </div>
     </nav>
   );
 }
 
 export function NavMobile() {
   const path = usePathname();
+  const router = useRouter();
   const utente = useUtente({ redirect: true });
-  const [aperto, setAperto] = useState(false);
   const voci = vociVisibili(utente?.role, utente?.tenantOrmeggio ?? false, utente?.tenantModulo ?? null, utente?.tenantStatus);
-  const principali = voci.slice(0, 4);
+  const [aperto, setAperto] = useState(false);
+  const entrambi = !!utente?.tenantOrmeggio && utente?.tenantModulo === "entrambi";
+  const attivo = moduloAttivo(path);
+  const gruppiVisibili: Gruppo[] = ["noleggio", "ormeggio", "marketplace", "gestione"].filter((g) => {
+    if (g === "noleggio") return attivo === "noleggio";
+    if (g === "ormeggio") return attivo === "ormeggio";
+    return true;
+  }) as Gruppo[];
+  const principali = gruppiVisibili
+    .flatMap((g) => voci.filter((v) => v.gruppo === g && v.primaria))
+    .slice(0, 4);
+
+  const cambiaModulo = (dest: "noleggio" | "ormeggio") => {
+    const eq = EQUIVALENZE.find((e) => path === e.chiave || path.startsWith(`${e.chiave}/`));
+    const destinazione = eq ? eq[dest] : dest === "ormeggio" ? "/gestionale/ormeggio" : "/gestionale/oggi";
+    localStorage.setItem("nb_modulo", dest);
+    setAperto(false);
+    router.push(destinazione);
+  };
 
   return (
     <>
       {aperto && (
-        <div className="fixed inset-0 z-40 flex flex-col bg-deep p-4 text-white md:hidden">
+        <div className="fixed inset-0 z-50 flex flex-col bg-deep p-4 text-white md:hidden">
           <div className="flex items-center justify-between pb-3">
             <span className="font-display font-extrabold">Tutte le sezioni</span>
-            <button className="rounded-full bg-white/10 px-3 py-1 text-sm font-bold" onClick={() => setAperto(false)}>
-              Chiudi ✕
+            <button
+              className="flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-2 text-sm font-bold"
+              onClick={() => setAperto(false)}
+            >
+              <Icona nome="chiudi" className="h-4 w-4" /> Chiudi
             </button>
           </div>
-          <nav className="grid gap-3 overflow-y-auto text-sm">
-            {gruppi(voci).map(({ g, voci: lista }) => (
-              <div key={g} className="grid gap-1">
-                <p className="px-2 text-[11px] font-semibold uppercase tracking-widest text-[#f3cba6]">{NOMI_GRUPPO[g]}</p>
-                {lista.map((v) => (
-                  <Link
-                    key={v.href}
-                    href={v.href}
-                    onClick={() => setAperto(false)}
-                    className={
-                      "flex items-center gap-3 rounded-full px-3 py-2.5 " +
-                      (voceAttiva(path, v.href) ? "bg-white/20 text-white" : "text-[#ffe0c2]")
-                    }
-                  >
-                    <span className="grid h-7 w-7 place-items-center rounded-full bg-white/10">{v.icona}</span>
-                    {v.nome}
-                  </Link>
-                ))}
-              </div>
+          <nav className="grid gap-1 overflow-y-auto pb-6 text-sm">
+            {entrambi && <div className="mb-2"><SelettoreModulo attivo={attivo} onChange={cambiaModulo} /></div>}
+            {gruppiVisibili.map((g) => (
+              <GruppoVoci key={g} gruppo={g} lista={voci.filter((v) => v.gruppo === g)} path={path} onNavigate={() => setAperto(false)} />
             ))}
+            <div className="mt-1 border-t border-white/10 pt-1">
+              <LinkSitoPubblico onClick={() => setAperto(false)} />
+            </div>
           </nav>
         </div>
       )}
 
-      <nav className="sticky bottom-0 z-30 grid grid-cols-5 border-t border-line bg-white py-2 text-center text-[11px] text-muted md:hidden">
+      <nav className="sticky bottom-0 z-30 grid grid-cols-5 border-t border-line bg-white py-1.5 text-center text-[11px] text-muted md:hidden">
         {principali.map((v) => {
           const attiva = voceAttiva(path, v.href);
           return (
-            <Link key={v.href} href={v.href} className={attiva ? "font-bold text-ocean" : ""}>
-              <span className="block text-base">{v.icona}</span>
-              {v.nome.length > 9 ? `${v.nome.slice(0, 7)}.` : v.nome}
+            <Link
+              key={v.href}
+              href={v.href}
+              aria-current={attiva ? "page" : undefined}
+              className={"flex min-h-[46px] flex-col items-center justify-center gap-0.5 rounded-lg " + (attiva ? "font-bold text-ocean" : "")}
+            >
+              <Icona nome={v.icona} className="h-5 w-5" />
+              <span className="leading-none">{v.nome}</span>
             </Link>
           );
         })}
-        {voci.length > 4 ? (
-          <button onClick={() => setAperto(true)} className={aperto ? "font-bold text-ocean" : ""}>
-            <span className="block text-base">☰</span>
-            Altro
-          </button>
-        ) : (
-          <span />
-        )}
+        <button
+          onClick={() => setAperto(true)}
+          className={"flex min-h-[46px] flex-col items-center justify-center gap-0.5 rounded-lg " + (aperto ? "font-bold text-ocean" : "")}
+        >
+          <Icona nome="menu" className="h-5 w-5" />
+          <span className="leading-none">Altro</span>
+        </button>
       </nav>
     </>
   );
 }
 
-// Contenitore del gestionale: menù laterale, intestazione e controllo dell'azienda non attiva.
-// Il layout decide chi lo usa (`src/app/gestionale/(portale)/layout.tsx`): qui niente elenchi
-// di pathname per capire se una pagina è pubblica o privata.
 export function StrutturaGestionale({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const utente = useUtente({ redirect: true });
@@ -191,7 +349,6 @@ export function StrutturaGestionale({ children }: { children: React.ReactNode })
     setChiuso(localStorage.getItem("nb_menu_chiuso") === "1");
   }, []);
 
-  // Azienda non ancora attiva: fuori dalle sezioni consentite si torna alla pagina di stato.
   useEffect(() => {
     if (utente && aziendaNonAttiva(utente.tenantStatus) && !percorsoConsentitoInAttesa(path)) {
       window.location.href = "/gestionale/stato";
@@ -211,14 +368,19 @@ export function StrutturaGestionale({ children }: { children: React.ReactNode })
 
   return (
     <div className="flex min-h-screen">
-      <aside className={chiuso ? "hidden" : "hidden w-[220px] shrink-0 flex-col bg-gradient-to-b from-[#9a3412] to-[#7a2a10] p-3 text-white md:flex"}>
-        <div className="flex items-center justify-between px-2 pb-4 pt-2">
+      <aside className={chiuso ? "hidden" : "hidden w-[228px] shrink-0 flex-col bg-gradient-to-b from-[#9a3412] to-[#7a2a10] p-3 text-white md:flex"}>
+        <div className="flex items-center justify-between px-2 pb-3 pt-2">
           <div className="flex items-center gap-2 font-display font-extrabold">
             <span className="grid h-8 w-8 place-items-center rounded-full bg-[#ffd9a8]"><img src="/img/logo-naboat-scuro.png" alt="" className="h-5 w-auto" /></span>
             NaBoat
           </div>
-          <button onClick={() => cambiaChiusura(true)} title="Nascondi il menù" className="rounded-full px-2 py-0.5 text-[#ffe0c2] hover:bg-white/10 hover:text-white">
-            ◀
+          <button
+            onClick={() => cambiaChiusura(true)}
+            title="Nascondi il menù"
+            aria-label="Nascondi il menù"
+            className="grid h-9 w-9 place-items-center rounded-full text-[#ffe0c2] hover:bg-white/10 hover:text-white"
+          >
+            <Icona nome="freccia-sinistra" />
           </button>
         </div>
 
@@ -243,14 +405,13 @@ export function StrutturaGestionale({ children }: { children: React.ReactNode })
           </div>
           <button
             onClick={esci}
-            className="mt-2 w-full rounded-full bg-white/10 px-3 py-1.5 text-center font-bold text-[#ffe0c2] hover:bg-white/20 hover:text-white"
+            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 font-bold text-[#ffe0c2] hover:bg-white/20 hover:text-white"
           >
-            ⎋ Esci
+            <Icona nome="uscita" className="h-4 w-4" /> Esci
           </button>
         </div>
       </aside>
 
-      {/* Freccetta per riaprire il menù quando è nascosto (solo su schermo grande) */}
       {chiuso && (
         <div className="hidden md:block">
           <NavLaterale chiuso onChiudi={() => cambiaChiusura(false)} />
@@ -258,7 +419,7 @@ export function StrutturaGestionale({ children }: { children: React.ReactNode })
       )}
 
       <div className="min-w-0 flex-1">
-        <header className="flex h-[67px] items-center justify-between gap-3 border-b border-line bg-white px-5">
+        <header className="flex h-[67px] items-center justify-between gap-3 border-b border-line bg-white px-4 sm:px-5">
           <div className="flex items-center gap-2">
             <strong className="font-display">Gestionale</strong>
             {utente?.tenantNome && <span className="hidden text-sm text-muted sm:inline">· {utente.tenantNome}</span>}
@@ -276,9 +437,9 @@ export function StrutturaGestionale({ children }: { children: React.ReactNode })
             </button>
           </div>
         </header>
-        <main className="p-5">
+        <main className="p-4 sm:p-5">
           {utente?.role === "superadmin" && (
-            <div className="mb-4 rounded-2xl border border-gold/50 bg-[#fff7e6] p-3 text-sm font-semibold text-[#9a6406]">
+            <div className="mb-4 rounded-2xl border border-gold/50 bg-warn-soft p-3 text-sm font-semibold text-warn">
               Sei <b>NaBoat (superadmin)</b>: il gestionale mostra i dati di un'azienda solo selezionandola. Le aziende e i servizi si gestiscono da <a className="underline" href="/admin">Admin</a>. Per provare il gestionale accedi con un account aziendale (es. <b>titolare@demo.naboat.it</b>).
             </div>
           )}

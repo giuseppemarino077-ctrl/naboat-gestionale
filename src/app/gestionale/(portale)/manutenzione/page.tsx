@@ -1,5 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
+import { Avviso } from "@/components/ui/Avviso";
+import { Icona } from "@/components/ui/Icona";
+import { useConferma } from "@/components/ui/Dialogo";
+import { useModulo } from "@/components/ui/ModuloDialogo";
 
 type Item = {
   id: string; boatId: string; tipo: string; titolo: string; dataScadenza: string | null;
@@ -21,6 +25,8 @@ export default function ManutenzionePage() {
   const [msg, setMsg] = useState("");
   const [filtro, setFiltro] = useState("aperti");
   const [f, setF] = useState({ boatId: "", tipo: "assicurazione", titolo: "", dataScadenza: "", oreMotore: "", costoEuro: "", note: "" });
+  const conferma = useConferma();
+  const modulo = useModulo();
 
   const load = () => {
     fetch(`/api/v1/maintenance${filtro === "aperti" ? "?aperti=1" : ""}`)
@@ -53,14 +59,27 @@ export default function ManutenzionePage() {
   };
 
   const esegui = async (item: Item) => {
-    const costo = prompt("Costo sostenuto in euro (vuoto = nessun costo):", item.costoCent ? (item.costoCent / 100).toFixed(2).replace(".", ",") : "");
-    if (costo === null) return;
-    const r = await api(`/api/v1/maintenance/${item.id}`, "PATCH", { azione: "esegui", costoEuro: costo || null });
-    if (r) setMsg("Intervento segnato come eseguito." + (costo ? " Costo registrato tra le spese." : ""));
+    const v = await modulo.apri(`Intervento eseguito · ${item.titolo}`, [
+      { nome: "costo", etichetta: "Costo sostenuto in euro", placeholder: "Vuoto = nessun costo", valore: item.costoCent ? (item.costoCent / 100).toFixed(2).replace(".", ",") : "", aiuto: "Il costo viene registrato tra le spese." },
+    ], { confermaLabel: "Segna come eseguito" });
+    if (!v) return;
+    const r = await api(`/api/v1/maintenance/${item.id}`, "PATCH", { azione: "esegui", costoEuro: v.costo.trim() || null });
+    if (r) setMsg("Intervento segnato come eseguito." + (v.costo.trim() ? " Costo registrato tra le spese." : ""));
+  };
+
+  const elimina = async (item: Item) => {
+    const ok = await conferma.chiedi({
+      titolo: "Eliminare la scadenza?",
+      messaggio: `«${item.titolo}» di ${item.boat?.nome ?? "questa barca"} verrà eliminata dall'elenco.`,
+      dettaglio: "Se l'intervento è stato eseguito la spesa resta registrata.",
+      confermaLabel: "Elimina",
+      pericoloso: true,
+    });
+    if (ok) await api(`/api/v1/maintenance/${item.id}`, "DELETE");
   };
 
   const badge = (s: Item["stato"]) =>
-    s === "eseguito" ? "badge-ready" : s === "scaduto" ? "bg-[#f9e4df] text-[#914435] rounded-full px-2 py-1 text-xs font-semibold" : s === "in_scadenza" ? "badge-pending" : "badge-block";
+    s === "eseguito" ? "badge-ready" : s === "scaduto" ? "rounded-full bg-danger-soft px-2 py-1 text-xs font-semibold text-danger" : s === "in_scadenza" ? "badge-pending" : "badge-block";
 
   return (
     <div className="grid gap-4">
@@ -68,8 +87,8 @@ export default function ManutenzionePage() {
         <div><p className="text-sm text-muted">Manutenzione</p><h1 className="text-2xl">Scadenze e interventi delle barche.</h1></div>
         {attenzione > 0 && <span className="badge-pending">{attenzione} da controllare</span>}
       </div>
-      {err && <p className="card p-3 text-sm font-semibold text-coral">{err}</p>}
-      {msg && <p className="card p-3 text-sm font-semibold text-[#177469]">{msg}</p>}
+      {err && <Avviso tono="errore">{err}</Avviso>}
+      {msg && <Avviso tono="ok">{msg}</Avviso>}
 
       <div className="card grid gap-3 p-5 text-sm">
         <h2 className="text-lg">Nuova scadenza o intervento</h2>
@@ -86,7 +105,7 @@ export default function ManutenzionePage() {
           <input className="rounded-md border border-line p-2" type="number" min={0} placeholder="Ore motore" value={f.oreMotore} onChange={(e) => setF({ ...f, oreMotore: e.target.value })} />
           <input className="rounded-md border border-line p-2" placeholder="Costo previsto €" value={f.costoEuro} onChange={(e) => setF({ ...f, costoEuro: e.target.value })} />
           <input className="rounded-md border border-line p-2 md:col-span-4" placeholder="Note" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} />
-          <button className="btn-primary md:col-span-2" type="submit">＋ Aggiungi</button>
+          <button className="btn-primary flex items-center justify-center gap-1.5 md:col-span-2" type="submit"><Icona nome="piu" className="h-4 w-4" /> Aggiungi</button>
         </form>
       </div>
 
@@ -115,9 +134,9 @@ export default function ManutenzionePage() {
                 <td className="p-2"><span className={badge(m.stato)}>{etichetta(m.stato)}</span>{m.eseguitoAt ? <span className="block text-xs text-muted">il {dataIt(m.eseguitoAt)}</span> : null}</td>
                 <td className="p-2">
                   <div className="flex gap-2 font-bold">
-                    {!m.eseguitoAt && <button className="text-[#177469]" onClick={() => esegui(m)}>Eseguito</button>}
+                    {!m.eseguitoAt && <button className="text-ok" onClick={() => esegui(m)}>Eseguito</button>}
                     {m.eseguitoAt && <button className="text-ocean" onClick={() => api(`/api/v1/maintenance/${m.id}`, "PATCH", { azione: "riapri" })}>Riapri</button>}
-                    <button className="text-coral" onClick={() => confirm("Eliminare la scadenza?") && api(`/api/v1/maintenance/${m.id}`, "DELETE")}>Elimina</button>
+                    <button className="text-danger" onClick={() => elimina(m)}>Elimina</button>
                   </div>
                 </td>
               </tr>
@@ -126,6 +145,8 @@ export default function ManutenzionePage() {
           </tbody>
         </table>
       </div>
+      {conferma.dialogo}
+      {modulo.dialogo}
     </div>
   );
 }

@@ -2,6 +2,9 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useAggiornamenti, segnalaCambiamento } from "@/lib/aggiorna";
+import { Avviso } from "@/components/ui/Avviso";
+import { Icona } from "@/components/ui/Icona";
+import { useConferma } from "@/components/ui/Dialogo";
 
 type Stato = "in_sosta" | "da_fare" | "in_mare" | "bloccata";
 type Perm = {
@@ -77,6 +80,7 @@ export default function OrmeggioPage() {
   const [configura, setConfigura] = useState(false);
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
+  const conferma = useConferma();
   const [postoScelto, setPostoScelto] = useState<Posto | null>(null);
   const [selId, setSelId] = useState<string | null>(null);
   const [dettaglio, setDettaglio] = useState<any>(null);
@@ -118,8 +122,18 @@ export default function OrmeggioPage() {
     return j;
   };
 
-  const aree = griglia?.aree ?? [];
-  const areaSelezionata: Area | undefined = aree.find((a) => a.id === areaId) ?? aree[0];
+  const eliminaArea = async (area: any) => {
+    const ok = await conferma.chiedi({
+      titolo: `Eliminare l'area "${area.nome}"?`,
+      messaggio: "L'area e i suoi posti verranno rimossi dalla griglia.",
+      dettaglio: "Le permanenze collegate restano in archivio ma senza posto. L'operazione non è reversibile.",
+      confermaLabel: "Elimina area",
+      pericoloso: true,
+    });
+    if (ok) await chiama(`/api/v1/ormeggio/aree/${area.id}`, "DELETE");
+  };
+
+  const aree = griglia?.aree ?? [];  const areaSelezionata: Area | undefined = aree.find((a) => a.id === areaId) ?? aree[0];
   useEffect(() => { if (!areaId && aree[0]) setAreaId(aree[0].id); }, [griglia]);
 
   const tuttiPosti = useMemo(() => aree.flatMap((a) => a.posti.map((p) => ({ ...p, areaNome: a.nome }))), [aree]);
@@ -189,7 +203,7 @@ export default function OrmeggioPage() {
             {sel.attivitaDaFare > 0 ? ` · ${sel.attivitaDaFare} attività da fare` : ""}
           </p>
         </div>
-        <button onClick={() => setSelId(null)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#faf6f2] text-muted" title="Chiudi">✕</button>
+        <button onClick={() => setSelId(null)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#faf6f2] text-muted" title="Chiudi" aria-label="Chiudi"><Icona nome="chiudi" className="h-4 w-4" /></button>
       </div>
 
       <div className="mt-3 inline-flex w-fit rounded-full border border-line bg-white p-1">
@@ -277,15 +291,15 @@ export default function OrmeggioPage() {
         ) : (
           <button className="btn-soft" onClick={() => setMove({ aperto: true, postoId: "", decorrenza: "" })}>⇄ Sposta barca</button>
         )}
-        <Link className="btn-primary" href={`/gestionale/ormeggio/permanenza/${sel.id}`}>＋ Aggiungi servizio / apri scheda</Link>
+        <Link className="btn-primary inline-flex items-center gap-1.5" href={`/gestionale/ormeggio/permanenza/${sel.id}`}><Icona nome="piu" className="h-4 w-4" /> Aggiungi servizio / apri scheda</Link>
       </div>
     </>
   ) : null;
 
   return (
     <div className="grid gap-5">
-      {err && <p className="rounded-2xl border border-coral/40 bg-[#fdeeea] p-3 text-sm font-semibold text-coral">{err}</p>}
-      {msg && <p className="rounded-2xl border border-[#bfe6dc] bg-[#eafaf5] p-3 text-sm font-semibold text-[#177469]">{msg}</p>}
+      {err && <Avviso tono="errore">{err}</Avviso>}
+      {msg && <Avviso tono="ok">{msg}</Avviso>}
 
       {/* Intestazione */}
       <div className="rounded-3xl bg-gradient-to-br from-ocean to-sea px-6 py-6 text-white shadow-[0_18px_40px_-18px_rgba(194,65,12,0.75)]">
@@ -324,7 +338,7 @@ export default function OrmeggioPage() {
           <button className={"rounded-full px-3 py-1.5 text-sm font-bold " + (vista === "griglia" ? "bg-ocean text-white" : "text-ocean")} onClick={() => setVista("griglia")}>Griglia</button>
           <button className={"rounded-full px-3 py-1.5 text-sm font-bold " + (vista === "elenco" ? "bg-ocean text-white" : "text-ocean")} onClick={() => setVista("elenco")}>Elenco</button>
         </div>
-        <button className={"rounded-full px-4 py-2.5 text-sm font-bold " + (configura ? "bg-deep text-white" : "border border-line bg-white text-ocean")} onClick={() => setConfigura(!configura)}>⚙ {configura ? "Fine configurazione" : "Configura"}</button>
+        <button className={"flex items-center gap-1.5 rounded-full px-4 py-2.5 text-sm font-bold " + (configura ? "bg-deep text-white" : "border border-line bg-white text-ocean")} onClick={() => setConfigura(!configura)}><Icona nome="ingranaggio" className="h-4 w-4" /> {configura ? "Fine configurazione" : "Configura"}</button>
       </div>
 
       {/* Legenda */}
@@ -349,7 +363,7 @@ export default function OrmeggioPage() {
           <label className="grid gap-1 text-sm md:col-span-2"><span className="text-xs font-semibold text-muted">Colonne</span>
             <input className="rounded-2xl border border-line p-3" type="number" min={1} max={40} value={nuovaArea.colonne} onChange={(e) => setNuovaArea({ ...nuovaArea, colonne: Number(e.target.value) })} />
           </label>
-          <div className="md:col-span-3"><button className="btn-primary w-full" type="submit">＋ Crea area</button></div>
+          <div className="md:col-span-3"><button className="btn-primary inline-flex w-full items-center justify-center gap-1.5" type="submit"><Icona nome="piu" className="h-4 w-4" /> Crea area</button></div>
         </form>
       )}
 
@@ -394,7 +408,7 @@ export default function OrmeggioPage() {
                   <div className="flex items-center gap-3 text-xs text-muted">
                     <span>{area.colonne} colonne × {area.righe} boe</span>
                     {configura && (
-                      <button className="font-bold text-coral" onClick={() => confirm(`Eliminare l'area "${area.nome}"?`) && chiama(`/api/v1/ormeggio/aree/${area.id}`, "DELETE")}>Elimina area</button>
+                      <button className="font-bold text-danger" onClick={() => eliminaArea(area)}>Elimina area</button>
                     )}
                   </div>
                 </div>
@@ -472,7 +486,7 @@ export default function OrmeggioPage() {
           <form className="grid max-h-[90vh] w-full max-w-2xl gap-3 overflow-y-auto rounded-3xl bg-white p-6 text-sm shadow-2xl" onClick={(e) => e.stopPropagation()} onSubmit={assegna}>
             <div className="flex items-center justify-between">
               <h2 className="text-lg">Assegna il posto {postoScelto.codice}</h2>
-              <button type="button" className="grid h-9 w-9 place-items-center rounded-full bg-[#faf6f2] text-muted" onClick={() => setPostoScelto(null)}>✕</button>
+              <button type="button" className="grid h-9 w-9 place-items-center rounded-full bg-[#faf6f2] text-muted" onClick={() => setPostoScelto(null)} aria-label="Chiudi"><Icona nome="chiudi" className="h-4 w-4" /></button>
             </div>
             <fieldset className="grid gap-2 rounded-2xl border border-line p-3">
               <legend className="px-1 text-xs font-bold text-muted">Proprietario</legend>
@@ -529,12 +543,13 @@ export default function OrmeggioPage() {
             </div>
             <input className="rounded-2xl border border-line p-3" placeholder="Note (facoltative)" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
             <div className="flex items-center gap-3">
-              <button className="btn-primary" type="submit">＋ Registra la sosta</button>
+              <button className="btn-primary inline-flex items-center justify-center gap-1.5" type="submit"><Icona nome="piu" className="h-4 w-4" /> Registra la sosta</button>
               {form.corrispettivoEuro && <span className="text-muted">Addebito custodia: <b>{euro(Math.round(Number(form.corrispettivoEuro.replace(",", ".")) * 100))}</b></span>}
             </div>
           </form>
         </div>
       )}
+      {conferma.dialogo}
     </div>
   );
 }

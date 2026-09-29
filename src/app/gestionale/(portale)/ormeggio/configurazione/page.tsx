@@ -1,5 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
+import { Avviso } from "@/components/ui/Avviso";
+import { Icona } from "@/components/ui/Icona";
+import { useConferma } from "@/components/ui/Dialogo";
 
 type Posto = { id: string; riga: number; colonna: number; codice: string; bloccato: boolean };
 type Area = { id: string; nome: string; righe: number; colonne: number; ordine: number; posti: Posto[] };
@@ -11,6 +14,7 @@ export default function ConfigurazioneOrmeggioPage() {
   const [form, setForm] = useState({ nome: "", righe: 4, colonne: 6 });
   const [servizi, setServizi] = useState<any[]>([]);
   const [sv, setSv] = useState({ nome: "", prezzoEuro: "", unita: "" });
+  const conferma = useConferma();
 
   const load = () =>
     fetch("/api/v1/ormeggio/aree")
@@ -35,6 +39,27 @@ export default function ConfigurazioneOrmeggioPage() {
     if (j) { setMsg(`Area creata con ${form.righe}×${form.colonne} = ${Number(form.righe) * Number(form.colonne)} posti.`); setForm({ nome: "", righe: 4, colonne: 6 }); }
   };
 
+  const eliminaArea = async (area: Area) => {
+    const ok = await conferma.chiedi({
+      titolo: `Eliminare l'area "${area.nome}"?`,
+      messaggio: "L'area e i suoi posti verranno rimossi dalla griglia.",
+      dettaglio: "Le permanenze collegate restano in archivio ma senza posto. L'operazione non è reversibile.",
+      confermaLabel: "Elimina area",
+      pericoloso: true,
+    });
+    if (ok) await chiama(`/api/v1/ormeggio/aree/${area.id}`, "DELETE");
+  };
+
+  const eliminaServizio = async (x: any) => {
+    const ok = await conferma.chiedi({
+      titolo: `Eliminare "${x.nome}"?`,
+      messaggio: "Il servizio verrà rimosso dal catalogo e non sarà più proponibile nelle schede.",
+      confermaLabel: "Elimina servizio",
+      pericoloso: true,
+    });
+    if (ok) { await chiama(`/api/v1/ormeggio/servizi/${x.id}`, "DELETE"); loadServizi(); }
+  };
+
   return (
     <div className="grid gap-4">
       <div>
@@ -44,8 +69,8 @@ export default function ConfigurazioneOrmeggioPage() {
         <a className="text-sm font-bold text-ocean" href="/gestionale/ormeggio">← Vai alla griglia</a>
       </div>
 
-      {err && <p className="card p-3 text-sm font-semibold text-coral">{err}</p>}
-      {msg && <p className="card p-3 text-sm font-semibold text-[#177469]">{msg}</p>}
+      {err && <Avviso tono="errore">{err}</Avviso>}
+      {msg && <Avviso tono="ok">{msg}</Avviso>}
 
       <form className="card grid gap-3 p-4 md:grid-cols-12 md:items-end" onSubmit={creaArea}>
         <label className="grid gap-1 text-sm md:col-span-5">
@@ -61,7 +86,7 @@ export default function ConfigurazioneOrmeggioPage() {
           <input className="rounded-md border border-line p-2" type="number" min={1} max={40} value={form.colonne} onChange={(e) => setForm({ ...form, colonne: Number(e.target.value) })} />
         </label>
         <div className="md:col-span-3">
-          <button className="btn-primary w-full" type="submit">＋ Crea area</button>
+          <button className="btn-primary inline-flex w-full items-center justify-center gap-1.5" type="submit"><Icona nome="piu" className="h-4 w-4" /> Crea area</button>
         </div>
       </form>
 
@@ -84,7 +109,7 @@ export default function ConfigurazioneOrmeggioPage() {
                 <span className="text-xs font-semibold text-muted">Colonne</span>
                 <input className="w-20 rounded-md border border-line p-2" type="number" min={1} max={40} defaultValue={area.colonne} onBlur={(e) => Number(e.target.value) !== area.colonne && chiama(`/api/v1/ormeggio/aree/${area.id}`, "PATCH", { colonne: Number(e.target.value) })} />
               </label>
-              <button className="ml-auto text-sm font-bold text-coral" onClick={() => confirm(`Eliminare l'area "${area.nome}"?`) && chiama(`/api/v1/ormeggio/aree/${area.id}`, "DELETE")}>Elimina area</button>
+              <button className="ml-auto text-sm font-bold text-danger" onClick={() => eliminaArea(area)}>Elimina area</button>
             </div>
 
             <div className="overflow-x-auto">
@@ -131,18 +156,19 @@ export default function ConfigurazioneOrmeggioPage() {
           <label className="grid gap-1 text-sm md:col-span-2"><span className="text-xs font-semibold text-muted">Unità</span>
             <input className="rounded-md border border-line p-2" placeholder="litri / ore / fisso" value={sv.unita} onChange={(e) => setSv({ ...sv, unita: e.target.value })} />
           </label>
-          <div className="md:col-span-2"><button className="btn-primary w-full" type="submit">＋ Aggiungi</button></div>
+          <div className="md:col-span-2"><button className="btn-primary inline-flex w-full items-center justify-center gap-1.5" type="submit"><Icona nome="piu" className="h-4 w-4" /> Aggiungi</button></div>
         </form>
         <div className="grid gap-2">
           {servizi.map((x) => (
             <div key={x.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-line px-3 py-2 text-sm">
               <span><b>{x.nome}</b>{x.unita ? ` · ${x.unita}` : ""} {x.prezzoCent != null ? `· ${(x.prezzoCent / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" })}` : ""}</span>
-              <button className="text-sm font-bold text-coral" onClick={async () => { if (confirm(`Eliminare "${x.nome}"?`)) { await chiama(`/api/v1/ormeggio/servizi/${x.id}`, "DELETE"); loadServizi(); } }}>Elimina</button>
+              <button className="text-sm font-bold text-danger" onClick={() => eliminaServizio(x)}>Elimina</button>
             </div>
           ))}
           {servizi.length === 0 && <p className="text-sm text-muted">Nessun servizio nel catalogo.</p>}
         </div>
       </section>
+      {conferma.dialogo}
     </div>
   );
 }
