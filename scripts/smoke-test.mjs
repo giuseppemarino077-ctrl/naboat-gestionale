@@ -107,8 +107,12 @@ const run = async () => {
   T("skipper già impegnato su altra barca -> 409", (await json("A", "/api/v1/bookings", "POST", { boatId: dup.data.id, startAt: t0, endAt: t1, clienteNome: "Cliente Skipper", telefono: "333222111", skipperId: sk.data.id, idempotencyKey: key + "-sk" })).status === 409);
   T("modifica passeggeri oltre capienza -> 422", (await json("A", `/api/v1/bookings/${bk.data.id}`, "PATCH", { passeggeri: 5 })).status === 422);
   T("overlap 409", (await json("A", "/api/v1/bookings", "POST", { boatId: b.data.id, startAt: "2028-05-10T12:00:00.000Z", endAt: "2028-05-10T14:00:00.000Z", clienteNome: "X", telefono: "333999888", skipperId: sk.data.id, idempotencyKey: key + "b" })).status === 409);
-  T("stato -> in_mare", (await json("A", `/api/v1/bookings/${bk.data.id}`, "PATCH", { stato: "in_mare" })).data?.stato === "in_mare");
-  T("regressione stato 422", (await json("A", `/api/v1/bookings/${bk.data.id}`, "PATCH", { stato: "prenotata" })).status === 422);
+  // Concorrenza ottimistica: il client indica la versione vista; se non combacia non si scrive.
+  const bkLetto = await json("A", `/api/v1/bookings/${bk.data.id}`);
+  T("versione prenotazione esposta", !!bkLetto.data?.updatedAt);
+  T("modifica con versione superata -> 409", (await json("A", `/api/v1/bookings/${bk.data.id}`, "PATCH", { note: "concorrenza", updatedAt: "2000-01-01T00:00:00.000Z" })).status === 409);
+  T("con la versione giusta la modifica passa", (await json("A", `/api/v1/bookings/${bk.data.id}`, "PATCH", { note: "allineato", updatedAt: bkLetto.data.updatedAt })).status === 200);
+  T("regressione stato non consentita -> 422", (await json("A", `/api/v1/bookings/${bk.data.id}`, "PATCH", { stato: "rientrata" })).status === 422);
   T("patente senza skipper 422", (await json("A", "/api/v1/bookings", "POST", { boatId: b.data.id, startAt: "2028-06-01T09:00:00.000Z", endAt: "2028-06-01T18:00:00.000Z", clienteNome: "Y", telefono: "333000777", idempotencyKey: key + "c" })).status === 422);
   T("calendario", (await json("A", "/api/v1/calendar?from=2028-05-01T00:00:00.000Z&to=2028-06-01T00:00:00.000Z")).data?.bookings?.length >= 1);
   T("clienti", (await json("A", "/api/v1/customers")).data?.length >= 1);
@@ -206,6 +210,36 @@ const run = async () => {
   });
   await json("A", `/api/v1/bookings/${bkCanc.data.id}`, "PATCH", { stato: "cancellata" });
   T("prenotazione annullata: nessun nuovo addebito", (await json("A", "/api/v1/payments/checkout", "PUT", { bookingId: bkCanc.data.id, tipo: "totale" })).status === 422);
+
+  // ---- Annullamento unico: token invalidati, idempotente, soft delete ----
+  const bkAnn = await json("A", "/api/v1/bookings", "POST", {
+    boatId: bDir.data.id,
+    startAt: "2028-11-10T09:00:00.000Z",
+    endAt: "2028-11-10T18:00:00.000Z",
+    clienteNome: "Cliente Annullo",
+    telefono: "333444555",
+    idempotencyKey: key + "-ann",
+    prezzoEuro: "150",
+  });
+  T("prenotazione per annullamento creata", bkAnn.status === 201, `${bkAnn.status}`);
+  const linkAnn = await json("A", "/api/v1/payments/checkout", "POST", { bookingId: bkAnn.data.id });
+  const tokenAnn = String(linkAnn.data?.url ?? "").split("/paga/")[1] ?? "";
+  T("link di pagamento attivo prima dell'annullamento", (await fetch(`${BASE}/api/v1/payments/public/${tokenAnn}`)).status === 200);
+  const contrAnn = await json("A", `/api/v1/bookings/${bkAnn.data.id}/contratto`, "POST");
+  const tokenContrAnn = String(contrAnn.data?.url ?? "").split("/contratto/")[1] ?? "";
+  T("contratto attivo prima dell'annullamento", (await fetch(`${BASE}/api/v1/contratto/public/${tokenContrAnn}`)).status === 200);
+  const ann1 = await json("A", `/api/v1/bookings/${bkAnn.data.id}`, "PATCH", { stato: "cancellata", motivo: "Cliente ha rinunciato" });
+  T("annullamento via PATCH", ann1.status === 200 && ann1.data?.stato === "cancellata", `${ann1.status}`);
+  T("token di pagamento invalidato", (await fetch(`${BASE}/api/v1/payments/public/${tokenAnn}`)).status === 404);
+  T("token di contratto invalidato (nessuna nuova firma)", (await fetch(`${BASE}/api/v1/contratto/public/${tokenContrAnn}`)).status === 404);
+  T("nessun nuovo contratto su annullata -> 422", (await json("A", `/api/v1/bookings/${bkAnn.data.id}/contratto`, "POST")).status === 422);
+  const ann2 = await json("A", `/api/v1/bookings/${bkAnn.data.id}`, "PATCH", { stato: "cancellata" });
+  T("annullamento ripetuto idempotente", ann2.status === 200 && ann2.data?.stato === "cancellata", `${ann2.status}`);
+  const delAnn = await json("A", `/api/v1/bookings/${bkAnn.data.id}`, "DELETE");
+  T("DELETE si comporta come annullamento (soft)", delAnn.status === 200 && delAnn.data?.stato === "cancellata", `${delAnn.status}`);
+  const lettoAnn = await json("A", `/api/v1/bookings/${bkAnn.data.id}`);
+  T("record annullato conservato (non hard delete)", lettoAnn.status === 200 && lettoAnn.data?.stato === "cancellata" && lettoAnn.data?.prezzoCent === 15000, `${lettoAnn.status} ${lettoAnn.data?.prezzoCent}`);
+  T("un solo evento di annullamento nello storico", (lettoAnn.data?.storico ?? []).filter((s) => s.azione === "booking.cancellata").length === 1, JSON.stringify((lettoAnn.data?.storico ?? []).filter((s) => s.azione === "booking.cancellata").length));
 
   const now = Date.now();
   const bOggi = await json("A", "/api/v1/boats", "POST", { nome: "Smoke Oggi", capienza: 4 });
@@ -334,10 +368,14 @@ const run = async () => {
   T("doppia firma rifiutata -> 422", (await fetch(`${BASE}/api/v1/contratto/public/${tokenContratto}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nome: "Altro Nome", accettato: true }) })).status === 422);
   T("nuovo link su contratto firmato -> 422", (await json("A", `/api/v1/bookings/${bk.data.id}/contratto`, "POST")).status === 422);
 
-  // ---- Check-in / check-out ----
+  // ---- Check-in / check-out: presenza e stato avanzano insieme ----
   const checkin = await json("A", `/api/v1/bookings/${bk.data.id}/checkin`, "POST", { carburantePct: 100, note: "Tutto in ordine" });
-  T("check-in registrato", checkin.status === 200 && checkin.data?.checkinCarburantePct === 100 && !!checkin.data?.checkinAt, `${checkin.status} ${JSON.stringify(checkin.data)}`);
-  T("check-in ripetuto -> 422", (await json("A", `/api/v1/bookings/${bk.data.id}/checkin`, "POST", { carburantePct: 80 })).status === 422);
+  T("check-in registrato e stato -> in_mare", checkin.status === 200 && checkin.data?.checkinCarburantePct === 100 && !!checkin.data?.checkinAt && checkin.data?.stato === "in_mare", `${checkin.status} ${JSON.stringify(checkin.data)}`);
+  const checkinRip = await json("A", `/api/v1/bookings/${bk.data.id}/checkin`, "POST", { carburantePct: 80 });
+  T("check-in ripetuto idempotente (nessun doppio effetto)", checkinRip.status === 200 && checkinRip.data?.checkinCarburantePct === 100 && checkinRip.data?.stato === "in_mare", `${checkinRip.status} ${JSON.stringify(checkinRip.data)}`);
+  const dopoCheckin = await json("A", `/api/v1/bookings/${bk.data.id}`);
+  T("un solo evento di check-in nello storico", (dopoCheckin.data?.storico ?? []).filter((s) => s.azione === "booking.checkin").length === 1, JSON.stringify((dopoCheckin.data?.storico ?? []).filter((s) => s.azione === "booking.checkin").length));
+  T("regressione in_mare -> prenotata -> 422", (await json("A", `/api/v1/bookings/${bk.data.id}`, "PATCH", { stato: "prenotata" })).status === 422);
   const fotoCheckin = new FormData();
   fotoCheckin.append("file", new Blob([new Uint8Array(png)], { type: "image/png" }), "checkin.png");
   fotoCheckin.append("bookingId", bk.data.id);
@@ -345,9 +383,13 @@ const run = async () => {
   T("foto check-in caricata", (await jar.fetch("/api/v1/uploads", { method: "POST", body: fotoCheckin })).status === 201);
   T("tipo foto non valido -> 422", (await (async () => { const f = new FormData(); f.append("file", new Blob([new Uint8Array(png)], { type: "image/png" }), "x.png"); f.append("bookingId", bk.data.id); f.append("tipo", "altro"); return jar.fetch("/api/v1/uploads", { method: "POST", body: f }); })()).status === 422);
   const checkout = await json("A", `/api/v1/bookings/${bk.data.id}/checkout`, "POST", { carburantePct: 70, note: "Rientro regolare", danniEuro: "0" });
-  T("check-out registrato con carburante", checkout.status === 200 && checkout.data?.checkoutCarburantePct === 70 && !!checkout.data?.checkoutAt, `${checkout.status}`);
-  T("check-out ripetuto -> 422", (await json("A", `/api/v1/bookings/${bk.data.id}/checkout`, "POST", { carburantePct: 50 })).status === 422);
+  T("check-out registrato e stato -> rientrata", checkout.status === 200 && checkout.data?.checkoutCarburantePct === 70 && !!checkout.data?.checkoutAt && checkout.data?.stato === "rientrata", `${checkout.status}`);
+  const checkoutRip = await json("A", `/api/v1/bookings/${bk.data.id}/checkout`, "POST", { carburantePct: 50 });
+  T("check-out ripetuto idempotente (nessun doppio effetto)", checkoutRip.status === 200 && checkoutRip.data?.checkoutCarburantePct === 70 && checkoutRip.data?.stato === "rientrata", `${checkoutRip.status}`);
+  const dopoCheckout = await json("A", `/api/v1/bookings/${bk.data.id}`);
+  T("un solo evento di check-out nello storico", (dopoCheckout.data?.storico ?? []).filter((s) => s.azione === "booking.checkout").length === 1);
   T("check-out senza check-in -> 422", (await json("A", `/api/v1/bookings/${bkOggi.data.id}/checkout`, "POST", { carburantePct: 50 })).status === 422);
+  T("annullare una prenotazione rientrata -> 422", (await json("A", `/api/v1/bookings/${bk.data.id}`, "DELETE")).status === 422);
 
   // ---- Cauzione ----
   const cauzList0 = await json("A", "/api/v1/payments/cauzione");

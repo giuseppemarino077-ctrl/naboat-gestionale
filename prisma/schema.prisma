@@ -361,6 +361,7 @@ model Booking {
   idempotencyKey String?    @unique
   idempotencyHash String? // impronta del payload: stessa chiave con dati diversi = 409
   createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt // versione della prenotazione: controlli di concorrenza
 
   // --- Pagamenti (Fase 2) ---
   prezzoCent     Int? // prezzo del noleggio in centesimi (se assente, non si può incassare online)

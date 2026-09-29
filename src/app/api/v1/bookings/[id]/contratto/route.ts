@@ -11,9 +11,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const booking = await prisma.booking.findFirst({
     where: { id, tenantId: t.tenantId },
-    select: { id: true, contrattoToken: true, contrattoFirmatoAt: true },
+    select: { id: true, contrattoToken: true, contrattoFirmatoAt: true, stato: true },
   });
   if (!booking) return fail("Prenotazione non trovata", 404);
+  if (booking.stato === "cancellata") return fail("Prenotazione annullata: nessun nuovo contratto", 422);
   if (booking.contrattoFirmatoAt) return fail("Contratto già firmato dal cliente", 422);
 
   const token = booking.contrattoToken ?? randomUUID().replace(/-/g, "");

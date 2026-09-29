@@ -3,7 +3,8 @@ import { traccia, registraAzione } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import { bloccaRisorse, validaBarcaNoleggio, validaPatente, verificaDisponibilita } from "@/lib/disponibilita";
 import { richiestaEsitoBody, sendMail } from "@/lib/mailer";
-import { parseImportoEuro } from "@/lib/payments";
+import { parseImportoEuro, paymentConfig, stripeClient } from "@/lib/payments";
+import { transizioneConsentita } from "@/lib/presenze";
 import { requireAzienda } from "@/lib/tenant";
 import { z } from "zod";
 
@@ -52,17 +53,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   return ok({ ...b, storico });
 }
 
-// Transizioni consentite: da_confermare -> prenotata (conferma) | cancellata ;
-// prenotata -> in_mare | no_show | cancellata ; in_mare -> rientrata | cancellata.
-const NEXT: Record<string, string[]> = {
-  da_confermare: ["prenotata", "cancellata"],
-  prenotata: ["in_mare", "no_show", "cancellata"],
-  in_mare: ["rientrata", "cancellata"],
-  rientrata: [],
-  no_show: [],
-  cancellata: [],
-};
-
 // Il canale di vendita (diretto/naboat) NON è modificabile dall'azienda: decide la fee
 // NaBoat, quindi lo imposta solo NaBoat (dai metadata della prenotazione/marketplace).
 const PatchSchema = z.object({
@@ -80,7 +70,116 @@ const PatchSchema = z.object({
   note: z.string().max(2000).optional().nullable(),
   patenteOk: z.boolean().optional(),
   skipperId: z.string().uuid().optional().nullable(),
+  // Motivo dell'annullamento (facoltativo, registrato nello storico) e versione vista
+  // dal client per evitare di sovrascrivere modifiche concorrenti.
+  motivo: z.string().max(500).optional().nullable(),
+  updatedAt: z.string().datetime().optional(),
 });
+
+type Prenotazione = { id: string; stato: string; updatedAt: Date; contrattoFirmatoAt: Date | null; contrattoToken: string | null };
+
+// Comando unico di annullamento: stesso comportamento da PATCH (stato=cancellata) e da
+// DELETE. Idempotente (un secondo tentativo non ripete effetti né comunicazioni), con
+// controllo di versione, storico sempre scritto e azioni pubbliche future invalidate.
+async function annullaPrenotazione(
+  t: { tenantId: string; userId: string },
+  cur: Prenotazione,
+  opts: { motivo?: string | null; updatedAt?: Date | null }
+) {
+  const esito = await prisma.$transaction(async (tx) => {
+    // Stesso lock dei Checkout: l'annullamento si serializza con la creazione di un intento.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`checkout:${cur.id}`}))`;
+    const dentro = await tx.booking.findFirst({ where: { id: cur.id, tenantId: t.tenantId } });
+    if (!dentro) return { tipo: "non_trovata" as const };
+
+    // Già annullata: idempotente, nessun nuovo effetto e nessuna nuova comunicazione.
+    if (dentro.stato === "cancellata") return { tipo: "gia_annullata" as const, booking: dentro };
+
+    if (opts.updatedAt && dentro.updatedAt.getTime() !== opts.updatedAt.getTime()) return { tipo: "conflitto" as const };
+    if (!transizioneConsentita(dentro.stato, "cancellata")) return { tipo: "non_ammessa" as const, stato: dentro.stato };
+
+    // Sessioni di pagamento ancora aperte, lette dopo il lock: verranno spente dopo il salvataggio.
+    const aperti = await tx.payment.findMany({
+      where: { bookingId: dentro.id, tenantId: t.tenantId, stato: "in_attesa", sessionId: { not: null } },
+      select: { sessionId: true },
+    });
+
+    const upd = await tx.booking.update({
+      where: { id: dentro.id },
+      data: {
+        stato: "cancellata",
+        // Le azioni pubbliche future non sono più raggiungibili dal token.
+        payToken: null,
+        payTokenExpires: null,
+        // Un contratto non firmato non è più firmabile; se firmato resta consultabile.
+        contrattoToken: dentro.contrattoFirmatoAt ? dentro.contrattoToken : null,
+      },
+    });
+    // Checkout aperti: l'intento locale non è più incassabile (l'annullo su Stripe è best effort).
+    await tx.payment.updateMany({
+      where: { bookingId: dentro.id, tenantId: t.tenantId, stato: "in_attesa" },
+      data: { stato: "fallito" },
+    });
+    // Un solo evento di storico sempre attivo, con autore e motivo.
+    await tx.auditLog.create({
+      data: {
+        tenantId: t.tenantId,
+        actorId: t.userId,
+        azione: "booking.cancellata",
+        entita: "Booking",
+        entitaId: dentro.id,
+        dettagli: JSON.stringify({ nota: `${dentro.stato} → cancellata${opts.motivo ? ` · ${opts.motivo}` : ""}` }),
+      },
+    });
+    return { tipo: "annullata" as const, booking: upd, statoPrima: dentro.stato, aperti };
+  });
+
+  if (esito.tipo === "non_trovata") return fail("Prenotazione non trovata", 404);
+  if (esito.tipo === "conflitto") return fail("La prenotazione è stata modificata nel frattempo: ricarica e riprova", 409);
+  if (esito.tipo === "non_ammessa") return fail(`Prenotazione ${esito.stato}: non è possibile annullarla`, 422);
+  if (esito.tipo === "gia_annullata") return ok(esito.booking);
+
+  // Chiusura best effort delle sessioni Stripe ancora aperte: una chiave non valida
+  // non deve far fallire l'annullamento.
+  if (esito.aperti.length) {
+    try {
+      const cfg = await paymentConfig(t.tenantId);
+      if (cfg?.stripeSecretKey) {
+        const stripe = stripeClient(cfg.stripeSecretKey);
+        for (const p of esito.aperti) {
+          if (!p.sessionId) continue;
+          try {
+            const s = await stripe.checkout.sessions.retrieve(p.sessionId);
+            if (s.status === "open") await stripe.checkout.sessions.expire(s.id);
+          } catch { /* la sessione scadrà da sola */ }
+        }
+      }
+    } catch { /* l'annullamento resta valido anche se Stripe non risponde */ }
+  }
+
+  // Notifica al cliente una sola volta: solo per le richieste dal sito (da_confermare -> cancellata).
+  if (esito.statoPrima === "da_confermare") {
+    try {
+      const full = await prisma.booking.findUnique({
+        where: { id: cur.id },
+        include: { boat: { select: { nome: true } }, tenant: { select: { nome: true, telefonoContatto: true } }, customer: { select: { email: true } } },
+      });
+      if (full?.customer?.email) {
+        const corpo = richiestaEsitoBody({
+          cliente: full.clienteNome ?? "cliente",
+          barca: full.boat.nome,
+          azienda: full.tenant.nome,
+          quando: full.startAt.toLocaleString("it-IT", { timeZone: "Europe/Rome", dateStyle: "short", timeStyle: "short" }),
+          confermata: false,
+          telefono: full.tenant.telefonoContatto,
+        });
+        await sendMail(full.customer.email, corpo.subject, corpo.text, corpo.html);
+      }
+    } catch { /* l'email non deve bloccare l'operazione */ }
+  }
+
+  return ok(esito.booking);
+}
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const t = await requireAzienda(req);
@@ -95,8 +194,24 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const cur = await prisma.booking.findFirst({ where: { id, tenantId: t.tenantId } });
   if (!cur) return fail("Prenotazione non trovata", 404);
 
-  if (p.data.stato && !NEXT[cur.stato].includes(p.data.stato)) {
+  const updatedAtAtteso = p.data.updatedAt ? new Date(p.data.updatedAt) : null;
+
+  // L'annullamento è un comando a sé: non si combina con altre modifiche.
+  if (p.data.stato === "cancellata") {
+    const altriCampi = [
+      p.data.prezzoEuro, p.data.boatId, p.data.startAt, p.data.endAt, p.data.clienteNome, p.data.telefono,
+      p.data.passeggeri, p.data.destinazione, p.data.formula, p.data.note, p.data.patenteOk, p.data.skipperId,
+    ].some((v) => v !== undefined);
+    if (altriCampi) return fail("L'annullamento non si combina con altre modifiche", 422);
+    return annullaPrenotazione(t, cur, { motivo: p.data.motivo ?? null, updatedAt: updatedAtAtteso });
+  }
+
+  if (p.data.stato && !transizioneConsentita(cur.stato, p.data.stato)) {
     return fail(`Transizione ${cur.stato} -> ${p.data.stato} non consentita`, 422);
+  }
+  // Concorrenza ottimistica: se il client indica la versione vista, deve combaciare.
+  if (updatedAtAtteso && updatedAtAtteso.getTime() !== cur.updatedAt.getTime()) {
+    return fail("La prenotazione è stata modificata nel frattempo: ricarica e riprova", 409);
   }
 
   const data: Record<string, unknown> = {};
@@ -198,7 +313,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (p.data.stato) {
     await registraAzione({ tenantId: t.tenantId, actorId: t.userId, azione: `booking.stato.${p.data.stato}`, entita: "Booking", entitaId: cur.id, nota: `${cur.stato} → ${p.data.stato}` });
     // Esito di una richiesta dal sito: si avvisa il cliente.
-    if (cur.stato === "da_confermare" && (p.data.stato === "prenotata" || p.data.stato === "cancellata")) {
+    if (cur.stato === "da_confermare" && p.data.stato === "prenotata") {
       try {
         const full = await prisma.booking.findUnique({
           where: { id: cur.id },
@@ -210,7 +325,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
             barca: full.boat.nome,
             azienda: full.tenant.nome,
             quando: full.startAt.toLocaleString("it-IT", { timeZone: "Europe/Rome", dateStyle: "short", timeStyle: "short" }),
-            confermata: p.data.stato === "prenotata",
+            confermata: true,
             telefono: full.tenant.telefonoContatto,
           });
           await sendMail(full.customer.email, corpo.subject, corpo.text, corpo.html);
@@ -230,22 +345,18 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   return ok(upd);
 }
 
+// DELETE non cancella il record: si comporta come l'annullamento (soft), così incassi,
+// documenti e storico restano. Stesso comando del PATCH stato=cancellata.
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const t = await requireAzienda(req);
   if ("error" in t) return t.error;
   const { id } = await params;
   const cur = await prisma.booking.findFirst({ where: { id, tenantId: t.tenantId } });
   if (!cur) return fail("Prenotazione non trovata", 404);
-  if (cur.stato === "rientrata") return fail("Prenotazione già rientrata", 422);
-  const upd = await prisma.booking.update({ where: { id: cur.id }, data: { stato: "cancellata" } });
-  await traccia({
-    tenantId: t.tenantId,
-    actorId: t.userId,
-    azione: "booking.cancellata",
-    entita: "Booking",
-    entitaId: cur.id,
-    prima: { stato: cur.stato, clienteNome: cur.clienteNome, startAt: cur.startAt },
-    dopo: { stato: upd.stato },
-  });
-  return ok(upd);
+
+  const raw = new URL(req.url).searchParams.get("updatedAt");
+  const updatedAt = raw ? new Date(raw) : null;
+  if (updatedAt && Number.isNaN(updatedAt.getTime())) return fail("updatedAt non valido", 422);
+
+  return annullaPrenotazione(t, cur, { updatedAt });
 }
