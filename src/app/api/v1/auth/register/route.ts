@@ -1,7 +1,8 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { saltHex } from "@/lib/crypto";
-import { sendMail, verifyEmailBody } from "@/lib/mailer";
+import { verifyEmailBody } from "@/lib/mailer";
+import { accodaNotifica, consegnaNotifiche } from "@/lib/notifiche";
 import { hashPassword } from "@/lib/password";
 import { clientIp, rateLimit } from "@/lib/ratelimit";
 import { createSession } from "@/lib/session";
@@ -42,7 +43,11 @@ export async function POST(req: Request) {
   const modulo = p.data.modulo ?? "noleggio";
   const passwordHash = await hashPassword(p.data.password);
 
-  // Azienda + titolare nascono insieme: o entrambi o nessuno.
+  const mail = verifyEmailBody(verifyToken);
+  let idNotifica: string | null = null;
+
+  // Azienda + titolare nascono insieme: o entrambi o nessuno. Anche la notifica di
+  // verifica entra nella transazione: se l'account esiste, il messaggio è in coda.
   const { tenant, user } = await prisma.$transaction(async (tx) => {
     const tenant = await tx.tenant.create({
       data: { nome: p.data.azienda.trim(), status: "pending", tipoModulo: modulo, moduloOrmeggio: modulo !== "noleggio" },
@@ -63,11 +68,23 @@ export async function POST(req: Request) {
     await tx.auditLog.create({
       data: { tenantId: tenant.id, actorId: user.id, azione: "tenant.register", entita: "Tenant", entitaId: tenant.id },
     });
+    const n = await accodaNotifica(
+      {
+        tenantId: tenant.id,
+        evento: "account.verifica-email",
+        destinatario: email,
+        oggetto: mail.subject,
+        testo: mail.text,
+        html: mail.html,
+        dedupKey: `verifica-email:${user.id}`,
+      },
+      tx
+    );
+    idNotifica = n?.id ?? null;
     return { tenant, user };
   });
 
-  const mail = verifyEmailBody(verifyToken);
-  await sendMail(email, mail.subject, mail.text, mail.html).catch(() => {});
+  if (idNotifica) await consegnaNotifiche({ ids: [idNotifica] }).catch(() => {});
 
   await createSession({
     sub: user.id,

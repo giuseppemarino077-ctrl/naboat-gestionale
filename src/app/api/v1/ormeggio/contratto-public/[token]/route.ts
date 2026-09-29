@@ -1,7 +1,29 @@
-import { fail, ok } from "@/lib/api";
+import { fail } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { paymentConfig } from "@/lib/payments";
 import { ipRichiesta, type SnapshotOrmeggio } from "@/lib/contratti";
+import { NextResponse } from "next/server";
+
+// C03: validità del link pubblico. Vale per i contratti con impronta (emessi dal
+// motore C01); i contratti storici (senza hash) restano consultabili senza scadenza.
+const TOKEN_GG = 90;
+
+function okNoStore(data: unknown, status = 200) {
+  const res = NextResponse.json(data, { status });
+  res.headers.set("Cache-Control", "private, no-store");
+  return res;
+}
+
+function scadenzaToken(c: { tokenExpires: Date | null; hash: string | null; richiestoAt: Date }): Date | null {
+  if (c.tokenExpires) return c.tokenExpires;
+  if (c.hash) return new Date(c.richiestoAt.getTime() + TOKEN_GG * 86400000);
+  return null;
+}
+
+function tokenScaduto(c: { tokenExpires: Date | null; hash: string | null; richiestoAt: Date }): boolean {
+  const s = scadenzaToken(c);
+  return !!s && s.getTime() < Date.now();
+}
 
 // Contratto di ormeggio/rimessaggio: pagina pubblica raggiungibile solo con il token riservato.
 // Il documento (parti, barca, posto, date, corrispettivo, servizi) viene reso dalla
@@ -35,6 +57,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
   const { token } = await ctx.params;
   const c = await daToken(token);
   if (!c) return fail("Link non valido", 404);
+  // Scadenza: i contratti storici (senza impronta) restano consultabili.
+  if (tokenScaduto(c)) return fail("Link scaduto", 404);
   const p = c.permanenza;
   const cfg = await paymentConfig(p.tenantId);
   const totaleAddebitiCent = p.addebiti.reduce((s, a) => s + a.importoCent, 0);
@@ -43,7 +67,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
 
   const s = isSnapshot(c.testoSnapshot) ? c.testoSnapshot : null;
   const legacy = !s;
-  return ok({
+  // Riallinea la scadenza esplicita dei contratti emessi che non l'avevano.
+  if (!c.tokenExpires && !legacy) {
+    await prisma.contrattoOrmeggio.updateMany({ where: { id: c.id, tokenExpires: null }, data: { tokenExpires: scadenzaToken(c) } });
+  }
+  return okNoStore({
     azienda: s?.azienda.nome ?? p.tenant.nome,
     logo: s?.azienda.logo ?? p.tenant.logoUrl,
     telefonoAzienda: s?.azienda.telefono ?? p.tenant.telefonoContatto,
@@ -73,14 +101,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const c = await daToken(token);
   if (!c) return fail("Link non valido", 404);
   if (c.firmatoAt) return fail("Contratto già firmato", 422);
+  // La firma richiede azienda attiva, permanenza non chiusa e link non scaduto.
+  if (c.permanenza.tenant.status !== "active") return fail("Azienda non attiva: firma non disponibile", 422);
+  if (c.permanenza.stato === "chiusa") return fail("Permanenza chiusa: contratto non più firmabile", 422);
+  if (tokenScaduto(c)) return fail("Link scaduto: chiedi un nuovo contratto all'azienda", 422);
   const body = await req.json().catch(() => null);
   const nome = String(body?.nome ?? "").trim();
   if (body?.accettato !== true) return fail("Devi accettare le condizioni per firmare", 422);
   if (nome.length < 3 || nome.length > 120) return fail("Scrivi nome e cognome completi", 422);
 
-  // La firma vale solo per la versione congelata effettivamente letta.
+  // La firma vale solo per la versione congelata corrente. Le pagine che non
+  // indicano la versione (compatibilità con i link già emessi) firmano la revisione
+  // attuale; se invece la indicano, deve combaciare esattamente (C01).
   if (c.hash == null) return fail("Documento non disponibile: ricarica la pagina", 409);
-  const versione = Number(body?.versione);
+  const versione = body?.versione === undefined ? c.versione : Number(body.versione);
   if (!Number.isInteger(versione) || versione !== c.versione)
     return fail("Il documento è cambiato: ricarica la pagina", 409);
   if (typeof body?.hash === "string" && body.hash !== c.hash)
@@ -102,5 +136,5 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       dettagli: JSON.stringify({ versione, hash: c.hash }),
     },
   });
-  return ok({ firmatoAt: adesso, firmaNome: nome, versione });
+  return okNoStore({ firmatoAt: adesso, firmaNome: nome, versione });
 }

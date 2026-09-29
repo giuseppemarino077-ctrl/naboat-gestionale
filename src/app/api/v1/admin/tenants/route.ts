@@ -1,6 +1,8 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { requireSuperadmin } from "@/lib/guard";
+import { tenantStatoBody } from "@/lib/mailer";
+import { accodaEProva } from "@/lib/notifiche";
 import { hashPassword } from "@/lib/password";
 import { rigeneraAzienda } from "@/lib/seo";
 import { z } from "zod";
@@ -65,7 +67,21 @@ export async function PATCH(req: Request) {
     const cur = await prisma.tenant.findUnique({ where: { id: p.data.id } });
     if (!cur) return fail("Tenant non trovato", 404);
     if (cur.status !== "pending") return fail("Solo i pending si possono rifiutare (usa sospendi/elimina)", 422);
+    // L'email del titolare si legge prima dell'eliminazione (riga poi cancellata).
+    const owner = await prisma.user.findFirst({ where: { tenantId: cur.id, role: "owner" }, select: { email: true } });
     await prisma.tenant.delete({ where: { id: cur.id } });
+    if (owner?.email) {
+      const corpo = tenantStatoBody({ azienda: cur.nome, stato: "rejected" });
+      await accodaEProva({
+        tenantId: cur.id,
+        evento: "tenant.reject",
+        destinatario: owner.email,
+        oggetto: corpo.subject,
+        testo: corpo.text,
+        html: corpo.html,
+        dedupKey: `tenant.reject:${cur.id}`,
+      }).catch(() => {});
+    }
     return ok({ id: cur.id, status: "rejected" });
   }
 
@@ -82,6 +98,20 @@ export async function PATCH(req: Request) {
   });
   // Approvando l'azienda si prepara anche la sua pagina pubblica (SEO) dai dati reali.
   if (status === "active") await rigeneraAzienda(tenant.id).catch(() => {});
+  // Avviso al titolare: evento distinto per azione, una sola notifica per stato.
+  const owner = await prisma.user.findFirst({ where: { tenantId: tenant.id, role: "owner" }, select: { email: true } });
+  if (owner?.email) {
+    const corpo = tenantStatoBody({ azienda: tenant.nome, stato: status });
+    await accodaEProva({
+      tenantId: tenant.id,
+      evento: `tenant.${p.data.azione}`,
+      destinatario: owner.email,
+      oggetto: corpo.subject,
+      testo: corpo.text,
+      html: corpo.html,
+      dedupKey: `tenant.${p.data.azione}:${tenant.id}`,
+    }).catch(() => {});
+  }
   return ok({ id: tenant.id, status: tenant.status });
 }
 

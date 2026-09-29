@@ -222,6 +222,39 @@ model StripeEvent {
   @@index([stato])
 }
 
+// Outbox delle notifiche (C02): l'evento applicativo viene salvato in questa coda
+// nella stessa transazione dell'operazione (o subito dopo) e la consegna avviene
+// con retry. "Salvato" e "consegnato" sono distinti: un guasto SMTP non perde il
+// messaggio e non annulla l'operazione già salvata. `dedupKey` impedisce doppioni
+// sullo stesso evento.
+enum NotificaStato {
+  da_inviare
+  inviata
+  errore
+}
+
+model Notifica {
+  id                String        @id @default(uuid())
+  // Azienda coinvolta (null = piattaforma NaBoat). Nessuna relazione: il registro
+  // non deve sparire se l'azienda viene eliminata.
+  tenantId          String?
+  evento            String // es. richiesta.ricevuta, booking.confermata, tenant.approvata
+  destinatario      String
+  oggetto           String
+  testo             String
+  html              String?
+  stato             NotificaStato @default(da_inviare)
+  tentativi         Int           @default(0)
+  dedupKey          String?       @unique // una sola notifica per evento
+  errore            String?
+  creatoAt          DateTime      @default(now())
+  inviataAt         DateTime?
+  ultimoTentativoAt DateTime?
+
+  @@index([tenantId, stato])
+  @@index([stato, creatoAt])
+}
+
 model User {
   id           String   @id @default(uuid())
   tenantId     String?
@@ -402,6 +435,11 @@ model Booking {
   contrattoHash      String?
   contrattoSnapshot  Json?
   contrattoCreatoAt  DateTime?
+  // C03: ciclo di vita del link di firma. Scadenza esplicita e revisione della
+  // risorsa autorizzata (pari a contrattoVersione al momento dell'emissione).
+  // I contratti storici senza scadenza restano consultabili: null = nessun limite.
+  contrattoTokenExpires  DateTime?
+  contrattoTokenVersione Int?
 
   // --- Check-in / check-out ---
   checkinAt             DateTime?
@@ -1040,6 +1078,9 @@ model ContrattoOrmeggio {
   testoSnapshot  Json? // versione congelata del documento (barca, proprietario, importi, testo)
   versione       Int                  @default(1) // revisione della versione congelata
   hash           String? // impronta dei contenuti congelati (null per i contratti storici)
+  // C03: scadenza del link pubblico. null = link storico, consultabile ma senza
+  // nuove azioni incompatibili (la firma segue comunque la versione congelata).
+  tokenExpires   DateTime?
   richiestoAt    DateTime             @default(now())
   firmatoAt      DateTime?
   firmaNome      String?

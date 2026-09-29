@@ -14,8 +14,43 @@ function smtpUser() {
   return process.env.SMTP_USER;
 }
 
-function smtpConfigured() {
+export function smtpConfigured() {
   return Boolean(smtpHost() && smtpUser() && process.env.SMTP_PASS);
+}
+
+export type StatoPosta = {
+  smtp: boolean;
+  appUrl: string | null;
+  appUrlValido: boolean;
+  abilitato: boolean;
+  motivo: string | null;
+};
+
+// Stato leggibile della posta in uscita: serve al pannello per rendere chiaro
+// se l'invio è disabilitato e perché. Non contiene segreti.
+export function statoPosta(): StatoPosta {
+  const appUrl = (process.env.APP_URL ?? "").trim() || null;
+  let appUrlValido = false;
+  if (appUrl) {
+    try {
+      const u = new URL(appUrl);
+      appUrlValido = u.protocol === "http:" || u.protocol === "https:";
+    } catch {
+      appUrlValido = false;
+    }
+  }
+  const smtp = smtpConfigured();
+  const motivi: string[] = [];
+  if (!smtp) motivi.push("SMTP non configurato");
+  if (!appUrl) motivi.push("APP_URL non impostata");
+  else if (!appUrlValido) motivi.push("APP_URL non valida");
+  return {
+    smtp,
+    appUrl,
+    appUrlValido,
+    abilitato: smtp,
+    motivo: motivi.length ? motivi.join("; ") : null,
+  };
 }
 
 function smtpPort() {
@@ -56,18 +91,26 @@ export function subjectSicuro(v: unknown): string {
   return String(v ?? "").replace(/[\r\n]+/g, " ").slice(0, 150);
 }
 
-export async function sendMail(to: string, subject: string, textBody: string, htmlBody?: string) {
+export type EsitoMail = { sent: boolean; configurato: boolean; errore?: string };
+
+export async function sendMail(to: string, subject: string, textBody: string, htmlBody?: string): Promise<EsitoMail> {
   if (!smtpConfigured()) {
-    console.log(`[mailer:dev] a=${to} oggetto="${subject}"\n${textBody}`);
-    return { sent: false };
+    // Il fallback di log con il corpo completo resta solo in sviluppo (contiene
+    // link riservati e token): in produzione si registra solo l'evento.
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[mailer:dev] a=${to} oggetto="${subject}"\n${textBody}`);
+    } else {
+      console.warn(`[mailer] SMTP non configurato: email a ${to} non inviata (oggetto: "${subject}")`);
+    }
+    return { sent: false, configurato: false, errore: "SMTP non configurato" };
   }
   const from = process.env.MAIL_FROM || smtpUser()!;
   try {
     await mailer().sendMail({ from, to, subject, text: textBody, html: htmlBody });
-    return { sent: true };
+    return { sent: true, configurato: true };
   } catch (error) {
     console.error(`[mailer] invio a ${to} fallito:`, error instanceof Error ? error.message : error);
-    return { sent: false };
+    return { sent: false, configurato: true, errore: error instanceof Error ? error.message : "Invio non riuscito" };
   }
 }
 
@@ -234,5 +277,33 @@ export function richiestaEsitoBody(d: { cliente: string; barca: string; azienda:
 <ul><li>Barca: <b>${esc(d.barca)}</b></li><li>Quando: <b>${esc(d.quando)}</b></li><li>Azienda: <b>${esc(d.azienda)}</b></li></ul>
 ${d.confermata && d.telefono ? `<p>Per qualsiasi necessità contatta l'azienda: <b>${esc(d.telefono)}</b></p>` : ""}
 <p>Grazie,<br><b>NaBoat</b></p><p style="color:#888;font-size:12px">Esito: ${esito}</p>`,
+  };
+}
+
+// Al titolare: esito della richiesta di registrazione dell'azienda.
+export function tenantStatoBody(d: { azienda: string; stato: "active" | "suspended" | "pending" | "rejected" }) {
+  const esc = (v: unknown) => escapeHtml(v);
+  const testi: Record<typeof d.stato, { subject: string; intro: string }> = {
+    active: { subject: "La tua azienda è attiva su NaBoat", intro: "La tua azienda è stata approvata: puoi accedere al gestionale e iniziare a lavorare." },
+    suspended: { subject: "La tua azienda è stata sospesa su NaBoat", intro: "L'accesso alla tua azienda è stato sospeso. Per chiarimenti rispondi a questa email." },
+    pending: { subject: "Registrazione azienda su NaBoat", intro: "La richiesta di registrazione è in attesa di approvazione." },
+    rejected: { subject: "Registrazione azienda non accettata", intro: "La richiesta di registrazione della tua azienda non è stata accettata." },
+  };
+  const t = testi[d.stato];
+  const righe = [`Ciao,`, "", t.intro, "", `Azienda: ${d.azienda}`, "", "NaBoat"];
+  return {
+    subject: subjectSicuro(t.subject),
+    text: righe.join("\n"),
+    html: `<p>Ciao,</p><p>${esc(t.intro)}</p><p><b>Azienda:</b> ${esc(d.azienda)}</p><p>NaBoat</p>`,
+  };
+}
+
+// Al titolare: un incasso è andato a buon fine.
+export function incassoBody(d: { azienda: string; descrizione: string; importo: string }) {
+  const esc = (v: unknown) => escapeHtml(v);
+  return {
+    subject: subjectSicuro(`Incasso registrato — ${d.descrizione}`),
+    text: [`È stato registrato un incasso.`, "", `Descrizione: ${d.descrizione}`, `Importo: ${d.importo}`, "", d.azienda].join("\n"),
+    html: `<p>È stato registrato un <b>incasso</b>.</p><p>Descrizione: <b>${esc(d.descrizione)}</b><br>Importo: <b>${esc(d.importo)}</b></p><p>${esc(d.azienda)}</p>`,
   };
 }

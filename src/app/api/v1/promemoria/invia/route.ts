@@ -1,7 +1,8 @@
 import { fail, ok } from "@/lib/api";
 import { aggiungiGiorni, inizioGiorno, oggi } from "@/lib/calendario";
 import { prisma } from "@/lib/db";
-import { promemoriaBody, sendMail } from "@/lib/mailer";
+import { promemoriaBody } from "@/lib/mailer";
+import { accodaNotifica, consegnaNotifica, consegnaNotifiche } from "@/lib/notifiche";
 import { identitaCorrente } from "@/lib/identita";
 import { mustTwoFa } from "@/lib/tenant";
 
@@ -57,6 +58,10 @@ export async function POST(req: Request) {
     take: 500,
   });
 
+  // Tentativo di consegna delle notifiche rimaste in coda dai giri precedenti
+  // (il cron passa di qui): il registro è la fonte, non il log.
+  await consegnaNotifiche({ limite: 100 }).catch(() => {});
+
   let inviati = 0;
   let senzaEmail = 0;
   let falliti = 0;
@@ -80,8 +85,22 @@ export async function POST(req: Request) {
       telefono: b.tenant.telefonoContatto,
       contrattoUrl: b.contrattoToken ? `${base}/contratto/${b.contrattoToken}` : null,
     });
-    const esito = await sendMail(email, corpo.subject, corpo.text, corpo.html);
-    if (esito.sent) {
+    // Una sola notifica per prenotazione (dedup): un secondo giro non duplica.
+    const n = await accodaNotifica({
+      tenantId: b.tenantId,
+      evento: "booking.promemoria",
+      destinatario: email,
+      oggetto: corpo.subject,
+      testo: corpo.text,
+      html: corpo.html,
+      dedupKey: `promemoria:${b.id}`,
+    });
+    if (!n) {
+      falliti++;
+      continue;
+    }
+    const esito = await consegnaNotifica(n.id);
+    if (esito === "inviata") {
       inviati++;
       await prisma.booking.update({ where: { id: b.id }, data: { promemoriaInviatoAt: new Date() } });
     } else {

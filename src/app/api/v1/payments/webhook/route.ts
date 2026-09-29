@@ -1,6 +1,8 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { allineaRimborsi, decryptSecret, statoRimborsoDaStripe, stripeClient } from "@/lib/payments";
+import { incassoBody } from "@/lib/mailer";
+import { accodaEProva } from "@/lib/notifiche";
+import { allineaRimborsi, decryptSecret, formattaEuro, statoRimborsoDaStripe, stripeClient } from "@/lib/payments";
 import type Stripe from "stripe";
 
 const STATI_CHIUSI = ["elaborato", "ignorato"];
@@ -137,6 +139,36 @@ export async function POST(req: Request) {
     await prisma.auditLog.create({
       data: { tenantId, azione: "pagamento.incassato", entita: "Payment", entitaId: payment.id },
     });
+    // Avviso al titolare dell'incasso, via outbox (una notifica per incasso).
+    try {
+      const det = await prisma.payment.findUnique({
+        where: { id: payment.id },
+        select: {
+          totaleCent: true,
+          booking: { select: { boat: { select: { nome: true } } } },
+          permanenza: { select: { boat: { select: { nome: true } }, posto: { select: { codice: true } } } },
+        },
+      });
+      const t = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { nome: true } });
+      const owner = await prisma.user.findFirst({ where: { tenantId, role: "owner" }, select: { email: true } });
+      if (det && t && owner?.email) {
+        const descrizione = det.booking
+          ? `Noleggio — ${det.booking.boat?.nome ?? "imbarcazione"}`
+          : det.permanenza
+            ? `Permanenza posto ${det.permanenza.posto?.codice ?? ""} — ${det.permanenza.boat?.nome ?? "imbarcazione"}`
+            : "Incasso";
+        const corpo = incassoBody({ azienda: t.nome, descrizione, importo: formattaEuro(det.totaleCent) });
+        await accodaEProva({
+          tenantId,
+          evento: "pagamento.incassato",
+          destinatario: owner.email,
+          oggetto: corpo.subject,
+          testo: corpo.text,
+          html: corpo.html,
+          dedupKey: `pagamento.incassato:${payment.id}`,
+        });
+      }
+    } catch { /* l'avviso non deve bloccare l'elaborazione del webhook */ }
     return chiudi("elaborato");
   };
 

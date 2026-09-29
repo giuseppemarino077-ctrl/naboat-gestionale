@@ -4,7 +4,8 @@ import { requireCliente } from "@/lib/clienti";
 import { prisma } from "@/lib/db";
 import { bloccaRisorse, validaBarcaNoleggio, verificaDisponibilita } from "@/lib/disponibilita";
 import { FILTRO_CATALOGO, preventivoNoleggio } from "@/lib/marketplace";
-import { escapeHtml, richiestaRicevutaBody, sendMail } from "@/lib/mailer";
+import { escapeHtml, richiestaRicevutaBody } from "@/lib/mailer";
+import { accodaNotifica, consegnaNotifiche } from "@/lib/notifiche";
 import { getSession } from "@/lib/session";
 import { clientIp, rateLimit } from "@/lib/ratelimit";
 import { verifyTurnstile } from "@/lib/turnstile";
@@ -100,12 +101,6 @@ function collegamentoBody(link: string, azienda: string, barca: string, quando: 
   };
 }
 
-async function inviaCollegamento(token: string, email: string, azienda: string, barca: string, quando: string, base: string) {
-  const link = `${base}/area?collega=${encodeURIComponent(token)}`;
-  const corpo = collegamentoBody(link, azienda, barca, quando);
-  await sendMail(email, corpo.subject, corpo.text, corpo.html);
-}
-
 export async function POST(req: Request) {
   const ip = clientIp(req);
   const p = Schema.safeParse(await req.json().catch(() => null));
@@ -191,9 +186,14 @@ export async function POST(req: Request) {
   const dedupKey = chiaveDedup(p.data.telefono);
   // Token monouso per il recupero dall'area personale, solo se c'è un'email a cui inviarlo.
   const ospite = email ? nuovoTokenOspite() : null;
+  const base = (process.env.APP_URL || new URL(req.url).origin).replace(/\/$/, "");
+  const quando = start.toLocaleString("it-IT", { timeZone: "Europe/Rome", dateStyle: "short", timeStyle: "short" });
+  const notifiche: string[] = [];
 
   // Il controllo di disponibilità e la creazione stanno nella stessa transazione,
   // con il lock per barca: una richiesta non scavalca una prenotazione in corso.
+  // Anche l'evento di notifica entra nella transazione: se la richiesta è salvata,
+  // il messaggio per il noleggiatore è in coda (la consegna SMTP avviene dopo).
   const risultato = await prisma.$transaction(async (tx) => {
     await bloccaRisorse(tx, { boatIds: [boat.id], chiaviExtra: p.data.idempotencyKey ? [`idem:${p.data.idempotencyKey}`] : [] });
 
@@ -201,14 +201,14 @@ export async function POST(req: Request) {
     if (p.data.idempotencyKey) {
       const dup = await tx.booking.findUnique({ where: { idempotencyKey: p.data.idempotencyKey } });
       if (dup) {
-        if (dup.tenantId !== boat.tenantId) return { err: "Chiave idempotenza già usata", token: null, booking: null };
-        if (dup.idempotencyHash && dup.idempotencyHash !== impronta) return { err: "Chiave idempotenza già usata con dati diversi", token: null, booking: null };
+        if (dup.tenantId !== boat.tenantId) return { err: "Chiave idempotenza già usata", token: null, booking: null, notifiche };
+        if (dup.idempotencyHash && dup.idempotencyHash !== impronta) return { err: "Chiave idempotenza già usata con dati diversi", token: null, booking: null, notifiche };
         return { booking: { id: dup.id }, err: null, token: null, duplicato: true, snapshot: dup.preventivoSnapshot as unknown as Parameters<typeof preventivoPubblico>[0] | null };
       }
     }
 
     const disp = await verificaDisponibilita(tx, { tenantId: boat.tenantId, boatId: boat.id, startAt: start, endAt: end });
-    if (!disp.ok) return { err: "La barca non è disponibile in quelle date", token: null, booking: null };
+    if (!disp.ok) return { err: "La barca non è disponibile in quelle date", token: null, booking: null, notifiche };
 
     // La richiesta pubblica NON crea né sovrascrive l'anagrafica: si limita a
     // collegare un Customer già esistente con lo stesso telefono. Il contatto
@@ -250,7 +250,53 @@ export async function POST(req: Request) {
       },
       select: { id: true },
     });
-    return { booking, err: null, token: ospite?.token ?? null };
+
+    // Notifica al noleggiatore: accodata insieme alla richiesta (una per evento).
+    const owner = await tx.user.findFirst({ where: { tenantId: boat.tenantId, role: "owner" }, select: { email: true } });
+    if (owner?.email) {
+      const corpo = richiestaRicevutaBody({
+        azienda: boat.tenant.nome,
+        barca: boat.nome,
+        cliente: p.data.clienteNome,
+        telefono: p.data.telefono,
+        quando,
+        passeggeri: p.data.passeggeri,
+        note: p.data.note ?? null,
+      });
+      const n = await accodaNotifica(
+        {
+          tenantId: boat.tenantId,
+          evento: "richiesta.ricevuta",
+          destinatario: owner.email,
+          oggetto: corpo.subject,
+          testo: corpo.text,
+          html: corpo.html,
+          dedupKey: `richiesta.ricevuta:${booking.id}`,
+        },
+        tx
+      );
+      if (n) notifiche.push(n.id);
+    }
+
+    // Al richiedente ospite: link monouso per ritrovare la richiesta nell'area.
+    if (email && ospite) {
+      const corpo = collegamentoBody(`${base}/area?collega=${encodeURIComponent(ospite.token)}`, boat.tenant.nome, boat.nome, quando);
+      const n = await accodaNotifica(
+        {
+          tenantId: boat.tenantId,
+          evento: "richiesta.collegamento",
+          destinatario: email,
+          oggetto: corpo.subject,
+          testo: corpo.text,
+          html: corpo.html,
+          dedupKey: `richiesta.collegamento:${booking.id}`,
+        },
+        tx
+      );
+      if (n) notifiche.push(n.id);
+    }
+
+    return { booking, err: null, token: ospite?.token ?? null, notifiche };
   });
 
   if (risultato.err) return fail(risultato.err, 409);
@@ -265,32 +311,8 @@ export async function POST(req: Request) {
     });
   }
 
-  const base = (process.env.APP_URL || new URL(req.url).origin).replace(/\/$/, "");
-  const quando = start.toLocaleString("it-IT", { timeZone: "Europe/Rome", dateStyle: "short", timeStyle: "short" });
-
-  // Avvisa il noleggiatore via email (senza SMTP il messaggio resta nel log).
-  try {
-    const owner = await prisma.user.findFirst({ where: { tenantId: boat.tenantId, role: "owner" }, select: { email: true } });
-    if (owner?.email) {
-      const corpo = richiestaRicevutaBody({
-        azienda: boat.tenant.nome,
-        barca: boat.nome,
-        cliente: p.data.clienteNome,
-        telefono: p.data.telefono,
-        quando,
-        passeggeri: p.data.passeggeri,
-        note: p.data.note ?? null,
-      });
-      await sendMail(owner.email, corpo.subject, corpo.text, corpo.html);
-    }
-  } catch { /* l'email non deve bloccare la richiesta */ }
-
-  // Al richiedente ospite: link monouso per ritrovare la richiesta nell'area.
-  if (email && risultato.token) {
-    try {
-      await inviaCollegamento(risultato.token, email, boat.tenant.nome, boat.nome, quando, base);
-    } catch { /* l'email non deve bloccare la richiesta */ }
-  }
+  // Consegna best effort: senza SMTP le righe restano nel registro "da inviare".
+  if (risultato.notifiche?.length) await consegnaNotifiche({ ids: risultato.notifiche }).catch(() => {});
 
   return ok(
     {
@@ -338,17 +360,27 @@ export async function PUT(req: Request) {
       take: 20,
     });
     let inviate = 0;
+    const notifiche: string[] = [];
     for (const b of prenotazioni) {
-      let token = b.clienteToken;
-      if (!token || (b.clienteTokenExpires && b.clienteTokenExpires < new Date())) {
-        const nuovo = nuovoTokenOspite();
-        token = nuovo.token;
-        await prisma.booking.update({ where: { id: b.id }, data: { clienteToken: token, clienteTokenExpires: nuovo.scadenza, clienteTokenUsatoAt: null } });
-      }
+      // Il rinvio esplicito emette un nuovo link monouso (il vecchio non è più valido):
+      // così la notifica è un nuovo evento e non viene deduplicata.
+      const nuovo = nuovoTokenOspite();
+      await prisma.booking.update({ where: { id: b.id }, data: { clienteToken: nuovo.token, clienteTokenExpires: nuovo.scadenza, clienteTokenUsatoAt: null } });
       const quando = b.startAt.toLocaleString("it-IT", { timeZone: "Europe/Rome", dateStyle: "short", timeStyle: "short" });
-      await inviaCollegamento(token, emailAccount, b.tenant.nome, b.boat.nome, quando, base);
+      const corpo = collegamentoBody(`${base}/area?collega=${encodeURIComponent(nuovo.token)}`, b.tenant.nome, b.boat.nome, quando);
+      const n = await accodaNotifica({
+        tenantId: b.tenantId,
+        evento: "richiesta.collegamento",
+        destinatario: emailAccount,
+        oggetto: corpo.subject,
+        testo: corpo.text,
+        html: corpo.html,
+        dedupKey: `richiesta.collegamento:${b.id}:${nuovo.token}`,
+      });
+      if (n) notifiche.push(n.id);
       inviate++;
     }
+    if (notifiche.length) await consegnaNotifiche({ ids: notifiche }).catch(() => {});
     return ok({ inviate });
   }
 

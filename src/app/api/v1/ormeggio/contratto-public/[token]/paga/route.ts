@@ -12,6 +12,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
   });
   if (!c) return fail("Link non valido", 404);
   const p = c.permanenza;
+  // Ciclo di vita del token: scadenza esplicita e stato della risorsa.
+  if (c.tokenExpires && c.tokenExpires < new Date()) return fail("Link scaduto: chiedi all'ormeggiatore un nuovo link", 410);
+  const tenant = await prisma.tenant.findUnique({ where: { id: p.tenantId }, select: { status: true } });
+  if (tenant?.status !== "active") return fail("Pagamento non disponibile per questa azienda", 403);
+  if (p.stato !== "attiva") return fail("Permanenza non attiva: pagamento non consentito", 409);
 
   const cfg = await paymentConfig(p.tenantId);
   if (!cfg?.stripePronto || !cfg.stripeSecretKey) {

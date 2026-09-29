@@ -459,6 +459,37 @@ const run = async () => {
   const promGiorno = await json("A", "/api/v1/promemoria/invia", "POST", { data: "2028-05-10" });
   T("promemoria: il giorno richiesto resta quello indicato (Europe/Rome)", promGiorno.data?.giorno === "2028-05-10", JSON.stringify(promGiorno.data));
 
+  // ---- C02: registro notifiche (outbox) ----
+  T("notifiche: senza login -> 401", (await fetch(`${BASE}/api/v1/admin/notifiche`)).status === 401);
+  T("notifiche: riservate a NaBoat", (await jar.fetch("/api/v1/admin/notifiche")).status === 403);
+  const notif = await adm.fetch("/api/v1/admin/notifiche");
+  const notifDati = await notif.json();
+  T(
+    "notifiche: elenco con conteggi e stato posta",
+    notif.status === 200 && Array.isArray(notifDati?.items) && typeof notifDati?.conteggi?.da_inviare === "number" && !!notifDati?.posta,
+    `${notif.status} ${JSON.stringify(notifDati?.conteggi)}`
+  );
+  T(
+    "notifiche: nessun link riservato in chiaro",
+    !JSON.stringify(notifDati).includes("/contratto/") && !JSON.stringify(notifDati).includes("/paga/"),
+    JSON.stringify(notifDati?.items?.[0] ?? {})
+  );
+  const notifInv = await adm.fetch("/api/v1/admin/notifiche?stato=da_inviare");
+  const notifInvDati = await notifInv.json();
+  T(
+    "notifiche: filtro per stato",
+    notifInv.status === 200 && (notifInvDati?.items ?? []).every((n) => n.stato === "da_inviare"),
+    `${notifInv.status}`
+  );
+  const notifBad = await adm.fetch("/api/v1/admin/notifiche", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ azione: "x" }) });
+  T("notifiche: azione sconosciuta -> 422", notifBad.status === 422, `${notifBad.status}`);
+
+  // ---- C03: token pubblici senza cache e con scadenza/versione ----
+  const contrCache = await fetch(`${BASE}/api/v1/contratto/public/${tokenContratto}`);
+  T("contratto: risposta non memorizzabile", (contrCache.headers.get("cache-control") ?? "").includes("no-store"), contrCache.headers.get("cache-control") ?? "");
+  const pagCache = await fetch(`${BASE}/api/v1/payments/public/${token}`);
+  T("pagamento: risposta non memorizzabile", (pagCache.headers.get("cache-control") ?? "").includes("no-store"), pagCache.headers.get("cache-control") ?? "");
+
   // ---- SEO pagine pubbliche ----
   const seo0 = await adm.fetch("/api/v1/admin/seo");
   const seoDati = await seo0.json();

@@ -3,7 +3,8 @@ import { traccia, registraAzione } from "@/lib/audit";
 import { esitoPatente } from "@/lib/clienti";
 import { prisma } from "@/lib/db";
 import { bloccaRisorse, validaBarcaNoleggio, verificaDisponibilita } from "@/lib/disponibilita";
-import { richiestaEsitoBody, sendMail } from "@/lib/mailer";
+import { richiestaEsitoBody } from "@/lib/mailer";
+import { accodaEProva } from "@/lib/notifiche";
 import { parseImportoEuro, paymentConfig, stripeClient } from "@/lib/payments";
 import { transizioneConsentita } from "@/lib/presenze";
 import { requireAzienda } from "@/lib/tenant";
@@ -192,7 +193,16 @@ async function annullaPrenotazione(
           confermata: false,
           telefono: full.tenant.telefonoContatto,
         });
-        await sendMail(emailCliente, corpo.subject, corpo.text, corpo.html);
+        // Outbox: una sola notifica per evento; la consegna è best effort.
+        await accodaEProva({
+          tenantId: t.tenantId,
+          evento: "richiesta.esito",
+          destinatario: emailCliente,
+          oggetto: corpo.subject,
+          testo: corpo.text,
+          html: corpo.html,
+          dedupKey: `richiesta.esito:${cur.id}:cancellata`,
+        });
       }
     } catch { /* l'email non deve bloccare l'operazione */ }
   }
@@ -382,7 +392,15 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
             confermata: true,
             telefono: full.tenant.telefonoContatto,
           });
-          await sendMail(emailCliente, corpo.subject, corpo.text, corpo.html);
+          await accodaEProva({
+            tenantId: t.tenantId,
+            evento: "richiesta.esito",
+            destinatario: emailCliente,
+            oggetto: corpo.subject,
+            testo: corpo.text,
+            html: corpo.html,
+            dedupKey: `richiesta.esito:${cur.id}:confermata`,
+          });
         }
       } catch { /* l'email non deve bloccare l'operazione */ }
     }

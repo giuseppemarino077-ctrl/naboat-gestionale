@@ -1,7 +1,15 @@
-import { fail, ok } from "@/lib/api";
+import { fail } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { avviaCheckoutPrenotazione, calcolaResiduoPrezzo, paymentConfig, stripeClient } from "@/lib/payments";
+import { NextResponse } from "next/server";
 import type Stripe from "stripe";
+
+// C03: risposte con dati di pagamento mai memorizzabili.
+function okNoStore(data: unknown, status = 200) {
+  const res = NextResponse.json(data, { status });
+  res.headers.set("Cache-Control", "private, no-store");
+  return res;
+}
 
 // Pagina pubblica di pagamento: accesso consentito solo dal token del link.
 // Nessuna autenticazione, ma il token è casuale, monouso di fatto e con scadenza.
@@ -28,7 +36,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
     cauzioneIntentId: booking.cauzioneIntentId,
   });
   const accontoPrevisto = booking.prezzoCent ? Math.round((booking.prezzoCent * cfg.accontoPct) / 100) : 0;
-  return ok({
+  return okNoStore({
     boat: booking.boat?.nome ?? "Imbarcazione",
     data: booking.startAt,
     passeggeri: booking.passeggeri,
@@ -55,7 +63,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const { token } = await ctx.params;
   const booking = await prenotazioneDaToken(token);
   if (!booking) return fail("Link non valido o scaduto", 404);
+  // Un token di lettura non autorizza un nuovo addebito su prenotazioni chiuse.
   if (booking.stato === "cancellata") return fail("Prenotazione annullata: nessun nuovo addebito", 422);
+  if (booking.stato === "no_show") return fail("Prenotazione chiusa: nessun nuovo addebito", 422);
   if (!booking.prezzoCent || booking.prezzoCent <= 0) return fail("Prezzo non disponibile", 422);
 
   const cfg = await paymentConfig(booking.tenantId);
@@ -96,7 +106,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       return fail(`Stripe ha rifiutato la richiesta: ${e instanceof Error ? e.message : "errore"}`, 422);
     }
     await prisma.booking.update({ where: { id: booking.id }, data: { cauzioneStato: "in_attesa" } });
-    return ok({ url: sessione.url, cauzioneCent: booking.cauzioneCent }, 201);
+    return okNoStore({ url: sessione.url, cauzioneCent: booking.cauzioneCent }, 201);
   }
 
   const base = (process.env.APP_URL || new URL(req.url).origin).replace(/\/$/, "");
@@ -117,7 +127,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   });
   if (esito.esito === "errore") return fail(esito.messaggio, esito.stato);
 
-  return ok(
+  return okNoStore(
     {
       paymentId: esito.paymentId,
       url: esito.url,
