@@ -350,8 +350,16 @@ const run = async () => {
   T("intervento segnato eseguito", eseguito.status === 200 && !!eseguito.data?.eseguitoAt, `${eseguito.status}`);
   const speseDopo = await json("A", "/api/v1/expenses");
   T("costo intervento registrato tra le spese", Array.isArray(speseDopo.data) && speseDopo.data.some((s) => s.descrizione.includes("Assicurazione RC smoke")), "spesa non trovata");
+  // O04: la spesa è collegata all'intervento per id; ripetere l'esecuzione non la duplica.
+  T("spesa collegata all'intervento per id", speseDopo.data.some((s) => s.maintenanceId === manut.data.id), "collegamento assente");
+  const eseguito2 = await json("A", `/api/v1/maintenance/${manut.data.id}`, "PATCH", { azione: "esegui", costoEuro: "150,00" });
+  T("completamento ripetuto idempotente", eseguito2.status === 200, `${eseguito2.status}`);
+  const speseIdem = await json("A", "/api/v1/expenses");
+  T("una sola spesa per intervento", speseIdem.data.filter((s) => s.maintenanceId === manut.data.id).length === 1, JSON.stringify(speseIdem.data.filter((s) => s.maintenanceId === manut.data.id).length));
   const riaperto = await json("A", `/api/v1/maintenance/${manut.data.id}`, "PATCH", { azione: "riapri" });
   T("intervento riaperto", riaperto.status === 200 && riaperto.data?.eseguitoAt === null);
+  const speseRiaperto = await json("A", "/api/v1/expenses");
+  T("riapertura rimuove la spesa collegata", !speseRiaperto.data.some((s) => s.maintenanceId === manut.data.id));
   T("scadenza eliminata", (await json("A", `/api/v1/maintenance/${manut.data.id}`, "DELETE")).status === 200);
 
   // ---- Blocco 3: listino prezzi ----

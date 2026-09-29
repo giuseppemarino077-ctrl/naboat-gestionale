@@ -46,7 +46,7 @@ let areaId = null;
 async function cleanup() {
   if (!tenantId) return;
   try {
-    const aree = await prisma.area.findMany({ where: { tenantId, nome: marker } });
+    const aree = await prisma.area.findMany({ where: { tenantId, nome: { startsWith: marker } } });
     const ids = aree.map((a) => a.id);
     const posti = await prisma.posto.findMany({ where: { areaId: { in: ids } } });
     const postiIds = posti.map((p) => p.id);
@@ -56,7 +56,7 @@ async function cleanup() {
     await prisma.permanenza.deleteMany({ where: { id: { in: permIds } } });
     await prisma.boat.deleteMany({ where: { tenantId, nome: { startsWith: marker } } });
     await prisma.proprietario.deleteMany({ where: { tenantId, nome: { startsWith: marker } } });
-    await prisma.area.deleteMany({ where: { tenantId, nome: marker } });
+    await prisma.area.deleteMany({ where: { id: { in: ids } } });
   } catch (e) {
     console.log(`  (pulizia: ${e instanceof Error ? e.message : e})`);
   }
@@ -106,6 +106,18 @@ const run = async () => {
   T("uscita registrata (posto mantenuto)", scheda3.data?.movimenti?.some((m) => m.tipo === "uscita"));
   T("posto ancora assegnato dopo l'uscita", scheda3.data?.stato === "attiva");
 
+  // ---- O03: completamento atomico e idempotente; rettifica e storno espliciti ----
+  await json(`/api/v1/ormeggio/attivita/${att.data.id}`, "PATCH", { stato: "completato" });
+  const schedaIdem = await json(`/api/v1/ormeggio/permanenze/${permId}`);
+  T("completamento ripetuto non duplica l'addebito", (schedaIdem.data?.addebiti ?? []).filter((a) => a.attivitaId === att.data.id).length === 1, JSON.stringify((schedaIdem.data?.addebiti ?? []).filter((a) => a.attivitaId === att.data.id).length));
+  T("prezzo modificato senza rettifica -> 409", (await json(`/api/v1/ormeggio/attivita/${att.data.id}`, "PATCH", { prezzoCent: 3000 })).status === 409);
+  T("rettifica del prezzo accettata", (await json(`/api/v1/ormeggio/attivita/${att.data.id}`, "PATCH", { rettifica: true, prezzoCent: 3000 })).status === 200);
+  const schedaRett = await json(`/api/v1/ormeggio/permanenze/${permId}`);
+  T("la rettifica aggiorna l'unica voce di conto", (schedaRett.data?.addebiti ?? []).some((a) => a.attivitaId === att.data.id && a.importoCent === 3000), JSON.stringify((schedaRett.data?.addebiti ?? []).map((a) => a.importoCent)));
+  T("storno esplicito accettato", (await json(`/api/v1/ormeggio/attivita/${att.data.id}`, "PATCH", { storno: true })).status === 200);
+  const schedaStorno = await json(`/api/v1/ormeggio/permanenze/${permId}`);
+  T("dopo lo storno l'addebito è annullato", !(schedaStorno.data?.addebiti ?? []).some((a) => a.attivitaId === att.data.id), JSON.stringify(schedaStorno.data?.conto));
+
   // conflitto sequenziale
   const dup = await json("/api/v1/ormeggio/permanenze", "POST", { postoId: posto0, proprietarioId: prop2.data.id, nuovaBarca: { nome: `${marker} BoatX` }, inizioAt: oggi, finePrevistaAt: fine });
   T("conflitto stesso posto -> 409", dup.status === 409, `${dup.status} ${JSON.stringify(dup.data)}`);
@@ -117,6 +129,35 @@ const run = async () => {
   ]);
   const stati = [r1.status, r2.status].sort((a, b) => a - b);
   T("concorrenza: una sola riesce", stati[0] === 201 && stati[1] === 409, `stati=${stati}`);
+
+  // ---- O01: storia delle assegnazioni (la griglia ricostruisce il passato) ----
+  const areaH = await json("/api/v1/ormeggio/aree", "POST", { nome: `${marker}-H`, righe: 1, colonne: 3 });
+  const miaH = (await json("/api/v1/ormeggio/aree")).data.find((a) => a.id === areaH.data.id);
+  const hA = miaH.posti[0].id, hB = miaH.posti[1].id, hC = miaH.posti[2].id;
+  const inizioStoria = new Date(Date.now() - 20 * 86400000).toISOString().slice(0, 10);
+  const metaStoria = new Date(Date.now() - 10 * 86400000).toISOString().slice(0, 10);
+  const decorrenza = new Date(`${metaStoria}T00:00:00`).toISOString();
+  const pH = await json("/api/v1/ormeggio/permanenze", "POST", { postoId: hA, proprietarioId: prop.data.id, nuovaBarca: { nome: `${marker}-H Boat` }, inizioAt: inizioStoria, finePrevistaAt: fine, corrispettivoCent: 10000 });
+  T("permanenza per la storia creata", pH.status === 201, `${pH.status} ${JSON.stringify(pH.data)}`);
+  const cella = async (data, codice) => (await json(`/api/v1/ormeggio/griglia?data=${data}`)).data.aree.find((a) => a.id === areaH.data.id).posti.find((p) => p.codice === codice);
+  T("griglia: prima dello spostamento la barca è in A1", (await cella(inizioStoria, "A1"))?.permanenza?.id === pH.data.id);
+  const sp = await json(`/api/v1/ormeggio/permanenze/${pH.data.id}`, "PATCH", { azione: "sposta", postoId: hB, decorrenza });
+  T("spostamento con decorrenza registrato", sp.status === 200, `${sp.status} ${JSON.stringify(sp.data)}`);
+  T("griglia: dopo lo spostamento la barca è in A2", (await cella(metaStoria, "A2"))?.permanenza?.id === pH.data.id && !(await cella(metaStoria, "A1"))?.permanenza);
+  T("griglia: il passato resta in A1", (await cella(inizioStoria, "A1"))?.permanenza?.id === pH.data.id);
+  await json(`/api/v1/ormeggio/permanenze/${pH.data.id}`, "PATCH", { azione: "chiudi" });
+  T("griglia: permanenza chiusa ancora visibile nel giorno storico", (await cella(metaStoria, "A2"))?.permanenza?.id === pH.data.id);
+
+  // ---- O02: conversione esplicita di una barca a noleggio ----
+  const bNol = await json("/api/v1/boats", "POST", { nome: `${marker}-Nol`, capienza: 4 });
+  T("barca a noleggio creata per la conversione", bNol.status === 201, `${bNol.status}`);
+  const convKo = await json("/api/v1/ormeggio/permanenze", "POST", { postoId: hA, boatId: bNol.data.id, proprietarioId: prop.data.id, inizioAt: metaStoria });
+  T("conversione a custodia senza conferma -> 409", convKo.status === 409, `${convKo.status} ${JSON.stringify(convKo.data)}`);
+  const convOk = await json("/api/v1/ormeggio/permanenze", "POST", { postoId: hA, boatId: bNol.data.id, proprietarioId: prop.data.id, inizioAt: metaStoria, confermaConversioneCustodia: true });
+  T("conversione a custodia con conferma -> 201", convOk.status === 201, `${convOk.status} ${JSON.stringify(convOk.data)}`);
+  // Nuovo proprietario + nuova barca creati insieme nella stessa transazione.
+  const pNP = await json("/api/v1/ormeggio/permanenze", "POST", { postoId: hC, nuovoProprietario: { nome: `${marker} Prop-Nuovo`, telefono: `339${String(Date.now()).slice(-7)}` }, nuovaBarca: { nome: `${marker}-NP Boat` }, inizioAt: inizioStoria });
+  T("nuovo proprietario e nuova barca in transazione", pNP.status === 201 && !!pNP.data?.id, `${pNP.status} ${JSON.stringify(pNP.data)}`);
 
   const contr = await json(`/api/v1/ormeggio/permanenze/${permId}/contratto`, "POST");
   T("genera contratto", contr.status === 200 && !!contr.data?.token, `${contr.status}`);

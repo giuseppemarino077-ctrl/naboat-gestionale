@@ -21,12 +21,20 @@ export async function GET(req: Request) {
     orderBy: [{ dataPrevista: "asc" }, { createdAt: "asc" }],
     include: {
       addetto: { select: { id: true, nome: true } },
+      addebito: { select: { id: true } },
       permanenza: { include: { boat: { select: { nome: true } }, posto: { select: { codice: true } } } },
     },
     take: 200,
   });
   // Senza il permesso importi il prezzo dell'attività non compare.
-  const lista = t.vedeImporti === false ? attivita.map((a) => ({ ...a, prezzoCent: null })) : attivita;
+  const lista = attivita.map((a) => {
+    // Stati chiari: inclusa nella custodia · da addebitare · già contabilizzata.
+    const contabilizzata = !!a.addebito;
+    const daAddebitare = !a.incluso && a.prezzoCent != null && !contabilizzata;
+    const statoConto = a.incluso ? "inclusa" : contabilizzata ? "contabilizzata" : daAddebitare ? "da_addebitare" : "niente_da_addebitare";
+    const item = { ...a, contabilizzata, daAddebitare, statoConto };
+    return t.vedeImporti === false ? { ...item, prezzoCent: null } : item;
+  });
   return ok(lista);
 }
 
@@ -52,12 +60,17 @@ export async function POST(req: Request) {
   const perm = await prisma.permanenza.findFirst({ where: { id: p.data.permanenzaId, tenantId: t.tenantId } });
   if (!perm) return fail("Permanenza non trovata", 404);
   if (p.data.addettoId && !(await addettoDelTenant(t.tenantId, p.data.addettoId))) return fail("Addetto non valido per questa azienda", 422);
+  let dataPrevista: Date | null = null;
+  if (p.data.dataPrevista) {
+    dataPrevista = new Date(p.data.dataPrevista);
+    if (Number.isNaN(dataPrevista.getTime())) return fail("Data prevista non valida", 422);
+  }
   const attivita = await prisma.attivita.create({
     data: {
       tenantId: t.tenantId,
       permanenzaId: perm.id,
       tipo: p.data.tipo.trim(),
-      dataPrevista: p.data.dataPrevista ? new Date(p.data.dataPrevista) : null,
+      dataPrevista,
       quantita: p.data.quantita ?? null,
       unita: p.data.unita?.trim() || null,
       prezzoCent: p.data.prezzoCent ?? null,

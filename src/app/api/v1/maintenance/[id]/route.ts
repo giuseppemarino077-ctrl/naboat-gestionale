@@ -1,15 +1,28 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { requireAzienda } from "@/lib/tenant";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
+
+function isP2002(e: unknown): boolean {
+  return e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002";
+}
+
+function parseEuro(v: string): number | null {
+  const n = Math.round(Number(String(v).trim().replace(",", ".")) * 100);
+  return Number.isFinite(n) && n >= 0 && n <= 100000000 ? n : null;
+}
 
 const Schema = z.object({
   azione: z.enum(["esegui", "riapri"]),
   costoEuro: z.string().max(20).optional().nullable(),
+  costoPrevistoEuro: z.string().max(20).optional().nullable(),
   dataIntervento: z.string().max(40).optional().nullable(),
 });
 
-// Segna un intervento come eseguito (e, se c'è un costo, lo registra tra le spese) oppure lo riapre.
+// Segna un intervento come eseguito (e registra/aggiorna la spesa collegata) oppure lo riapre.
+// Il collegamento per id (Expense.maintenanceId) distingue interventi omonimi e rende
+// idempotente il completamento: ripetere «esegui» non crea una seconda spesa.
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const t = await requireAzienda(req);
   if ("error" in t) return t.error;
@@ -21,9 +34,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (!item) return fail("Intervento non trovato", 404);
 
   if (p.data.azione === "riapri") {
-    const upd = await prisma.maintenance.update({
-      where: { id: item.id },
-      data: { eseguitoAt: null },
+    // Riaprire annulla l'intervento: la spesa collegata non ha più ragione d'essere.
+    const upd = await prisma.$transaction(async (tx) => {
+      await tx.expense.deleteMany({ where: { tenantId: t.tenantId, maintenanceId: item.id } });
+      return tx.maintenance.update({ where: { id: item.id }, data: { eseguitoAt: null } });
     });
     return ok(upd);
   }
@@ -31,41 +45,55 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   const quando = p.data.dataIntervento ? new Date(p.data.dataIntervento) : new Date();
   if (Number.isNaN(quando.getTime())) return fail("Data intervento non valida", 422);
 
+  // Costo effettivo: quello indicato ora, altrimenti quello già memorizzato.
   let costoCent = item.costoCent;
   if (p.data.costoEuro) {
-    const n = Math.round(Number(String(p.data.costoEuro).trim().replace(",", ".")) * 100);
-    if (!Number.isFinite(n) || n < 0) return fail("Costo non valido", 422);
+    const n = parseEuro(p.data.costoEuro);
+    if (n === null) return fail("Costo non valido", 422);
     costoCent = n;
   }
 
-  const upd = await prisma.maintenance.update({
-    where: { id: item.id },
-    data: { eseguitoAt: quando, costoCent },
-  });
+  let costoPrevistoCent = item.costoPrevistoCent;
+  if (p.data.costoPrevistoEuro) {
+    const n = parseEuro(p.data.costoPrevistoEuro);
+    if (n === null) return fail("Costo previsto non valido", 422);
+    costoPrevistoCent = n;
+  }
 
-  // Il costo sostenuto diventa una spesa nel resoconto (una sola volta).
-  if (costoCent && costoCent > 0) {
-    const esistente = await prisma.expense.findFirst({
-      where: { tenantId: t.tenantId, descrizione: `Manutenzione: ${item.titolo}`, boatId: item.boatId },
-      select: { id: true },
-    });
-    if (!esistente) {
-      await prisma.expense.create({
-        data: {
+  try {
+    const upd = await prisma.$transaction(async (tx) => {
+      const salvato = await tx.maintenance.update({
+        where: { id: item.id },
+        data: { eseguitoAt: quando, costoCent, costoPrevistoCent },
+      });
+      const esistente = await tx.expense.findUnique({ where: { maintenanceId: item.id }, select: { id: true } });
+      if (costoCent && costoCent > 0) {
+        const dati = {
           tenantId: t.tenantId,
           boatId: item.boatId,
-          categoria: "manutenzione",
+          categoria: "manutenzione" as const,
           descrizione: `Manutenzione: ${item.titolo}`,
           importoCent: costoCent,
           data: quando,
           note: "Generata dall'intervento in Manutenzione",
           creatoDa: t.userId,
-        },
-      });
+        };
+        if (esistente) await tx.expense.update({ where: { id: esistente.id }, data: { ...dati, maintenanceId: item.id } });
+        else await tx.expense.create({ data: { ...dati, maintenanceId: item.id } });
+      } else if (esistente) {
+        await tx.expense.delete({ where: { id: esistente.id } });
+      }
+      return salvato;
+    });
+    return ok(upd);
+  } catch (e) {
+    if (isP2002(e)) {
+      // Un'altra richiesta ha già registrato la spesa: si rilegge lo stato.
+      const corrente = await prisma.maintenance.findFirst({ where: { id: item.id, tenantId: t.tenantId } });
+      return ok(corrente);
     }
+    throw e;
   }
-
-  return ok(upd);
 }
 
 export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -74,6 +102,7 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }
   const { id } = await ctx.params;
   const item = await prisma.maintenance.findFirst({ where: { id, tenantId: t.tenantId }, select: { id: true } });
   if (!item) return fail("Intervento non trovato", 404);
+  // La spesa collegata segue l'intervento (FK ON DELETE CASCADE).
   await prisma.maintenance.delete({ where: { id: item.id } });
   return ok({ id: item.id, eliminato: true });
 }

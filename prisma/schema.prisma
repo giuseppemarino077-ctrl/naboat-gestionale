@@ -72,6 +72,7 @@ model Tenant {
   serviziCatalogo   ServizioCatalogo[]
   addebiti          Addebito[]
   contrattiOrmeggio ContrattoOrmeggio[]
+  assegnazioniPosto AssegnazionePosto[]
 
   // --- Pagamenti online (RFQ Fase 2). Tutto spento di default. ---
   pagamentiAttivi        Boolean @default(false) // interruttore generale deciso dall'azienda
@@ -281,6 +282,7 @@ model Boat {
   maintenance      Maintenance[]
   tariffe          Tariffa[]
   permanenze       Permanenza[]
+  assegnazioniPosto AssegnazionePosto[]
 
   // --- Catalogo pubblico e scheda imbarcazione ---
   descrizione  String?
@@ -712,9 +714,11 @@ model Maintenance {
   dataScadenza DateTime?
   oreMotore    Int?
   eseguitoAt   DateTime?
-  costoCent    Int?
+  costoCent    Int? // costo effettivo sostenuto
+  costoPrevistoCent Int? // preventivo indicato in apertura
   note         String?
   createdAt    DateTime       @default(now())
+  expense      Expense? // spesa generata al completamento (una sola, collegata)
 
   @@index([tenantId, dataScadenza])
   @@index([boatId])
@@ -774,6 +778,10 @@ model Expense {
   note        String?
   creatoDa    String?
   createdAt   DateTime         @default(now())
+  // Spesa generata da un intervento di manutenzione: il collegamento per id
+  // distingue interventi omonimi e impedisce doppioni sullo stesso completamento.
+  maintenanceId String?        @unique
+  maintenance   Maintenance?   @relation(fields: [maintenanceId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, data])
   @@index([boatId])
@@ -871,6 +879,7 @@ model Posto {
   lunghezzaMaxCm Int?
   larghezzaMaxCm Int?
   permanenze     Permanenza[]
+  assegnazioni   AssegnazionePosto[]
   createdAt      DateTime     @default(now())
 
   @@unique([areaId, riga, colonna])
@@ -900,11 +909,36 @@ model Permanenza {
   addebiti          Addebito[]
   contratto         ContrattoOrmeggio?
   payments          Payment[]
+  assegnazioni      AssegnazionePosto[]
   createdAt         DateTime             @default(now())
 
   @@index([tenantId, stato])
   @@index([boatId])
   @@index([postoId])
+}
+
+// Assegnazione del posto con validità temporale: è la verità storica della posizione
+// della barca. Permanenza.postoId resta come «posto corrente» per compatibilità, ma la
+// griglia ricostruisce il passato da questi intervalli. Un trasferimento chiude
+// l'intervallo precedente e ne apre uno nuovo. Un'uscita in mare NON chiude l'assegnazione.
+model AssegnazionePosto {
+  id           String     @id @default(uuid())
+  tenantId     String
+  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  permanenzaId String
+  permanenza   Permanenza @relation(fields: [permanenzaId], references: [id], onDelete: Cascade)
+  postoId      String
+  posto        Posto      @relation(fields: [postoId], references: [id], onDelete: Restrict)
+  boatId       String
+  boat         Boat       @relation(fields: [boatId], references: [id], onDelete: Restrict)
+  dal          DateTime
+  al           DateTime? // null = ancora in corso
+  createdAt    DateTime   @default(now())
+
+  @@index([tenantId, dal])
+  @@index([permanenzaId])
+  @@index([postoId])
+  @@index([boatId])
 }
 
 // Uscita programmata, uscita effettiva, rientro, trasferimento di posto.
@@ -945,6 +979,7 @@ model Attivita {
   completatoAt DateTime?
   note         String?
   createdAt    DateTime      @default(now())
+  addebito     Addebito? // voce di conto generata al completamento (se dovuta)
 
   @@index([tenantId, dataPrevista])
   @@index([permanenzaId])
@@ -977,7 +1012,8 @@ model Addebito {
   data         DateTime        @default(now())
   origine      AddebitoOrigine @default(altro)
   stato        AddebitoStato   @default(da_pagare)
-  attivitaId   String? // se nasce da un servizio completato
+  attivitaId   String? @unique // se nasce da un servizio completato (uno solo per attività)
+  attivita     Attivita? @relation(fields: [attivitaId], references: [id], onDelete: SetNull)
   createdAt    DateTime        @default(now())
 
   @@index([tenantId, data])

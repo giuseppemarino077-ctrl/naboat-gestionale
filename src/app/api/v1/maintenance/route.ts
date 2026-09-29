@@ -23,7 +23,7 @@ export async function GET(req: Request) {
     where,
     orderBy: [{ eseguitoAt: "asc" }, { dataScadenza: "asc" }],
     take: 500,
-    include: { boat: { select: { nome: true } } },
+    include: { boat: { select: { nome: true } }, expense: { select: { id: true, importoCent: true, data: true } } },
   });
 
   const oggi = new Date();
@@ -47,6 +47,7 @@ const Schema = z.object({
   dataScadenza: z.string().max(40).optional().nullable(),
   oreMotore: z.number().int().min(0).max(1000000).optional().nullable(),
   costoEuro: z.string().max(20).optional().nullable(),
+  costoPrevistoEuro: z.string().max(20).optional().nullable(),
   note: z.string().max(1000).optional().nullable(),
 });
 
@@ -72,6 +73,13 @@ export async function POST(req: Request) {
     if (costoCent === null) return fail("Costo non valido", 422);
   }
 
+  // Preventivo: se non indicato a parte, all'apertura il costo indicato è la stima.
+  let costoPrevistoCent: number | null = costoCent;
+  if (p.data.costoPrevistoEuro) {
+    costoPrevistoCent = parseEuro(p.data.costoPrevistoEuro);
+    if (costoPrevistoCent === null) return fail("Costo previsto non valido", 422);
+  }
+
   const item = await prisma.maintenance.create({
     data: {
       tenantId: t.tenantId,
@@ -81,6 +89,7 @@ export async function POST(req: Request) {
       dataScadenza,
       oreMotore: p.data.oreMotore ?? null,
       costoCent,
+      costoPrevistoCent,
       note: p.data.note ?? null,
     },
   });

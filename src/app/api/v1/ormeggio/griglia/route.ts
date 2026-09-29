@@ -2,8 +2,10 @@ import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { requireOrmeggio } from "@/lib/ormeggio";
 
-// Griglia ormeggio per una data: posti + permanenza attiva con lo stato "semaforico".
-// verde = tutto a posto · giallo = c'è qualcosa da sistemare · rosso = barca bloccata.
+// Griglia ormeggio per una data: posti + permanenza presente a quella data.
+// La posizione NON si legge da Permanenza.postoId (che è solo il posto corrente):
+// si ricostruisce dalle assegnazioni con validità temporale, così una data passata
+// mostra il posto realmente occupato allora, anche dopo spostamenti o chiusure.
 export async function GET(req: Request) {
   const t = await requireOrmeggio(req);
   if ("error" in t) return t.error;
@@ -14,31 +16,37 @@ export async function GET(req: Request) {
   const inizio = new Date(data); inizio.setHours(0, 0, 0, 0);
   const fine = new Date(data); fine.setHours(23, 59, 59, 999);
 
-  const [aree, permanenze] = await Promise.all([
+  const [aree, assegnazioni] = await Promise.all([
     prisma.area.findMany({
       where: { tenantId: t.tenantId },
       orderBy: [{ ordine: "asc" }, { createdAt: "asc" }],
       include: { posti: { orderBy: [{ riga: "asc" }, { colonna: "asc" }] } },
     }),
-    prisma.permanenza.findMany({
+    prisma.assegnazionePosto.findMany({
       where: {
         tenantId: t.tenantId,
-        stato: "attiva",
-        inizioAt: { lte: fine },
-        OR: [{ fineAt: { gte: inizio } }, { fineAt: null, finePrevistaAt: null }, { fineAt: null, finePrevistaAt: { gte: inizio } }],
+        dal: { lte: fine },
+        OR: [{ al: null }, { al: { gt: inizio } }],
       },
       include: {
-        boat: { include: { proprietario: { select: { nome: true, telefono: true } } } },
-        attivita: { select: { stato: true } },
-        addebiti: { select: { importoCent: true, stato: true } },
-        payments: { select: { stato: true, totaleCent: true } },
-        contratto: { select: { firmatoAt: true } },
-        movimenti: { select: { tipo: true, effettivoAt: true }, orderBy: [{ effettivoAt: "desc" }, { createdAt: "desc" }] },
+        posto: { select: { id: true, areaId: true } },
+        permanenza: {
+          include: {
+            boat: { include: { proprietario: { select: { nome: true, telefono: true } } } },
+            attivita: { select: { stato: true } },
+            addebiti: { select: { importoCent: true, stato: true } },
+            payments: { select: { stato: true, totaleCent: true } },
+            contratto: { select: { firmatoAt: true } },
+            movimenti: { select: { tipo: true, effettivoAt: true }, orderBy: [{ effettivoAt: "desc" }, { createdAt: "desc" }] },
+          },
+        },
       },
     }),
   ]);
 
-  function semaforo(p: (typeof permanenze)[number]) {
+  type Perm = (typeof assegnazioni)[number]["permanenza"];
+
+  function semaforo(p: Perm) {
     const motivi: string[] = [];
     const bloccata = p.boat.stato === "manutenzione" || p.boat.stato === "non_disponibile";
     if (p.boat.stato === "manutenzione") motivi.push("barca in manutenzione");
@@ -54,10 +62,14 @@ export async function GET(req: Request) {
   }
 
   // Stato per la griglia "a battaglia navale": in sosta · da fare · in mare · bloccata.
-  // "In mare" significa presenza della barca fuori: l'ultimo movimento effettivo è un'uscita
-  // senza rientro; il posto resta assegnato.
-  function statoGriglia(p: (typeof permanenze)[number]) {
-    const ultimo = p.movimenti.find((m) => (m.tipo === "uscita" || m.tipo === "rientro") && m.effettivoAt);
+  // "In mare" significa presenza della barca fuori: l'ultimo movimento effettivo
+  // (fino alla data mostrata) è un'uscita senza rientro; il posto resta assegnato.
+  function statoGriglia(p: Perm) {
+    const ultimo = p.movimenti.find((m) => {
+      if (m.tipo !== "uscita" && m.tipo !== "rientro") return false;
+      if (!m.effettivoAt) return false;
+      return new Date(m.effettivoAt) <= fine;
+    });
     const inMare = ultimo?.tipo === "uscita";
     const bloccata = p.boat.stato === "manutenzione" || p.boat.stato === "non_disponibile";
     const attivitaDaFare = p.attivita.filter((a) => a.stato === "da_fare" || a.stato === "in_corso").length;
@@ -65,7 +77,7 @@ export async function GET(req: Request) {
     return { statoGriglia: stato, inMare, attivitaDaFare };
   }
 
-  const perPosto = new Map(permanenze.map((p) => [p.postoId, p]));
+  const perPosto = new Map(assegnazioni.map((a) => [a.postoId, a.permanenza]));
 
   const areeOut = aree.map((a) => ({
     id: a.id,
@@ -73,7 +85,7 @@ export async function GET(req: Request) {
     righe: a.righe,
     colonne: a.colonne,
     posti: a.posti.map((posto) => {
-      const perm = perPosto.get(posto.id);
+      const perm = perPosto.get(posto.id) ?? null;
       return {
         id: posto.id,
         riga: posto.riga,
