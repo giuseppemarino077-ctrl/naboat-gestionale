@@ -58,13 +58,14 @@ Stati ammessi: **da verificare** · **confermato** · **corretto e verificato** 
 | T02 | P0 rilascio | release non identificata | `GET /api/version` (SHA da env di build) | V48 | corretto e verificato (`sha` da GIT_SHA/BUILD_SHA) |
 | T03 | P1 | RLS parziale, healthcheck su healthz | scoping prima, RLS dopo; readiness | V48 | da verificare |
 | T04 | P1 | doppia schedulazione backup | inventario job + autorità unica | V48 | da verificare |
-| T05 | P2 | liste troncate senza paginazione | paginazione + filtri DB | V45 | da verificare |
-| T06 | P2 | regole duplicate, doc non allineata | servizi + DTO + doc aggiornata | — | da verificare |
+| T05 | P2 | liste troncate senza paginazione | paginazione retro-compatibile (array + `X-Total-Count`, involucro con `?page=`) + conteggi/filtri DB + finestra calendario 180g + catalogo su DB + indici | V45 + smoke T05 | corretto e verificato (smoke ok; EXPLAIN sugli indici) |
+| T06 | P2 | regole duplicate, doc non allineata | servizi + DTO + doc aggiornata | — | parziale: doc aggiornata (AGENTS/README/DEPLOY/MIGRAZIONE-URL + registro), nessuna estrazione di route (rimandata per prudenza) |
 
 ## Diario delle fasi
 
 - **Fase 0** — completata: ramo `stabilizzazione-audit`, registro, lint/typecheck/build non interattivi, CI, endpoint `/api/version`.
 - **Fase 1** — in corso: corretti A02, A03, A04, A06, A08, B05 (P0). Restano A01 (onboarding/pagina attesa), A05 (permesso importi esteso), A07 (verifica email/inviti), B01–B04, B06–B09.
+- **T05/T06 (questo intervento)** — paginazione retro-compatibile su prenotazioni/clienti/spese/incassi con conteggi nel DB e `X-Total-Count`; finestra calendario 180 giorni; catalogo pubblico filtrato/limitato nel DB; indici `Booking(tenantId,startAt)` e `Customer(tenantId,createdAt)` (migrazione dedicata, verificati con `EXPLAIN`); pagine con totale e «Mostra altri»; doc allineata (AGENTS, README, DEPLOY, MIGRAZIONE-URL). T06 resta parziale: non sono state estratte route monolitiche (nessuna rimozione per prudenza). Dettagli e limiti nel resoconto finale.
 - Fasi 2–7 — da iniziare.
 
 ## Decisioni di prodotto in sospeso (dal §16 del prompt)

@@ -3,6 +3,7 @@ import { chiaveDedup, normalizzaEmail } from "@/lib/anagrafica";
 import { esitoPatente } from "@/lib/clienti";
 import { prisma } from "@/lib/db";
 import { bloccaRisorse, validaBarcaNoleggio, verificaDisponibilita } from "@/lib/disponibilita";
+import { leggiPaginazione, rispostaPaginata } from "@/lib/paginazione";
 import { parseImportoEuro } from "@/lib/payments";
 import { extrasDelTenant } from "@/lib/riferimenti";
 import { requireAzienda } from "@/lib/tenant";
@@ -44,15 +45,21 @@ export async function GET(req: Request) {
   if (q.get("to")) where.endAt = { ...(where.endAt ?? {}), lte: new Date(q.get("to")!) };
   if (q.get("boatId")) where.boatId = q.get("boatId");
   if (q.get("stato")) where.stato = q.get("stato");
-  const list = await prisma.booking.findMany({
-    where,
-    orderBy: { startAt: "asc" },
-    take: 200,
-    include: { boat: { select: { nome: true } }, skipper: { select: { nome: true } }, extras: { include: { extra: true } } },
-  });
-  const pulita = list.map(senzaLinkOspite);
-  if (t.vedeImporti === false) return ok(pulita.map(prenotazioneSenzaImporti));
-  return ok(pulita);
+  // Conteggio e finestra dal database: nessun filtro o taglio in memoria.
+  const pag = leggiPaginazione(q, 200);
+  const [totale, list] = await Promise.all([
+    prisma.booking.count({ where }),
+    prisma.booking.findMany({
+      where,
+      orderBy: { startAt: "asc" },
+      skip: pag.salta,
+      take: pag.dimensione,
+      include: { boat: { select: { nome: true } }, skipper: { select: { nome: true } }, extras: { include: { extra: true } } },
+    }),
+  ]);
+  let pulita = list.map(senzaLinkOspite);
+  if (t.vedeImporti === false) pulita = pulita.map(prenotazioneSenzaImporti);
+  return rispostaPaginata(pulita, totale, pag);
 }
 
 const Schema = z.object({

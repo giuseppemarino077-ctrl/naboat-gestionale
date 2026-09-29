@@ -25,7 +25,7 @@
 - [ ] `REQUIRE_2FA=true` e `REQUIRE_EMAIL_VERIFY=true`
 - [ ] **SMTP Aruba**: `SMTP_HOST=smtps.aruba.it`, `SMTP_USER`, `SMTP_PASS` della casella `@naboat.it`
 - [ ] **Turnstile**: `TURNSTILE_SECRET`, `NEXT_PUBLIC_TURNSTILE_SITEKEY`
-- [ ] **Pagamenti aziende**: le chiavi Stripe le inserisce ogni azienda da `/pagamenti` (cifrate nel DB); webhook per azienda `https://naboat.it/api/v1/payments/webhook`
+- [ ] **Pagamenti aziende**: le chiavi Stripe le inserisce ogni azienda da `/gestionale/economia/pagamenti` (cifrate nel DB); webhook per azienda `https://naboat.it/api/v1/payments/webhook`
 - [ ] **Abbonamento a NaBoat**: `PLATFORM_STRIPE_SECRET_KEY`, `PLATFORM_STRIPE_WEBHOOK_SECRET`; webhook `https://naboat.it/api/v1/subscription/webhook`
 - [ ] **Promemoria automatici**: impostare `CRON_SECRET` (stringa lunga casuale) e aggiungere al crontab dell'host:
       ```bash
@@ -152,7 +152,7 @@ Un file di backup non prova da solo che sia ripristinabile: la verifica è **leg
 
 ## 7. Sicurezza applicativa (implementata)
 - Sessioni JWT httpOnly, rate-limit su Redis (login 20/10min per IP + 10/10min per email; register 5/ora).
-- **2FA TOTP** per ogni utente da `/sicurezza`; obbligatoria per owner/superadmin con `REQUIRE_2FA=true`.
+- **2FA TOTP** per ogni utente da `/gestionale/impostazioni/sicurezza`; obbligatoria per owner/superadmin con `REQUIRE_2FA=true`.
 - **Verifica email** del proprietario (`REQUIRE_EMAIL_VERIFY=true` blocca finché non confermata).
 - **Turnstile** su login e registrazione.
 - Header: CSP, HSTS, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy.

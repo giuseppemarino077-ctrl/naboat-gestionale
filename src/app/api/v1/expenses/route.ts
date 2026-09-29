@@ -1,5 +1,6 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
+import { leggiPaginazione, rispostaPaginata } from "@/lib/paginazione";
 import { requireAzienda } from "@/lib/tenant";
 import { z } from "zod";
 
@@ -18,13 +19,19 @@ export async function GET(req: Request) {
       ...(q.get("to") ? { lte: new Date(q.get("to")!) } : {}),
     };
   }
-  const list = await prisma.expense.findMany({
-    where,
-    orderBy: { data: "desc" },
-    take: 500,
-    include: { boat: { select: { nome: true } } },
-  });
-  return ok(list);
+  // Conteggio e finestra dal database: nessun filtro o taglio in memoria.
+  const pag = leggiPaginazione(q, 500);
+  const [totale, list] = await Promise.all([
+    prisma.expense.count({ where }),
+    prisma.expense.findMany({
+      where,
+      orderBy: { data: "desc" },
+      skip: pag.salta,
+      take: pag.dimensione,
+      include: { boat: { select: { nome: true } } },
+    }),
+  ]);
+  return rispostaPaginata(list, totale, pag);
 }
 
 const CATEGORIE = [

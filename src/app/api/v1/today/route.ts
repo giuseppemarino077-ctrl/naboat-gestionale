@@ -28,7 +28,21 @@ export async function GET(req: Request) {
       where: { tenantId: t.tenantId, stato: { in: ["prenotata", "in_mare"] }, startAt: { gte: dayStart, lte: dayEnd }, ...filtroSkipper },
       orderBy: { startAt: "asc" },
       take: 8,
-      include: { boat: { select: { nome: true } } },
+      // Solo i campi mostrati dal cruscotto: nessuna lettura inutile.
+      select: {
+        id: true,
+        startAt: true,
+        stato: true,
+        clienteNome: true,
+        destinazione: true,
+        telefono: true,
+        prezzoCent: true,
+        cauzioneStato: true,
+        checkinAt: true,
+        checkoutAt: true,
+        contrattoFirmatoAt: true,
+        boat: { select: { nome: true } },
+      },
     }),
   ]);
 

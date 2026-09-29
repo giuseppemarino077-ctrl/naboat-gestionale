@@ -6,14 +6,44 @@ export default function ClientiPage() {
   const [q, setQ] = useState("");
   const [err, setErr] = useState("");
   const [edit, setEdit] = useState<any>(null);
+  // Paginazione server (retro-compatibile): prima pagina più «Mostra altri».
+  const PAGE = 100;
+  const [totale, setTotale] = useState(0);
+  const [pagina, setPagina] = useState(1);
+  const [caricandoAltri, setCaricandoAltri] = useState(false);
 
   const load = (query = "") => {
-    fetch(`/api/v1/customers${query ? `?q=${encodeURIComponent(query)}` : ""}`)
+    fetch(`/api/v1/customers?page=1&limit=${PAGE}${query ? `&q=${encodeURIComponent(query)}` : ""}`)
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
-      .then((j) => { if (Array.isArray(j)) { setList(j); setErr(""); } else setErr("Serve login con azienda attiva."); })
+      .then((j) => {
+        const items = Array.isArray(j) ? j : j?.items;
+        if (Array.isArray(items)) {
+          setList(items);
+          setTotale(Array.isArray(j) ? items.length : (j?.totale ?? items.length));
+          setPagina(1);
+          setErr("");
+        } else setErr("Serve login con azienda attiva.");
+      })
       .catch(() => setErr("Serve login con azienda attiva."));
   };
   useEffect(() => load(), []);
+
+  const mostraAltri = async () => {
+    setCaricandoAltri(true);
+    try {
+      const r = await fetch(`/api/v1/customers?page=${pagina + 1}&limit=${PAGE}${q ? `&q=${encodeURIComponent(q)}` : ""}`);
+      if (!r.ok) throw new Error();
+      const j = await r.json();
+      const items = Array.isArray(j) ? j : (j?.items ?? []);
+      if (items.length) {
+        setList((prev) => [...prev, ...items]);
+        setPagina((p) => p + 1);
+        if (j?.totale != null) setTotale(j.totale);
+      }
+    } catch { /* rete: si riprova */ } finally {
+      setCaricandoAltri(false);
+    }
+  };
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,6 +83,20 @@ export default function ClientiPage() {
         </div>
       ))}
       {list.length === 0 && <p className="text-sm text-muted">Nessun cliente: si creano automaticamente dalle prenotazioni.</p>}
+      {list.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-muted">{list.length < totale ? `mostrati ${list.length} di ${totale} clienti` : `${totale} clienti`}</p>
+          {list.length < totale && (
+            <button
+              className="rounded-full border border-line px-3 py-1.5 text-xs font-bold text-ocean hover:bg-foam disabled:opacity-60"
+              onClick={mostraAltri}
+              disabled={caricandoAltri}
+            >
+              {caricandoAltri ? "Carico…" : `Mostra altri (${totale - list.length})`}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

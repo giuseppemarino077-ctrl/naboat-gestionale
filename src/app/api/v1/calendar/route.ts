@@ -2,6 +2,9 @@ import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { requireTenant } from "@/lib/tenant";
 
+// Finestra massima richiedibile in una sola chiamata (un calendario non carica anni interi).
+const FINESTRA_MASSIMA_GIORNI = 180;
+
 // Campi della prenotazione necessari al calendario. Token di pagamento/contratto,
 // foto dei verbali e chiave di idempotenza non vengono mai esposti.
 const CAMPI_BOOKING = {
@@ -38,6 +41,11 @@ export async function GET(req: Request) {
   const from = new Date(q.get("from")!);
   const to = new Date(q.get("to")!);
   if (!(from < to)) return fail("Range non valido", 422);
+  // Finestra massima: un calendario non deve caricare anni in una volta sola.
+  const giorni = (to.getTime() - from.getTime()) / 86400000;
+  if (giorni > FINESTRA_MASSIMA_GIORNI) {
+    return fail(`Intervallo troppo ampio: massimo ${FINESTRA_MASSIMA_GIORNI} giorni (richiesti ${Math.ceil(giorni)})`, 422);
+  }
 
   const isSkipper = t.role === "skipper";
   let soloMio: string | null = null;

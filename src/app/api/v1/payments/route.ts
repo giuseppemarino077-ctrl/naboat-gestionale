@@ -15,6 +15,7 @@ import {
   type RefundStato,
 } from "@/lib/payments";
 import { requireAzienda } from "@/lib/tenant";
+import { leggiPaginazione, rispostaPaginata } from "@/lib/paginazione";
 import { z } from "zod";
 
 // Registro incassi dell'azienda.
@@ -26,13 +27,19 @@ export async function GET(req: Request) {
   const where: Record<string, unknown> = { tenantId: t.tenantId };
   if (q.get("bookingId")) where.bookingId = q.get("bookingId");
   if (q.get("stato")) where.stato = q.get("stato");
-  const list = await prisma.payment.findMany({
-    where,
-    orderBy: { createdAt: "desc" },
-    take: 200,
-    include: { booking: { select: { id: true, startAt: true, clienteNome: true, boat: { select: { nome: true } } } } },
-  });
-  return ok(list);
+  // Conteggio e finestra dal database: nessun filtro o taglio in memoria.
+  const pag = leggiPaginazione(q, 200);
+  const [totale, list] = await Promise.all([
+    prisma.payment.count({ where }),
+    prisma.payment.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: pag.salta,
+      take: pag.dimensione,
+      include: { booking: { select: { id: true, startAt: true, clienteNome: true, boat: { select: { nome: true } } } } },
+    }),
+  ]);
+  return rispostaPaginata(list, totale, pag);
 }
 
 const ManualeSchema = z.object({

@@ -36,14 +36,26 @@ export default function PrenotazioniPage() {
   const [dal, setDal] = useState("");
   const [al, setAl] = useState("");
   const [caricato, setCaricato] = useState(false);
+  // Paginazione server: il primo blocco è di PAGE righe; «Mostra altre» ne aggiunge
+  // altri senza toccare i filtri locali applicati all'elenco caricato.
+  const PAGE = 200;
+  const [totale, setTotale] = useState(0);
+  const [pagina, setPagina] = useState(1);
+  const [caricandoAltri, setCaricandoAltri] = useState(false);
 
   const carica = () =>
     Promise.all([
-      fetch("/api/v1/bookings").then((r) => { if (!r.ok) throw new Error(); return r.json(); }),
+      fetch(`/api/v1/bookings?page=1&limit=${PAGE}`).then((r) => { if (!r.ok) throw new Error(); return r.json(); }),
       fetch("/api/v1/payments").then((r) => r.json()).catch(() => []),
     ])
       .then(([b, p]) => {
-        if (Array.isArray(b)) { setBookings(b); setErr(""); } else setErr("Serve login con azienda attiva.");
+        const items = Array.isArray(b) ? b : b?.items;
+        if (Array.isArray(items)) {
+          setBookings(items);
+          setTotale(Array.isArray(b) ? items.length : (b?.totale ?? items.length));
+          setPagina(1);
+          setErr("");
+        } else setErr("Serve login con azienda attiva.");
         if (Array.isArray(p)) {
           const m: Record<string, number> = {};
           for (const x of p) if (x.bookingId && x.stato === "pagato") m[x.bookingId] = (m[x.bookingId] ?? 0) + x.totaleCent;
@@ -52,6 +64,23 @@ export default function PrenotazioniPage() {
       })
       .catch(() => setErr("Serve login con azienda attiva."))
       .finally(() => setCaricato(true));
+
+  const mostraAltri = async () => {
+    setCaricandoAltri(true);
+    try {
+      const r = await fetch(`/api/v1/bookings?page=${pagina + 1}&limit=${PAGE}`);
+      if (!r.ok) throw new Error();
+      const j = await r.json();
+      const items = Array.isArray(j) ? j : (j?.items ?? []);
+      if (items.length) {
+        setBookings((prev) => [...prev, ...items]);
+        setPagina((p) => p + 1);
+        if (j?.totale != null) setTotale(j.totale);
+      }
+    } catch { /* rete: si riprova con il pulsante */ } finally {
+      setCaricandoAltri(false);
+    }
+  };
 
   useEffect(() => { carica(); }, []);
   // Elenco sempre allineato: i filtri sono locali e non vengono toccati dal ricarico.
@@ -113,7 +142,21 @@ export default function PrenotazioniPage() {
         <Caricamento testo="Carico le prenotazioni…" />
       ) : (
         <>
-          <p className="px-1 text-sm text-muted">{visibili.length} {visibili.length === 1 ? "prenotazione" : "prenotazioni"}</p>
+          <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+            <p className="text-sm text-muted">
+              {visibili.length} {visibili.length === 1 ? "prenotazione" : "prenotazioni"}
+              {bookings.length < totale ? ` · mostrate ${bookings.length} di ${totale}` : ""}
+            </p>
+            {bookings.length < totale && (
+              <button
+                className="rounded-full border border-line px-3 py-1.5 text-xs font-bold text-ocean hover:bg-foam disabled:opacity-60"
+                onClick={mostraAltri}
+                disabled={caricandoAltri}
+              >
+                {caricandoAltri ? "Carico…" : `Mostra altre (${totale - bookings.length})`}
+              </button>
+            )}
+          </div>
 
           <div className="overflow-x-auto rounded-3xl border border-line bg-white shadow-sm">
             <table className="w-full min-w-[860px] text-sm">

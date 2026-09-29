@@ -96,3 +96,6 @@ separato dal gestionale delle aziende.
   `requireCliente`) e nel middleware; i layout servono solo a orientare l'interfaccia.
 - Il gestionale resta **noindex**: `robots.ts` blocca `/gestionale`, `/admin`, `/area` e le
   pagine per token.
+- Le **liste** (prenotazioni, clienti, spese, incassi) hanno mantenuto il percorso: la
+  forma è retro-compatibile (array con header `X-Total-Count`) e diventa un involucro
+  `{ items, totale, pagina, dimensione, pagine }` solo con `?page=`. Vedi README e AGENTS.

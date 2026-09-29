@@ -26,6 +26,10 @@ export const FILTRO_CATALOGO: Prisma.BoatWhereInput = {
   tenant: { status: "active", moduloMarketplace: true },
 };
 
+// Tetto di barche servite in una singola pagina di catalogo. Le facet (tipi/porti)
+// restano calcolate su tutto il catalogo, così i filtri non fanno sparire opzioni.
+export const LIMITE_CATALOGO = 200;
+
 // Requisiti valutati su una barca già caricata (stessa regola del filtro).
 // Serve a spiegare con un messaggio chiaro perché una barca non è pubblicabile.
 export type RequisitiCatalogo = {
@@ -469,15 +473,35 @@ const ETICHETTA_TIPO: Record<TipoTariffa, string> = {
 // principali sono luogo, date e persone; tipo, skipper e requisiti sono progressivi.
 // Con le date presenti si usa la disponibilità reale e il prezzo per la durata.
 export async function catalogoPubblico(filtri: FiltriCatalogo = {}): Promise<CatalogoPubblico> {
-  const boats = await prisma.boat.findMany({
-    where: FILTRO_CATALOGO,
-    include: {
-      porto: { select: { nome: true } },
-      tenant: { select: { nome: true, slug: true, skippers: { where: { attivo: true }, select: { id: true }, take: 1 } } },
-      tariffe: { where: { attivo: true }, select: { id: true, boatId: true, tipo: true, stagione: true, prezzoCent: true, createdAt: true } },
-    },
-    orderBy: { nome: "asc" },
-  });
+  // I filtri del percorso «Noleggia» sono applicati DAL DATABASE (tipo, posti,
+  // patente, porto, disponibilità di skipper): mai un filtro in memoria su tutto
+  // il catalogo. La finestra è limitata per non caricare l'intero parco barche.
+  const where: Prisma.BoatWhereInput = { ...FILTRO_BARCA_CATALOGO };
+  if (filtri.tipo) where.tipo = filtri.tipo;
+  if (filtri.persone) where.capienza = { gte: filtri.persone };
+  if (filtri.patente === "si") where.patenteRichiesta = true;
+  if (filtri.patente === "no") where.patenteRichiesta = false;
+  if (filtri.porto) where.porto = { nome: filtri.porto };
+  const tenantWhere: Prisma.TenantWhereInput = { status: "active", moduloMarketplace: true };
+  if (filtri.skipper === true) tenantWhere.skippers = { some: { attivo: true } };
+  if (filtri.skipper === false) tenantWhere.skippers = { none: { attivo: true } };
+  where.tenant = tenantWhere;
+
+  const [boats, tipiRighe, portiRighe] = await Promise.all([
+    prisma.boat.findMany({
+      where,
+      include: {
+        porto: { select: { nome: true } },
+        tenant: { select: { nome: true, slug: true, skippers: { where: { attivo: true }, select: { id: true }, take: 1 } } },
+        tariffe: { where: { attivo: true }, select: { id: true, boatId: true, tipo: true, stagione: true, prezzoCent: true, createdAt: true } },
+      },
+      orderBy: { nome: "asc" },
+      take: LIMITE_CATALOGO,
+    }),
+    // Facet su tutto il catalogo (indipendenti dal filtro): le opzioni non spariscono.
+    prisma.boat.findMany({ where: FILTRO_CATALOGO, distinct: ["tipo"], select: { tipo: true } }),
+    prisma.porto.findMany({ where: { boats: { some: FILTRO_CATALOGO } }, select: { nome: true }, orderBy: { nome: "asc" } }),
+  ]);
 
   const start = filtri.dal ? inizioGiorno(filtri.dal) : null;
   const end = filtri.al ? fineGiorno(filtri.al) : filtri.dal ? fineGiorno(filtri.dal) : null;
@@ -485,21 +509,10 @@ export async function catalogoPubblico(filtri: FiltriCatalogo = {}): Promise<Cat
   const tipoPeriodo = conData ? tipoDaDurata(start!, end!) : null;
   const stagionePeriodo = conData ? stagioneDi(start!) : null;
 
-  // Facet calcolate su tutto il catalogo: le opzioni non spariscono cambiando filtro.
-  const tipi = Array.from(new Set(boats.map((b) => b.tipo).filter(Boolean))) as string[];
-  const porti = Array.from(new Set(boats.map((b) => b.porto?.nome).filter(Boolean))) as string[];
+  const tipi = (tipiRighe.map((b) => b.tipo).filter(Boolean) as string[]).sort();
+  const porti = Array.from(new Set(portiRighe.map((p) => p.nome).filter(Boolean))) as string[];
 
-  let filtrate = boats.filter((b) => {
-    const conSkipper = b.tenant.skippers.length > 0;
-    if (filtri.tipo && b.tipo !== filtri.tipo) return false;
-    if (filtri.porto && b.porto?.nome !== filtri.porto) return false;
-    if (filtri.persone && b.capienza < filtri.persone) return false;
-    if (filtri.skipper === true && !conSkipper) return false;
-    if (filtri.skipper === false && conSkipper) return false;
-    if (filtri.patente === "si" && !b.patenteRichiesta) return false;
-    if (filtri.patente === "no" && b.patenteRichiesta) return false;
-    return true;
-  });
+  let filtrate = boats;
 
   // Con le date: si tengono solo le barche davvero libere, con il servizio condiviso.
   if (conData) {

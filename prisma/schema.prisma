@@ -376,6 +376,7 @@ model Customer {
 
   @@unique([tenantId, dedupKey])
   @@index([tenantId])
+  @@index([tenantId, createdAt])
 }
 
 model Booking {
@@ -479,6 +480,7 @@ model Booking {
 
   @@index([tenantId, boatId, startAt])
   @@index([tenantId, stato, opzioneScadenzaAt])
+  @@index([tenantId, startAt])
 }
 
 model Block {

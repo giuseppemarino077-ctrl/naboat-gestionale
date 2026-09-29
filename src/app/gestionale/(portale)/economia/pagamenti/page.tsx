@@ -39,6 +39,11 @@ export default function PagamentiPage() {
   const [pren, setPren] = useState<Booking[]>([]);
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
+  // Paginazione server del registro incassi (retro-compatibile): prima pagina + «Mostra altri».
+  const INCASSI_PAGE = 200;
+  const [incassiTotale, setIncassiTotale] = useState(0);
+  const [incassiPagina, setIncassiPagina] = useState(1);
+  const [caricandoIncassi, setCaricandoIncassi] = useState(false);
   const [chiavi, setChiavi] = useState({ stripeSecretKey: "", stripeWebhookSecret: "", stripePublicKey: "" });
   const [manuale, setManuale] = useState({ bookingId: "", importoEuro: "", metodo: "contanti", tipo: "totale", descrizione: "" });
   const conferma = useConferma();
@@ -53,9 +58,32 @@ export default function PagamentiPage() {
         .then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error); setImp(j); })
         .catch((e) => setErr(e.message ?? "Impostazioni non disponibili"));
     }
-    fetch("/api/v1/payments").then((r) => r.json()).then((j) => Array.isArray(j) && setLista(j)).catch(() => {});
+    fetch(`/api/v1/payments?page=1&limit=${INCASSI_PAGE}`)
+      .then((r) => r.json())
+      .then((j) => {
+        const items = Array.isArray(j) ? j : j?.items;
+        if (Array.isArray(items)) { setLista(items); setIncassiTotale(Array.isArray(j) ? items.length : (j?.totale ?? items.length)); setIncassiPagina(1); }
+      })
+      .catch(() => {});
     fetch("/api/v1/bookings").then((r) => r.json()).then((j) => Array.isArray(j) && setPren(j)).catch(() => {});
     fetch("/api/v1/payments/cauzione").then((r) => r.json()).then((j) => Array.isArray(j) && setCauzioni(j)).catch(() => {});
+  };
+
+  const mostraAltriIncassi = async () => {
+    setCaricandoIncassi(true);
+    try {
+      const r = await fetch(`/api/v1/payments?page=${incassiPagina + 1}&limit=${INCASSI_PAGE}`);
+      if (!r.ok) throw new Error();
+      const j = await r.json();
+      const items = Array.isArray(j) ? j : (j?.items ?? []);
+      if (items.length) {
+        setLista((prev) => [...prev, ...items]);
+        setIncassiPagina((p) => p + 1);
+        if (j?.totale != null) setIncassiTotale(j.totale);
+      }
+    } catch { /* rete: si riprova */ } finally {
+      setCaricandoIncassi(false);
+    }
   };
   useEffect(() => { if (utente !== undefined) load(); }, [utente]);
 
@@ -277,7 +305,18 @@ export default function PagamentiPage() {
       </div>
 
       <div className="card overflow-x-auto">
-        <div className="border-b border-line p-3 text-sm font-bold">Ultimi incassi</div>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line p-3 text-sm font-bold">
+          <span>Ultimi incassi{lista.length < incassiTotale ? ` · mostrati ${lista.length} di ${incassiTotale}` : ""}</span>
+          {lista.length < incassiTotale && (
+            <button
+              className="rounded-full border border-line px-3 py-1.5 text-xs font-bold text-ocean hover:bg-foam disabled:opacity-60"
+              onClick={mostraAltriIncassi}
+              disabled={caricandoIncassi}
+            >
+              {caricandoIncassi ? "Carico…" : `Mostra altri (${incassiTotale - lista.length})`}
+            </button>
+          )}
+        </div>
         <table className="w-full text-sm">
           <thead className="text-muted">
             <tr className="text-left">

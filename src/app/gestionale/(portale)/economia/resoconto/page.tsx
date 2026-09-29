@@ -32,6 +32,11 @@ export default function ResocontoPage() {
   const [boats, setBoats] = useState<Boat[]>([]);
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
+  // Paginazione server delle spese (retro-compatibile): prima pagina + «Mostra altri».
+  const SPESE_PAGE = 500;
+  const [speseTotale, setSpeseTotale] = useState(0);
+  const [spesePagina, setSpesePagina] = useState(1);
+  const [caricandoSpese, setCaricandoSpese] = useState(false);
   const [f, setF] = useState({ boatId: "", categoria: "carburante", descrizione: "", importoEuro: "", data: giorno(oggi), note: "" });
   const conferma = useConferma();
 
@@ -41,10 +46,33 @@ export default function ResocontoPage() {
     fetch(`/api/v1/reports/summary?${query}`)
       .then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error ?? "Errore"); setDati(j); })
       .catch((e) => setErr(e.message));
-    fetch(`/api/v1/expenses?${query}`).then((r) => r.json()).then((j) => Array.isArray(j) && setSpese(j)).catch(() => {});
+    fetch(`/api/v1/expenses?${query}&page=1&limit=${SPESE_PAGE}`)
+      .then((r) => r.json())
+      .then((j) => {
+        const items = Array.isArray(j) ? j : j?.items;
+        if (Array.isArray(items)) { setSpese(items); setSpeseTotale(Array.isArray(j) ? items.length : (j?.totale ?? items.length)); setSpesePagina(1); }
+      })
+      .catch(() => {});
     fetch("/api/v1/boats").then((r) => r.json()).then((j) => Array.isArray(j) && setBoats(j)).catch(() => {});
   };
   useEffect(load, [query]);
+
+  const mostraAltreSpese = async () => {
+    setCaricandoSpese(true);
+    try {
+      const r = await fetch(`/api/v1/expenses?${query}&page=${spesePagina + 1}&limit=${SPESE_PAGE}`);
+      if (!r.ok) throw new Error();
+      const j = await r.json();
+      const items = Array.isArray(j) ? j : (j?.items ?? []);
+      if (items.length) {
+        setSpese((prev) => [...prev, ...items]);
+        setSpesePagina((p) => p + 1);
+        if (j?.totale != null) setSpeseTotale(j.totale);
+      }
+    } catch { /* rete: si riprova */ } finally {
+      setCaricandoSpese(false);
+    }
+  };
 
   const api = async (url: string, method: string, body?: any) => {
     setMsg("");
@@ -183,7 +211,18 @@ export default function ResocontoPage() {
       </div>
 
       <div className="card overflow-x-auto">
-        <div className="border-b border-line p-3 text-sm font-bold">Spese del periodo</div>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line p-3 text-sm font-bold">
+          <span>Spese del periodo{spese.length < speseTotale ? ` · mostrate ${spese.length} di ${speseTotale}` : ""}</span>
+          {spese.length < speseTotale && (
+            <button
+              className="rounded-full border border-line px-3 py-1.5 text-xs font-bold text-ocean hover:bg-foam disabled:opacity-60"
+              onClick={mostraAltreSpese}
+              disabled={caricandoSpese}
+            >
+              {caricandoSpese ? "Carico…" : `Mostra altre (${speseTotale - spese.length})`}
+            </button>
+          )}
+        </div>
         <table className="w-full text-sm">
           <thead className="text-muted"><tr className="text-left">
             <th className="p-2">Data</th><th className="p-2">Descrizione</th><th className="p-2">Categoria</th><th className="p-2">Barca</th><th className="p-2">Importo</th><th className="p-2">Note</th><th className="p-2"></th>

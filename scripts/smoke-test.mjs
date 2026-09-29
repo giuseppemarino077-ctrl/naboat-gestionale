@@ -123,6 +123,17 @@ const run = async () => {
   T("calendario", (await json("A", "/api/v1/calendar?from=2028-05-01T00:00:00.000Z&to=2028-06-01T00:00:00.000Z")).data?.bookings?.length >= 1);
   T("clienti", (await json("A", "/api/v1/customers")).data?.length >= 1);
 
+  // ---- T05: paginazione retro-compatibile + X-Total-Count ----
+  const bkPag = await json("A", "/api/v1/bookings?page=1&limit=1");
+  T("prenotazioni: pagina con involucro", bkPag.status === 200 && Array.isArray(bkPag.data?.items) && bkPag.data.items.length <= 1 && typeof bkPag.data?.totale === "number" && bkPag.data?.pagina === 1 && bkPag.data?.dimensione === 1, JSON.stringify(bkPag.data).slice(0, 200));
+  T("prenotazioni: pagine coerenti col totale", bkPag.data?.pagine === Math.ceil((bkPag.data?.totale ?? 0) / (bkPag.data?.dimensione || 1)));
+  const bkHeader = await jar.fetch("/api/v1/bookings");
+  const bkHeaderBody = await bkHeader.json();
+  T("prenotazioni: forma array + header X-Total-Count", bkHeader.headers.get("x-total-count") !== null && Array.isArray(bkHeaderBody));
+  const cliPag = await json("A", "/api/v1/customers?page=1&limit=1");
+  T("clienti: pagina con involucro", cliPag.status === 200 && Array.isArray(cliPag.data?.items) && cliPag.data?.dimensione === 1 && typeof cliPag.data?.totale === "number");
+  T("calendario: finestra oltre 180 giorni -> 422", (await json("A", "/api/v1/calendar?from=2028-01-01T00:00:00.000Z&to=2028-12-31T23:59:59.999Z")).status === 422);
+
   // ---- B06: l'anagrafica non viene sovrascritta da una nuova prenotazione ----
   const bkStesso = await json("A", "/api/v1/bookings", "POST", {
     boatId: b.data.id, startAt: "2028-05-20T09:00:00.000Z", endAt: "2028-05-20T18:00:00.000Z",
@@ -191,6 +202,8 @@ const run = async () => {
   T("incasso manuale registrato", man.status === 201 && man.data?.importoCent === 50000 && man.data?.feeNaboatCent === 5000, `${man.status} ${JSON.stringify(man.data)}`);
   const plist = await json("A", "/api/v1/payments");
   T("registro incassi", Array.isArray(plist.data) && plist.data.length >= 1);
+  const plistPag = await json("A", "/api/v1/payments?page=1&limit=1");
+  T("incassi: pagina con involucro", plistPag.status === 200 && Array.isArray(plistPag.data?.items) && plistPag.data?.dimensione === 1 && typeof plistPag.data?.totale === "number");
 
   const rim = await json("A", `/api/v1/payments?id=${man.data.id}`, "PATCH", { azione: "rimborso" });
   T("rimborso parziale secondo regola (50%)", rim.status === 200 && rim.data?.rimborsoCent === 25000 && rim.data?.stato === "rimborsato_parziale", JSON.stringify(rim.data));
@@ -333,7 +346,7 @@ const run = async () => {
   await jarSkipper.fetch("/api/v1/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: utSkipper.data.email, password: "skipper-password-123" }) });
   // Lo skipper vede solo Oggi, Calendario, Turni e Meteo: il resto è riservato a proprietario e operatore.
   T("skipper consulta Oggi", (await jarSkipper.fetch("/api/v1/today")).status === 200);
-  T("skipper consulta il Calendario", (await jarSkipper.fetch("/api/v1/calendar?from=2028-01-01T00:00:00.000Z&to=2028-12-31T23:59:59.999Z")).status === 200);
+  T("skipper consulta il Calendario", (await jarSkipper.fetch("/api/v1/calendar?from=2028-01-01T00:00:00.000Z&to=2028-06-01T00:00:00.000Z")).status === 200);
   T("skipper consulta i Turni", (await jarSkipper.fetch("/api/v1/turni")).status === 200);
   T("skipper NON vede la Flotta", (await jarSkipper.fetch("/api/v1/boats")).status === 403);
   T("skipper NON vede i Clienti", (await jarSkipper.fetch("/api/v1/customers")).status === 403);
@@ -352,6 +365,8 @@ const run = async () => {
   T("intervento segnato eseguito", eseguito.status === 200 && !!eseguito.data?.eseguitoAt, `${eseguito.status}`);
   const speseDopo = await json("A", "/api/v1/expenses");
   T("costo intervento registrato tra le spese", Array.isArray(speseDopo.data) && speseDopo.data.some((s) => s.descrizione.includes("Assicurazione RC smoke")), "spesa non trovata");
+  const spesePag = await json("A", "/api/v1/expenses?page=1&limit=1");
+  T("spese: pagina con involucro", spesePag.status === 200 && Array.isArray(spesePag.data?.items) && spesePag.data?.dimensione === 1 && typeof spesePag.data?.totale === "number");
   // O04: la spesa è collegata all'intervento per id; ripetere l'esecuzione non la duplica.
   T("spesa collegata all'intervento per id", speseDopo.data.some((s) => s.maintenanceId === manut.data.id), "collegamento assente");
   const eseguito2 = await json("A", `/api/v1/maintenance/${manut.data.id}`, "PATCH", { azione: "esegui", costoEuro: "150,00" });
