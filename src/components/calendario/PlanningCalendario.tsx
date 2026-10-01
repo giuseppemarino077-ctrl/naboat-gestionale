@@ -3,9 +3,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { aData, aggiungiGiorni, fineGiorno, giornoDi, inizioGiorno, istante, oggi as oggiKeyFn, oreDi } from "@/lib/calendario";
 import { useAggiornamenti, segnalaCambiamento } from "@/lib/aggiorna";
+import { uuidSicuro } from "@/lib/browser";
 import {
   aspettoCella, cellaKey, fineGiornoEsclusiva, finestraGiorni,
-  indicizza, primoElemento,
+  indicizza,
   type PlanningBlock, type PlanningBoat, type PlanningBooking, type PlanningItem, type PlanningOfferta,
 } from "@/lib/planning";
 import { Avviso } from "@/components/ui/Avviso";
@@ -270,7 +271,6 @@ export default function PlanningCalendario({ start, onVai }: { start: string; on
                 {celleMobile.map(({ boat, items: cellItems }) => {
                   const attiva = boat.stato === "disponibile";
                   const app = aspettoCella(cellItems, attiva);
-                  const first = primoElemento(cellItems);
                   const booking = cellItems.find((i) => i.kind === "BOOKING") as PlanningBooking | undefined;
                   const tone = booking
                     ? booking.stato === "in_mare" ? "border-[#0f5a50] bg-ok text-white"
@@ -287,13 +287,19 @@ export default function PlanningCalendario({ start, onVai }: { start: string; on
                         </span>
                         <span className="shrink-0 rounded-full bg-white/80 px-2.5 py-1 text-[9px] font-bold uppercase text-current shadow-sm">{app.label}</span>
                       </span>
-                      {first ? (
-                        <span className="mt-3 block rounded-xl bg-white/60 p-2.5 text-xs">
-                          <span className="flex items-center justify-between gap-3">
-                            <strong className="truncate">{first.kind === "BOOKING" ? first.clienteNome ?? "Cliente" : first.motivo || "Non disponibile"}</strong>
-                            {first.kind === "BOOKING" && <span className="shrink-0 font-semibold">{oreDi(first.startAt)}–{oreDi(first.endAt)}</span>}
-                          </span>
-                          {cellItems.length > 1 && <span className="mt-1.5 block font-semibold">+ {cellItems.length - 1} altro elemento</span>}
+                      {cellItems.length > 0 ? (
+                        <span className="mt-3 block space-y-1 rounded-xl bg-white/60 p-2.5 text-xs">
+                          {[...cellItems].sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime()).map((it) => (
+                            <span key={it.id} className="flex items-center justify-between gap-3">
+                              <strong className="truncate">
+                                {it.kind === "BOOKING" ? (it.clienteNome ?? "Cliente") : (it.motivo || "Non disponibile")}
+                                {it.kind === "BOOKING" && it.note ? " · ✎" : ""}
+                              </strong>
+                              {it.kind === "BOOKING" && <span className="shrink-0 font-semibold">{oreDi(it.startAt)}–{oreDi(it.endAt)}</span>}
+                              {it.kind === "BLOCK" && <span className="shrink-0 font-semibold">blocco</span>}
+                            </span>
+                          ))}
+                          {cellItems.length > 1 && <span className="block pt-0.5 text-[10px] font-semibold opacity-70">{cellItems.length} impegni — tocca per il dettaglio</span>}
                         </span>
                       ) : (
                         <span className="mt-3 flex items-center justify-between text-xs opacity-75">
@@ -321,7 +327,7 @@ export default function PlanningCalendario({ start, onVai }: { start: string; on
                       const weekend = [0, 6].includes(d.getDay());
                       const isOggi = g === oggi;
                       return (
-                        <th key={g} scope="col" className={"sticky top-0 z-30 w-[86px] min-w-[86px] border-b border-r border-line px-2 py-2 text-center " +
+                        <th key={g} scope="col" className={"sticky top-0 z-30 w-[104px] min-w-[104px] border-b border-r border-line px-2 py-2 text-center " +
                           (isOggi ? "bg-ocean text-white" : weekend ? "bg-foam text-ocean" : "bg-white text-ink")}>
                           <span className="block text-[10px] font-bold uppercase tracking-wide">{d.toLocaleDateString("it-IT", { weekday: "short" }).replace(".", "")}</span>
                           <span className="mt-0.5 block text-lg font-semibold leading-none">{d.getDate()}</span>
@@ -348,26 +354,32 @@ export default function PlanningCalendario({ start, onVai }: { start: string; on
                         {giorni.map((g) => {
                           const cellItems = indice.get(cellaKey(boat.id, g)) ?? [];
                           const app = aspettoCella(cellItems, attiva);
-                          const first = primoElemento(cellItems);
+                          const ordinati = [...cellItems].sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
                           const weekend = [0, 6].includes(aData(g).getDay());
                           return (
-                            <td key={g} className={"h-[82px] w-[86px] min-w-[86px] border-b border-r border-line p-1 align-middle " + (weekend ? "bg-sand" : "bg-white")}>
+                            <td key={g} className={"w-[104px] min-w-[104px] border-b border-r border-line p-1 align-top " + (weekend ? "bg-sand" : "bg-white")}>
                               <button
                                 type="button"
                                 onClick={() => apriCella(boat.id, g)}
                                 aria-label={`${boat.nome}, ${g}: ${app.label}`}
-                                className={`flex h-full min-h-[70px] w-full flex-col items-center justify-center rounded-xl px-1.5 py-2 text-center text-[10px] font-bold transition hover:brightness-[1.03] ${app.className}`}
+                                className={`flex h-full min-h-[70px] w-full flex-col items-stretch rounded-xl px-1.5 py-1.5 text-left text-[10px] font-bold transition hover:brightness-[1.03] ${app.className}`}
                               >
-                                <span>{app.label}</span>
-                                {first ? (
-                                  <>
-                                    {first.kind === "BOOKING" && first.note ? <span className="mt-1 max-w-full truncate text-[9px] font-medium leading-3 opacity-80">{first.note}</span> : first.kind === "BOOKING" ? <span className="mt-1 max-w-full truncate text-[9px] font-semibold leading-3 opacity-90">{first.clienteNome ?? "Cliente"}</span> : null}
-                                    {first.kind === "BOOKING" && !first.note && <span className="mt-1 max-w-full truncate text-[9px] font-medium opacity-80">{oreDi(first.startAt)}</span>}
-                                    {first.kind === "BOOKING" && (first.skipper?.nome || first.skipperStato === "UNASSIGNED") && (
-                                      <span className="mt-1 max-w-full truncate text-[8px] font-semibold leading-3 opacity-90">{first.skipper?.nome ? `⛵ ${first.skipper.nome}` : "⛵ Da assegnare"}</span>
-                                    )}
-                                  </>
-                                ) : null}
+                                <span className="w-full text-center">{app.label}</span>
+                                {ordinati.length > 0 && (
+                                  <span className="mt-1 block w-full space-y-0.5 overflow-y-auto" style={{ maxHeight: ordinati.length > 2 ? 56 : undefined }}>
+                                    {ordinati.map((it) => it.kind === "BOOKING" ? (
+                                      <span key={it.id} className="block w-full truncate rounded bg-white/45 px-1 py-0.5 text-[9px] font-semibold">
+                                        {oreDi(it.startAt)} {it.clienteNome ?? "Cliente"}
+                                        {it.stato === "da_confermare" ? " · da conf." : ""}
+                                        {it.note ? " · ✎" : ""}
+                                      </span>
+                                    ) : (
+                                      <span key={it.id} className="block w-full truncate rounded bg-white/45 px-1 py-0.5 text-[9px] font-semibold">
+                                        {it.motivo ? `Blocco · ${it.motivo}` : "Blocco"}
+                                      </span>
+                                    ))}
+                                  </span>
+                                )}
                               </button>
                             </td>
                           );
@@ -425,8 +437,8 @@ export default function PlanningCalendario({ start, onVai }: { start: string; on
                       busy={busy}
                       oggi={oggi}
                       onCrea={async (payload) => { const esito = await chiama("POST", "/api/v1/bookings", payload); if (esito.ok) setSel(null); return esito.ok; }}
-                      onBlocca={async (motivo) => {
-                        const esito = await chiama("POST", "/api/v1/blocks", { boatId: selBoat.id, startAt: inizioGiorno(sel.giorno).toISOString(), endAt: fineGiorno(sel.giorno).toISOString(), motivo: motivo || undefined });
+                      onBlocca={async (motivo, manutenzione) => {
+                        const esito = await chiama("POST", "/api/v1/blocks", { boatId: selBoat.id, startAt: inizioGiorno(sel.giorno).toISOString(), endAt: fineGiorno(sel.giorno).toISOString(), motivo: motivo || undefined, manutenzione, idempotencyKey: uuidSicuro() });
                         if (esito.ok) setSel(null);
                         return esito.ok;
                       }}
@@ -434,41 +446,67 @@ export default function PlanningCalendario({ start, onVai }: { start: string; on
                   )}
                 </>
               ) : (
-                selItems.map((item) =>
-                  item.kind === "BOOKING" ? (
-                    <SchedaPrenotazione
-                      key={item.id}
-                      pren={item}
-                      boat={selBoat}
-                      giorno={sel.giorno}
-                      oggi={oggi}
-                      skippers={skippers}
-                      porti={dati.porti}
-                      offerte={dati.offerte.filter((o) => o.boatId === selBoat.id && o.attiva)}
-                      azienda={me?.tenantNome ?? ""}
-                      busy={busy}
-                      puòImporti={me?.vedeImporti !== false}
-                      puoGestire={me?.role !== "skipper"}
-                      onAzione={chiama}
-                      onRicarica={dopoAzione}
-                    />
-                  ) : (
-                    <BloccoCella
-                      key={item.id}
-                      blocco={item}
-                      giorno={sel.giorno}
-                      busy={busy}
-                      onRilascia={async (scope) => {
-                        const url = scope === "giorno"
-                          ? `/api/v1/blocks/${item.id}/giorno`
-                          : `/api/v1/blocks/${item.id}`;
-                        const esito = await chiama("POST", url, { giorno: sel.giorno });
-                        if (esito.ok) setSel(null);
-                        return esito.ok;
-                      }}
-                    />
-                  ),
-                )
+                <>
+                  {selItems.map((item) =>
+                    item.kind === "BOOKING" ? (
+                      <SchedaPrenotazione
+                        key={item.id}
+                        pren={item}
+                        boat={selBoat}
+                        giorno={sel.giorno}
+                        oggi={oggi}
+                        skippers={skippers}
+                        porti={dati.porti}
+                        offerte={dati.offerte.filter((o) => o.boatId === selBoat.id && o.attiva)}
+                        azienda={me?.tenantNome ?? ""}
+                        busy={busy}
+                        puòImporti={me?.vedeImporti !== false}
+                        puoGestire={me?.role !== "skipper"}
+                        onAzione={chiama}
+                        onRicarica={dopoAzione}
+                      />
+                    ) : (
+                      <BloccoCella
+                        key={item.id}
+                        blocco={item}
+                        giorno={sel.giorno}
+                        busy={busy}
+                        onRilascia={async (scope) => {
+                          const url = scope === "giorno"
+                            ? `/api/v1/blocks/${item.id}/giorno`
+                            : `/api/v1/blocks/${item.id}`;
+                          const esito = await chiama("POST", url, { giorno: sel.giorno });
+                          if (esito.ok) setSel(null);
+                          return esito.ok;
+                        }}
+                      />
+                    ),
+                  )}
+                  {/* Giornata parzialmente occupata: si può aggiungere un'altra
+                      prenotazione negli orari liberi (la disponibilità è validata dal server). */}
+                  {selAttiva && (
+                    <details className="rounded-2xl border border-line bg-white p-4">
+                      <summary className="cursor-pointer px-1 py-2 text-sm font-semibold text-ocean">+ Aggiungi un'altra prenotazione</summary>
+                      <div className="mt-3 border-t border-line pt-3">
+                        <FormCellaNuova
+                          boat={selBoat}
+                          giorno={sel.giorno}
+                          offerte={dati.offerte.filter((o) => o.boatId === selBoat.id && o.attiva)}
+                          porti={dati.porti}
+                          skippers={skippers}
+                          busy={busy}
+                          oggi={oggi}
+                          onCrea={async (payload) => { const esito = await chiama("POST", "/api/v1/bookings", payload); if (esito.ok) setSel(null); return esito.ok; }}
+                          onBlocca={async (motivo, manutenzione) => {
+                            const esito = await chiama("POST", "/api/v1/blocks", { boatId: selBoat.id, startAt: inizioGiorno(sel.giorno).toISOString(), endAt: fineGiorno(sel.giorno).toISOString(), motivo: motivo || undefined, manutenzione, idempotencyKey: uuidSicuro() });
+                            if (esito.ok) setSel(null);
+                            return esito.ok;
+                          }}
+                        />
+                      </div>
+                    </details>
+                  )}
+                </>
               )}
             </div>
 
@@ -514,6 +552,12 @@ function BloccoCella({
         {blocco.endAt ? new Date(blocco.endAt).toLocaleString("it-IT", { timeZone: "Europe/Rome", dateStyle: "short", timeStyle: "short" }) : ""}
       </p>
       {blocco.motivo && <p className="mt-2 rounded-xl bg-white/70 p-3 text-sm">{blocco.motivo}</p>}
+      {blocco.maintenance && (
+        <p className="mt-2 rounded-xl border border-warn-line bg-warn-soft p-3 text-sm text-warn">
+          Intervento collegato: <b>{blocco.maintenance.titolo}</b>{" "}
+          <Link href="/gestionale/manutenzione" className="font-semibold underline">Apri Manutenzione</Link>
+        </p>
+      )}
       <div className="mt-4 grid gap-2 sm:grid-cols-2">
         {multiday ? (
           <>

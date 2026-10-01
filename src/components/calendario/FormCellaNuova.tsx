@@ -19,7 +19,7 @@ export default function FormCellaNuova({
   busy: boolean;
   oggi: string;
   onCrea: (payload: Record<string, unknown>) => Promise<boolean>;
-  onBlocca: (motivo: string) => Promise<boolean>;
+  onBlocca: (motivo: string, manutenzione: boolean) => Promise<boolean>;
 }) {
   const [dalle, setDalle] = useState("09:00");
   const [alle, setAlle] = useState("17:00");
@@ -37,6 +37,7 @@ export default function FormCellaNuova({
   const [prezzoDaDefinire, setPrezzoDaDefinire] = useState(false);
   const [errore, setErrore] = useState("");
   const [bloccoMotivo, setBloccoMotivo] = useState("");
+  const [bloccoManutenzione, setBloccoManutenzione] = useState(false);
   const idem = useRef(uuidSicuro());
 
   const skipperMandatory = boat.patenteRichiesta && patente === "NO";
@@ -194,8 +195,12 @@ export default function FormCellaNuova({
       <details className="rounded-2xl border border-line bg-white p-4">
         <summary className="cursor-pointer rounded-lg px-1 py-2 text-base font-semibold text-ink hover:bg-foam">Rendi non disponibile</summary>
         <div className="mt-4 space-y-3 border-t border-line pt-4">
-          <label className="grid gap-2 text-sm font-semibold">Motivo opzionale<textarea rows={3} maxLength={1000} value={bloccoMotivo} onChange={(e) => setBloccoMotivo(e.target.value)} className={campo + " py-3"} placeholder="Es. manutenzione, uso privato…" /></label>
-          <button type="button" disabled={busy} onClick={() => onBlocca(bloccoMotivo)} className="min-h-12 w-full rounded-xl border border-[#f3c6ae] bg-foam px-4 text-sm font-semibold text-ocean">Rendi non disponibile</button>
+          <label className="flex items-center gap-2 rounded-xl border border-warn-line bg-warn-soft p-3 text-sm font-semibold">
+            <input type="checkbox" checked={bloccoManutenzione} onChange={(e) => setBloccoManutenzione(e.target.checked)} />
+            Manutenzione (crea anche un intervento in Manutenzione)
+          </label>
+          <label className="grid gap-2 text-sm font-semibold">Altro<textarea rows={3} maxLength={1000} value={bloccoMotivo} onChange={(e) => setBloccoMotivo(e.target.value)} className={campo + " py-3"} placeholder="Note sull'indisponibilità…" /></label>
+          <button type="button" disabled={busy} onClick={() => onBlocca(bloccoMotivo, bloccoManutenzione)} className="min-h-12 w-full rounded-xl border border-[#f3c6ae] bg-foam px-4 text-sm font-semibold text-ocean">Rendi non disponibile</button>
         </div>
       </details>
     </div>

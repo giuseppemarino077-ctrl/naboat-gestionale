@@ -113,6 +113,10 @@ const run = async () => {
   T("skipper già impegnato su altra barca -> 409", (await json("A", "/api/v1/bookings", "POST", { boatId: dup.data.id, startAt: t0, endAt: t1, clienteNome: "Cliente Skipper", telefono: "333222111", skipperId: sk.data.id, idempotencyKey: key + "-sk" })).status === 409);
   T("modifica passeggeri oltre capienza -> 422", (await json("A", `/api/v1/bookings/${bk.data.id}`, "PATCH", { passeggeri: 5 })).status === 422);
   T("overlap 409", (await json("A", "/api/v1/bookings", "POST", { boatId: b.data.id, startAt: "2028-05-10T12:00:00.000Z", endAt: "2028-05-10T14:00:00.000Z", clienteNome: "X", telefono: "333999888", skipperId: sk.data.id, idempotencyKey: key + "b" })).status === 409);
+  // C04/T04: più prenotazioni compatibili della stessa barca nello stesso giorno.
+  const compat1 = await json("A", "/api/v1/bookings", "POST", { boatId: b.data.id, startAt: "2028-05-12T09:00:00.000Z", endAt: "2028-05-12T12:00:00.000Z", clienteNome: "Cliente Smoke", telefono: "333123456", passeggeri: 2, skipperId: sk.data.id, idempotencyKey: key + "-c1" });
+  const compat2 = await json("A", "/api/v1/bookings", "POST", { boatId: b.data.id, startAt: "2028-05-12T14:00:00.000Z", endAt: "2028-05-12T18:00:00.000Z", clienteNome: "Cliente Smoke", telefono: "333123456", passeggeri: 2, skipperId: sk.data.id, idempotencyKey: key + "-c2" });
+  T("più prenotazioni compatibili stessa barca/giorno", compat1.status === 201 && compat2.status === 201, `${compat1.status}/${compat2.status}`);
   // Concorrenza ottimistica: il client indica la versione vista; se non combacia non si scrive.
   const bkLetto = await json("A", `/api/v1/bookings/${bk.data.id}`);
   T("versione prenotazione esposta", !!bkLetto.data?.updatedAt);
@@ -141,7 +145,7 @@ const run = async () => {
   });
   T("prenotazione con stesso telefono creata", bkStesso.status === 201, `${bkStesso.status}`);
   const clientiDopo = (await json("A", "/api/v1/customers")).data ?? [];
-  const clienteUno = clientiDopo.find((c) => c.telefono === "333123456");
+  const clienteUno = clientiDopo.find((c) => c.telefono === "+39333123456");
   T("l'anagrafica non viene sovrascritta da una nuova prenotazione", clienteUno?.nome === "Cliente Smoke", JSON.stringify(clienteUno?.nome));
   T("il contatto della singola prenotazione resta sulla prenotazione", (await json("A", `/api/v1/bookings/${bkStesso.data.id}`)).data?.clienteNome === "Nome Diverso");
   // Conflitto esplicito sul telefono: non si fondono due anagrafiche in automatico.
@@ -149,12 +153,19 @@ const run = async () => {
     boatId: b.data.id, startAt: "2028-05-25T09:00:00.000Z", endAt: "2028-05-25T18:00:00.000Z",
     clienteNome: "Altra Persona", telefono: "333111222", skipperId: sk.data.id, idempotencyKey: key + "-altro",
   });
-  const clienteAltro = ((await json("A", "/api/v1/customers")).data ?? []).find((c) => c.telefono === "333111222");
+  const clienteAltro = ((await json("A", "/api/v1/customers")).data ?? []).find((c) => c.telefono === "+39333111222");
   T("seconda anagrafica creata con altro telefono", bkAltro.status === 201 && !!clienteAltro, `${bkAltro.status}`);
   T("telefono già usato -> 409 (nessuna fusione automatica)", (await json("A", `/api/v1/customers/${clienteUno.id}`, "PATCH", { telefono: "333111222" })).status === 409);
   T("cambio telefono ricalcola la chiave di dedup", (await json("A", `/api/v1/customers/${clienteUno.id}`, "PATCH", { telefono: "333999000" })).status === 200);
   const clienteRinominato = ((await json("A", "/api/v1/customers")).data ?? []).find((c) => c.id === clienteUno.id);
-  T("nuovo telefono salvato con dedup aggiornata", clienteRinominato?.telefono === "333999000" && clienteRinominato?.dedupKey === "333999000", JSON.stringify(clienteRinominato));
+  T("nuovo telefono salvato con dedup aggiornata", clienteRinominato?.telefono === "+39333999000" && clienteRinominato?.dedupKey === "+39333999000", JSON.stringify(clienteRinominato));
+  // T08/T12: le varianti del numero individuano lo stesso recapito canonico; i numeri
+  // esteri conservano il prefisso e i fissi italiani lo zero significativo.
+  T("varianti (0039, spazi) riconoscono lo stesso numero -> 409", (await json("A", `/api/v1/customers/${clienteAltro.id}`, "PATCH", { telefono: "0039 333 999 000" })).status === 409);
+  T("numero estero accettato", (await json("A", `/api/v1/customers/${clienteAltro.id}`, "PATCH", { telefono: "+49 151 23456789" })).status === 200);
+  const estero = ((await json("A", "/api/v1/customers")).data ?? []).find((c) => c.id === clienteAltro.id);
+  T("prefisso estero conservato", estero?.telefono === "+4915123456789", JSON.stringify(estero?.telefono));
+  T("telefono non valido -> 422", (await json("A", `/api/v1/customers/${clienteAltro.id}`, "PATCH", { telefono: "abc" })).status === 422);
 
   // ---- Pagamenti ----
   const pset0 = await json("A", "/api/v1/payments/settings");
@@ -400,7 +411,7 @@ const run = async () => {
   await json("A", `/api/v1/boats/${b.data.id}`, "PATCH", { lat: 40.8397, lon: 14.2524 });
   T("coordinate non valide -> 422", (await json("A", `/api/v1/boats/${b.data.id}`, "PATCH", { lat: 999, lon: 14 })).status === 422);
   const meteo1 = await json("A", "/api/v1/meteo");
-  T("meteo include la barca con coordinate", meteo1.status === 200 && (meteo1.data?.barche ?? []).some((x) => x.boatId === b.data.id), JSON.stringify(meteo1.data?.barche?.[0]?.errore ?? ""));
+  T("meteo include la barca con coordinate", meteo1.status === 200 && (meteo1.data?.luoghi ?? []).some((x) => x.boatId === b.data.id), JSON.stringify((meteo1.data?.luoghi ?? []).map((x) => x.errore ?? x.nome)));
 
   // ---- Contratto digitale ----
   T("dati azienda: punto di partenza e telefono", (await json("A", "/api/v1/tenant", "PATCH", { indirizzoPartenza: "Porto Smoke, Molo 1", telefonoContatto: "081 000000" })).status === 200);
@@ -437,10 +448,10 @@ const run = async () => {
   T("nuovo link su contratto firmato -> 422", (await json("A", `/api/v1/bookings/${bk.data.id}/contratto`, "POST")).status === 422);
 
   // ---- Check-in / check-out: presenza e stato avanzano insieme ----
-  const checkin = await json("A", `/api/v1/bookings/${bk.data.id}/checkin`, "POST", { carburantePct: 100, note: "Tutto in ordine" });
-  T("check-in registrato e stato -> in_mare", checkin.status === 200 && checkin.data?.checkinCarburantePct === 100 && !!checkin.data?.checkinAt && checkin.data?.stato === "in_mare", `${checkin.status} ${JSON.stringify(checkin.data)}`);
-  const checkinRip = await json("A", `/api/v1/bookings/${bk.data.id}/checkin`, "POST", { carburantePct: 80 });
-  T("check-in ripetuto idempotente (nessun doppio effetto)", checkinRip.status === 200 && checkinRip.data?.checkinCarburantePct === 100 && checkinRip.data?.stato === "in_mare", `${checkinRip.status} ${JSON.stringify(checkinRip.data)}`);
+  const checkin = await json("A", `/api/v1/bookings/${bk.data.id}/checkin`, "POST", { note: "Tutto in ordine" });
+  T("check-in registrato e stato -> in_mare", checkin.status === 200 && !!checkin.data?.checkinAt && checkin.data?.stato === "in_mare", `${checkin.status} ${JSON.stringify(checkin.data)}`);
+  const checkinRip = await json("A", `/api/v1/bookings/${bk.data.id}/checkin`, "POST", { note: "ripetuto" });
+  T("check-in ripetuto idempotente (nessun doppio effetto)", checkinRip.status === 200 && checkinRip.data?.stato === "in_mare", `${checkinRip.status} ${JSON.stringify(checkinRip.data)}`);
   const dopoCheckin = await json("A", `/api/v1/bookings/${bk.data.id}`);
   T("un solo evento di check-in nello storico", (dopoCheckin.data?.storico ?? []).filter((s) => s.azione === "booking.checkin").length === 1, JSON.stringify((dopoCheckin.data?.storico ?? []).filter((s) => s.azione === "booking.checkin").length));
   T("regressione in_mare -> prenotata -> 422", (await json("A", `/api/v1/bookings/${bk.data.id}`, "PATCH", { stato: "prenotata" })).status === 422);
@@ -450,10 +461,10 @@ const run = async () => {
   fotoCheckin.append("tipo", "checkin");
   T("foto check-in caricata", (await jar.fetch("/api/v1/uploads", { method: "POST", body: fotoCheckin })).status === 201);
   T("tipo foto non valido -> 422", (await (async () => { const f = new FormData(); f.append("file", new Blob([new Uint8Array(png)], { type: "image/png" }), "x.png"); f.append("bookingId", bk.data.id); f.append("tipo", "altro"); return jar.fetch("/api/v1/uploads", { method: "POST", body: f }); })()).status === 422);
-  const checkout = await json("A", `/api/v1/bookings/${bk.data.id}/checkout`, "POST", { carburantePct: 70, note: "Rientro regolare", danniEuro: "0" });
-  T("check-out registrato e stato -> rientrata", checkout.status === 200 && checkout.data?.checkoutCarburantePct === 70 && !!checkout.data?.checkoutAt && checkout.data?.stato === "rientrata", `${checkout.status}`);
-  const checkoutRip = await json("A", `/api/v1/bookings/${bk.data.id}/checkout`, "POST", { carburantePct: 50 });
-  T("check-out ripetuto idempotente (nessun doppio effetto)", checkoutRip.status === 200 && checkoutRip.data?.checkoutCarburantePct === 70 && checkoutRip.data?.stato === "rientrata", `${checkoutRip.status}`);
+  const checkout = await json("A", `/api/v1/bookings/${bk.data.id}/checkout`, "POST", { note: "Rientro regolare", danniEuro: "0" });
+  T("check-out registrato e stato -> rientrata", checkout.status === 200 && !!checkout.data?.checkoutAt && checkout.data?.stato === "rientrata", `${checkout.status}`);
+  const checkoutRip = await json("A", `/api/v1/bookings/${bk.data.id}/checkout`, "POST", { note: "ripetuto" });
+  T("check-out ripetuto idempotente (nessun doppio effetto)", checkoutRip.status === 200 && checkoutRip.data?.stato === "rientrata", `${checkoutRip.status}`);
   const dopoCheckout = await json("A", `/api/v1/bookings/${bk.data.id}`);
   T("un solo evento di check-out nello storico", (dopoCheckout.data?.storico ?? []).filter((s) => s.azione === "booking.checkout").length === 1);
   T("check-out senza check-in -> 422", (await json("A", `/api/v1/bookings/${bkOggi.data.id}/checkout`, "POST", { carburantePct: 50 })).status === 422);

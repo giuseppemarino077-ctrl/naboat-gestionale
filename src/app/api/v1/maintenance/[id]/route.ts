@@ -83,6 +83,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       } else if (esistente) {
         await tx.expense.delete({ where: { id: esistente.id } });
       }
+      // Manutenzione bloccante conclusa prima del previsto: si libera la barca dal
+      // momento della conclusione, conservando lo storico dell'intervallo trascorso.
+      const blocco = await tx.block.findFirst({ where: { maintenanceId: item.id, tenantId: t.tenantId }, select: { id: true, endAt: true } });
+      if (blocco && quando < blocco.endAt) {
+        await tx.block.update({ where: { id: blocco.id }, data: { endAt: quando, versione: { increment: 1 } } });
+      }
       return salvato;
     });
     return ok(upd);
@@ -102,7 +108,11 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }
   const { id } = await ctx.params;
   const item = await prisma.maintenance.findFirst({ where: { id, tenantId: t.tenantId }, select: { id: true } });
   if (!item) return fail("Intervento non trovato", 404);
-  // La spesa collegata segue l'intervento (FK ON DELETE CASCADE).
-  await prisma.maintenance.delete({ where: { id: item.id } });
+  // Si rimuove anche il blocco collegato (se esiste) per non lasciare blocchi orfani;
+  // la spesa segue l'intervento (FK ON DELETE CASCADE).
+  await prisma.$transaction(async (tx) => {
+    await tx.block.deleteMany({ where: { maintenanceId: item.id, tenantId: t.tenantId } });
+    await tx.maintenance.delete({ where: { id: item.id } });
+  });
   return ok({ id: item.id, eliminato: true });
 }

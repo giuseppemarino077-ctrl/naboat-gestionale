@@ -101,7 +101,6 @@ export default function DatiBarcaPage() {
             <label className="grid gap-1 text-sm">Capienza (pax)<input type="number" min={1} max={60} defaultValue={b.capienza ?? ""} onBlur={(e) => salva({ capienza: e.target.value ? Number(e.target.value) : null })} className={campo} /></label>
             <label className="grid gap-1 text-sm">Lunghezza (m)<input type="number" step="0.1" defaultValue={b.lunghezzaM ?? ""} onBlur={(e) => salva({ lunghezzaM: e.target.value ? Number(e.target.value) : null })} className={campo} /></label>
             <label className="grid gap-1 text-sm">Cabine<input type="number" min={0} defaultValue={b.cabine ?? ""} onBlur={(e) => salva({ cabine: e.target.value ? Number(e.target.value) : null })} className={campo} /></label>
-            <label className="grid gap-1 text-sm">Carburante<input defaultValue={b.carburante ?? ""} onBlur={(e) => salva({ carburante: e.target.value || null })} className={campo} /></label>
             <label className="grid gap-1 text-sm">Cauzione (€)<input type="number" min={0} defaultValue={b.cauzioneCent != null ? b.cauzioneCent / 100 : ""} onBlur={(e) => salva({ cauzioneCent: e.target.value ? Math.round(Number(e.target.value) * 100) : null })} className={campo} /></label>
             <label className="grid gap-1 text-sm">Età minima<input type="number" min={0} max={99} defaultValue={b.etaMinima ?? ""} onBlur={(e) => salva({ etaMinima: e.target.value ? Number(e.target.value) : null })} className={campo} /></label>
             <label className="grid gap-1 text-sm sm:col-span-2">Modello

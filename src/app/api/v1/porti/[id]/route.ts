@@ -8,6 +8,7 @@ const Schema = z.object({
   indirizzo: z.string().trim().max(240).optional().nullable(),
   lat: z.number().min(-90).max(90).optional().nullable(),
   lon: z.number().min(-180).max(180).optional().nullable(),
+  placeId: z.string().max(300).optional().nullable(),
   note: z.string().trim().max(600).optional().nullable(),
   orari: z.string().trim().max(240).optional().nullable(),
 });

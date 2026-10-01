@@ -152,7 +152,6 @@ export default async function BarcaPage({ params }: { params: Promise<{ slug: st
               <summary className="cursor-pointer font-semibold text-deep">Scheda tecnica e regole</summary>
               <ul className="mt-2 grid gap-1 text-sm text-muted">
                 {b.modello && <li>Modello: {b.modello.marca ?? ""} {b.modello.modello}</li>}
-                <li>Carburante: {b.carburante ?? "da definire in banchina"}</li>
                 <li>Cauzione: {b.cauzioneCent != null ? euro(b.cauzioneCent) : "secondo condizioni dell'azienda"}</li>
                 <li>Età minima: {b.etaMinima != null ? `${b.etaMinima} anni` : "secondo condizioni dell'azienda"}</li>
                 <li>Orari di imbarco/rientro: {b.tenant.orarioImbarco ?? "—"} / {b.tenant.orarioRientro ?? "—"}</li>

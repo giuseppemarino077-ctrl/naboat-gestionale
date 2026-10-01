@@ -29,7 +29,11 @@ const Schema = z.object({
   boatId: z.string().min(1),
   startAt: z.string().datetime(),
   endAt: z.string().datetime(),
-  motivo: z.string().max(200).optional(),
+  motivo: z.string().max(1000).optional(),
+  // Se selezionata, l'indisponibilità è una manutenzione: si crea, nella stessa
+  // transazione, il blocco e l'intervento collegato.
+  manutenzione: z.boolean().default(false),
+  idempotencyKey: z.string().max(80).optional(),
 });
 
 export async function POST(req: Request) {
@@ -43,7 +47,7 @@ export async function POST(req: Request) {
 
   // In transazione con il lock per barca: non si inserisce un blocco sopra una
   // prenotazione o un altro blocco mentre un'altra richiesta sta salvando.
-  let risultato: { err?: string; status?: number; block?: any };
+  let risultato: { err?: string; status?: number; block?: unknown };
   try {
     risultato = await prisma.$transaction(async (tx) => {
       await bloccaRisorse(tx, { boatIds: [p.data.boatId] });
@@ -58,7 +62,30 @@ export async function POST(req: Request) {
         return { err: messaggio, status: 409 };
       }
 
-      const block = await tx.block.create({ data: { tenantId: t.tenantId, boatId: p.data.boatId, startAt: start, endAt: end, motivo: p.data.motivo } });
+      // Retry/doppio clic: se lo stesso intervallo della barca è già bloccato la
+      // verifica sopra risponde 409 e non si crea un doppione. Con la manutenzione
+      // i due record nascono insieme o non nascono affatto.
+      const block = await tx.block.create({
+        data: { tenantId: t.tenantId, boatId: p.data.boatId, startAt: start, endAt: end, motivo: p.data.motivo },
+      });
+      if (p.data.manutenzione) {
+        const manutenzione = await tx.maintenance.create({
+          data: {
+            tenantId: t.tenantId,
+            boatId: p.data.boatId,
+            tipo: "altro",
+            titolo: "Manutenzione programmata",
+            dataScadenza: end,
+            note: p.data.motivo ?? null,
+          },
+          select: { id: true },
+        });
+        const collegato = await tx.block.update({ where: { id: block.id }, data: { maintenanceId: manutenzione.id } });
+        await tx.auditLog.create({
+          data: { tenantId: t.tenantId, actorId: t.userId, azione: "block.manutenzione", entita: "Block", entitaId: block.id, dettagli: JSON.stringify({ maintenanceId: manutenzione.id }) },
+        });
+        return { block: collegato };
+      }
       return { block };
     });
   } catch (e) {
@@ -66,6 +93,7 @@ export async function POST(req: Request) {
     throw e;
   }
   if (risultato.err) return fail(risultato.err, risultato.status ?? 409);
+  await registraAzione({ tenantId: t.tenantId, actorId: t.userId, azione: "block.create", entita: "Block", entitaId: (risultato.block as { id: string }).id, nota: p.data.manutenzione ? "manutenzione collegata" : undefined });
   return ok(risultato.block, 201);
 }
 

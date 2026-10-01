@@ -49,12 +49,18 @@ export default function PrenotazionePage() {
   const [linkPagamento, setLinkPagamento] = useState("");
   const [conflitto, setConflitto] = useState(false);
   const [scheda, setScheda] = useState<Scheda>("dettagli");
+  const [pagamentiBarca, setPagamentiBarca] = useState<{ abilitati: boolean; motivo: string | null } | null>(null);
   const conferma = useConferma();
   const modulo = useModulo();
 
   const load = () => {
     if (!id) return;
-    fetch(`/api/v1/bookings/${id}`).then((r) => { if (!r.ok) throw new Error(); return r.json(); }).then((j) => { setB(j); setErr(""); }).catch(() => setErr("Prenotazione non trovata."));
+    fetch(`/api/v1/bookings/${id}`).then((r) => { if (!r.ok) throw new Error(); return r.json(); }).then((j) => {
+      setB(j);
+      setErr("");
+      const boatId = j?.boatId ?? j?.boat?.id;
+      if (boatId) fetch(`/api/v1/payments/abilitazione?boatId=${boatId}`).then((x) => (x.ok ? x.json() : null)).then((p) => p && setPagamentiBarca({ abilitati: p.abilitati, motivo: p.motivo })).catch(() => {});
+    }).catch(() => setErr("Prenotazione non trovata."));
   };
   useEffect(load, [id]);
   useAggiornamenti(load, ["prenotazioni"]);
@@ -75,20 +81,18 @@ export default function PrenotazionePage() {
 
   const avvia = async () => {
     const v = await modulo.apri("Registra partenza", [
-      { nome: "carburante", etichetta: "Carburante alla partenza (%)", tipo: "number", valore: b?.checkinCarburantePct != null ? String(b.checkinCarburantePct) : "100", min: 0, max: 100, aiuto: "Vuoto = non indicato" },
       { nome: "note", etichetta: "Note del check-in", tipo: "textarea", placeholder: "Dotazioni, stato generale…" },
     ], { confermaLabel: "Avvia noleggio" });
     if (!v) return;
-    await azione("Noleggio avviato.", `/api/v1/bookings/${id}/checkin`, "POST", { carburantePct: v.carburante.trim() === "" ? null : Number(v.carburante), note: v.note || null });
+    await azione("Noleggio avviato.", `/api/v1/bookings/${id}/checkin`, "POST", { note: v.note || null });
   };
   const completa = async () => {
     const v = await modulo.apri("Registra rientro", [
-      { nome: "carburante", etichetta: "Carburante al rientro (%)", tipo: "number", min: 0, max: 100, aiuto: "Vuoto = non indicato" },
       { nome: "danni", etichetta: "Danni (€)", placeholder: "Vuoto = nessun danno" },
       { nome: "note", etichetta: "Note del rientro", tipo: "textarea" },
     ], { confermaLabel: "Completa noleggio" });
     if (!v) return;
-    await azione("Noleggio completato.", `/api/v1/bookings/${id}/checkout`, "POST", { carburantePct: v.carburante.trim() === "" ? null : Number(v.carburante), danniEuro: v.danni.trim() || null, note: v.note || null });
+    await azione("Noleggio completato.", `/api/v1/bookings/${id}/checkout`, "POST", { danniEuro: v.danni.trim() || null, note: v.note || null });
   };
   const annulla = async () => {
     const ok = await conferma.chiedi({
@@ -362,7 +366,7 @@ export default function PrenotazionePage() {
               <p className="mt-2 text-xs text-muted">La generazione del link è riservata a titolare e operatori.</p>
             )}
           </section>
-          {puoImporti && (
+          {puoImporti && pagamentiBarca?.abilitati && (
             <section className="card p-5">
               <h2 className="font-display text-lg font-bold">Link di pagamento</h2>
               <p className="mt-1 text-sm text-muted">{b.prezzoCent ? "Genera e invia al cliente il link per pagare con carta." : "Imposta prima il prezzo del noleggio."}</p>
@@ -370,6 +374,12 @@ export default function PrenotazionePage() {
                 <button className="btn-primary" disabled={busy || !b.prezzoCent} onClick={generaLinkPagamento}>Link pagamento</button>
                 {linkPagamento && <a className="btn-soft" href={linkPagamento} target="_blank" rel="noreferrer">Apri link</a>}
               </div>
+            </section>
+          )}
+          {puoImporti && pagamentiBarca && !pagamentiBarca.abilitati && (
+            <section className="card p-5">
+              <h2 className="font-display text-lg font-bold">Pagamenti online</h2>
+              <p className="mt-1 text-sm text-muted">{pagamentiBarca.motivo ?? "Non disponibili per questa barca."} Storico incassi e registrazioni manuali restano consultabili.</p>
             </section>
           )}
         </div>

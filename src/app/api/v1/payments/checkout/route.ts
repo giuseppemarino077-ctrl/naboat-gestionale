@@ -1,6 +1,6 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { avviaCheckoutPrenotazione, paymentConfig } from "@/lib/payments";
+import { avviaCheckoutPrenotazione, pagamentiPerBarca, paymentConfig } from "@/lib/payments";
 import { requireAzienda } from "@/lib/tenant";
 import { randomUUID } from "crypto";
 import { z } from "zod";
@@ -23,9 +23,13 @@ export async function POST(req: Request) {
 
   const booking = await prisma.booking.findFirst({
     where: { id: p.data.bookingId, tenantId: t.tenantId },
-    select: { id: true, payToken: true, prezzoCent: true, payTokenExpires: true },
+    select: { id: true, boatId: true, payToken: true, prezzoCent: true, payTokenExpires: true },
   });
   if (!booking) return fail("Prenotazione non trovata", 404);
+  // Unica regola: azienda abilitata E barca non disattivata (l'eccezione barca
+  // non può aggirare il blocco aziendale).
+  const abil = await pagamentiPerBarca(t.tenantId, booking.boatId);
+  if (!abil.abilitati) return fail(abil.motivo ?? "Pagamenti online non disponibili per questa barca", 422);
   if (!booking.prezzoCent || booking.prezzoCent <= 0) {
     return fail("Prezzo non impostato: inserisci il prezzo della prenotazione", 422);
   }
@@ -66,6 +70,8 @@ export async function PUT(req: Request) {
   });
   if (!booking) return fail("Prenotazione non trovata", 404);
   if (booking.stato === "cancellata") return fail("Prenotazione annullata: nessun nuovo addebito", 422);
+  const abil = await pagamentiPerBarca(t.tenantId, booking.boatId);
+  if (!abil.abilitati) return fail(abil.motivo ?? "Pagamenti online non disponibili per questa barca", 422);
   if (!booking.prezzoCent || booking.prezzoCent <= 0) return fail("Prezzo non impostato sulla prenotazione", 422);
 
   const base = (process.env.APP_URL || new URL(req.url).origin).replace(/\/$/, "");

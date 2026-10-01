@@ -21,6 +21,8 @@ const Schema = z.object({
   indirizzo: z.string().trim().max(240).optional().nullable(),
   lat: z.number().min(-90).max(90).optional().nullable(),
   lon: z.number().min(-180).max(180).optional().nullable(),
+  // Identificativo del luogo Google Places (dato del provider).
+  placeId: z.string().max(300).optional().nullable(),
   note: z.string().trim().max(600).optional().nullable(),
   orari: z.string().trim().max(240).optional().nullable(),
 });
@@ -37,6 +39,7 @@ export async function POST(req: Request) {
       indirizzo: p.data.indirizzo ?? null,
       lat: p.data.lat ?? null,
       lon: p.data.lon ?? null,
+      placeId: p.data.placeId ?? null,
       note: p.data.note ?? null,
       orari: p.data.orari ?? null,
     },

@@ -1,6 +1,6 @@
 import { fail, ok } from "@/lib/api";
 import { traccia, registraAzione } from "@/lib/audit";
-import { normalizzaTelefono } from "@/lib/anagrafica";
+import { chiaveTelefono } from "@/lib/telefono";
 import { esitoPatente } from "@/lib/clienti";
 import { prisma } from "@/lib/db";
 import { bloccaRisorse, validaBarcaNoleggio, verificaDisponibilita } from "@/lib/disponibilita";
@@ -385,7 +385,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         let skipperFinale = finaleSkipperId ?? null;
         if (p.data.nuovoSkipper) {
           const sk = await tx.skipper.create({
-            data: { tenantId: t.tenantId, nome: p.data.nuovoSkipper.nome, telefono: normalizzaTelefono(p.data.nuovoSkipper.telefono) || null, note: p.data.nuovoSkipper.note ?? null },
+            data: { tenantId: t.tenantId, nome: p.data.nuovoSkipper.nome, telefono: chiaveTelefono(p.data.nuovoSkipper.telefono), note: p.data.nuovoSkipper.note ?? null },
             select: { id: true },
           });
           skipperFinale = sk.id;

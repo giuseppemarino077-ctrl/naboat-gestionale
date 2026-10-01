@@ -1,6 +1,6 @@
 import { fail } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { avviaCheckoutPrenotazione, calcolaResiduoPrezzo, paymentConfig, stripeClient } from "@/lib/payments";
+import { avviaCheckoutPrenotazione, calcolaResiduoPrezzo, pagamentiPerBarca, paymentConfig, stripeClient } from "@/lib/payments";
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 
@@ -31,6 +31,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
 
   const cfg = await paymentConfig(booking.tenantId);
   if (!cfg?.attivi) return fail("Pagamenti non disponibili", 422);
+  const abil = await pagamentiPerBarca(booking.tenantId, booking.boatId);
+  if (!abil.abilitati) return fail(abil.motivo ?? "Pagamenti online non disponibili", 422);
 
   const residuo = calcolaResiduoPrezzo(booking.prezzoCent ?? 0, booking.payments, {
     cauzioneIntentId: booking.cauzioneIntentId,
@@ -70,6 +72,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
   const cfg = await paymentConfig(booking.tenantId);
   if (!cfg?.attivi) return fail("Pagamenti non disponibili", 422);
+  const abil = await pagamentiPerBarca(booking.tenantId, booking.boatId);
+  if (!abil.abilitati) return fail(abil.motivo ?? "Pagamenti online non disponibili", 422);
   if (!cfg.stripePronto || !cfg.stripeSecretKey) return fail("Pagamento con carta non disponibile", 422);
 
   const body = await req.json().catch(() => ({}));

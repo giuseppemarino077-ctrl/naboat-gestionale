@@ -4,7 +4,6 @@ import { requireTenant } from "@/lib/tenant";
 import { z } from "zod";
 
 const Schema = z.object({
-  carburantePct: z.number().int().min(0).max(100).optional().nullable(),
   note: z.string().max(2000).optional().nullable(),
   danniEuro: z.string().max(20).optional().nullable(),
 });

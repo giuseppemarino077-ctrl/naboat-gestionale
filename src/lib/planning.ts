@@ -62,6 +62,8 @@ export type PlanningBlock = {
   endAt: string;
   motivo: string | null;
   versione: number;
+  maintenanceId?: string | null;
+  maintenance?: { id: string; titolo: string } | null;
   boat?: { nome: string };
 };
 

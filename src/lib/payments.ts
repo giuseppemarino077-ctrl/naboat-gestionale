@@ -95,6 +95,35 @@ export function stripeClient(secretKey: string) {
   return new Stripe(secretKey, { typescript: true });
 }
 
+// --- Abilitazione effettiva per barca (unica regola server) ---
+// Il blocco generale dell'azienda è prevalente. "Attivi per questa barca" non può
+// aggirare un'azienda disattivata, un provider non configurato o un blocco NaBoat.
+export type ImpostazionePagamentiBarca = "eredita" | "attivi" | "disattivati";
+export type AbilitazioneBarca = {
+  aziendaAttiva: boolean;
+  impostazione: ImpostazionePagamentiBarca;
+  abilitati: boolean;
+  motivo: string | null;
+};
+
+export async function pagamentiPerBarca(tenantId: string, boatId: string | null | undefined): Promise<AbilitazioneBarca> {
+  const cfg = await paymentConfig(tenantId);
+  const boat = boatId
+    ? await prisma.boat.findFirst({ where: { id: boatId, tenantId }, select: { pagamentiOnline: true } })
+    : null;
+  const grezzo = boat?.pagamentiOnline ?? "eredita";
+  const impostazione: ImpostazionePagamentiBarca =
+    grezzo === "attivi" || grezzo === "disattivati" ? grezzo : "eredita";
+  const aziendaAttiva = !!cfg?.stripePronto;
+  let motivo: string | null = null;
+  if (!cfg) motivo = "Azienda non trovata";
+  else if (!cfg.attivi) motivo = "Pagamenti online disattivati per l'azienda";
+  else if (!cfg.stripePronto) motivo = "Provider di pagamento non configurato";
+  else if (impostazione === "disattivati") motivo = "Pagamenti online disattivati per questa barca";
+  const abilitati = aziendaAttiva && impostazione !== "disattivati";
+  return { aziendaAttiva, impostazione, abilitati, motivo };
+}
+
 // --- Calcolo importi (RFQ D7: la fee è una voce unica addebitata al cliente) ---
 export type Importi = {
   importoCent: number;

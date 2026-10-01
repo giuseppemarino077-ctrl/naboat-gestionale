@@ -104,7 +104,7 @@ export async function GET(req: Request) {
     }),
     prisma.block.findMany({
       where: { tenantId: t.tenantId, startAt: { lt: to }, endAt: { gt: from } },
-      select: { id: true, boatId: true, startAt: true, endAt: true, motivo: true, versione: true, boat: { select: { nome: true } } },
+      select: { id: true, boatId: true, startAt: true, endAt: true, motivo: true, versione: true, maintenanceId: true, boat: { select: { nome: true } }, maintenance: { select: { id: true, titolo: true } } },
       orderBy: { startAt: "asc" },
     }),
     prisma.porto.findMany({ where: { tenantId: t.tenantId }, select: { id: true, nome: true }, orderBy: { nome: "asc" } }),

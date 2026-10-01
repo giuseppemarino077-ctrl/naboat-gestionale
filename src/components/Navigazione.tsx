@@ -31,8 +31,6 @@ const VOCI: Voce[] = [
   { href: "/gestionale/turni", icona: "orologio", nome: "Turni", ruoli: AZIENDA_E_SKIPPER, modulo: "noleggio", gruppo: "noleggio", primaria: false },
   { href: "/gestionale/meteo", icona: "meteo", nome: "Meteo", ruoli: AZIENDA_E_SKIPPER, modulo: "noleggio", gruppo: "noleggio", primaria: false },
   { href: "/gestionale/manutenzione", icona: "manutenzione", nome: "Manutenzione", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio", primaria: false },
-  { href: "/gestionale/impostazioni/porti", icona: "pin", nome: "Porti", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio", primaria: false },
-  { href: "/gestionale/impostazioni/listino", icona: "etichetta", nome: "Listino", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio", primaria: false },
 
   { href: "/gestionale/ormeggio", icona: "moduli", nome: "Quadro posti", ruoli: AZIENDA, modulo: "ormeggio", gruppo: "ormeggio", primaria: true },
   { href: "/gestionale/ormeggio/da-fare", icona: "checklist", nome: "Attività", ruoli: AZIENDA, modulo: "ormeggio", gruppo: "ormeggio", primaria: true },
@@ -43,6 +41,8 @@ const VOCI: Voce[] = [
 
   { href: "/gestionale/marketplace", icona: "occhio", nome: "Presenza e richieste", ruoli: AZIENDA, modulo: "noleggio", gruppo: "marketplace", primaria: true },
   { href: "/gestionale/recensioni", icona: "stella", nome: "Recensioni", ruoli: AZIENDA, modulo: "noleggio", gruppo: "marketplace", primaria: true },
+  { href: "/gestionale/impostazioni/porti", icona: "pin", nome: "Porti", ruoli: AZIENDA, modulo: "noleggio", gruppo: "marketplace", primaria: false },
+  { href: "/gestionale/impostazioni/listino", icona: "etichetta", nome: "Listino", ruoli: AZIENDA, modulo: "noleggio", gruppo: "marketplace", primaria: false },
 
   { href: "/gestionale/registro", icona: "registro", nome: "Registro", ruoli: AZIENDA, modulo: "comune", gruppo: "gestione", primaria: false },
   { href: "/gestionale/impostazioni/piano", icona: "pacchetto", nome: "Servizi NaBoat", ruoli: ["owner"], modulo: "comune", gruppo: "gestione", primaria: false },
@@ -211,7 +211,8 @@ function LinkSitoPubblico({ scuro = true, onClick }: { scuro?: boolean; onClick?
   );
 }
 
-export function NavLaterale({ chiuso, onChiudi }: { chiuso: boolean; onChiudi: () => void }) {
+// Navigazione laterale permanente: nessuna chiusura, nessuna modalità a sole icone.
+export function NavLaterale() {
   const path = usePathname();
   const router = useRouter();
   const utente = useUtente({ redirect: true });
@@ -219,25 +220,11 @@ export function NavLaterale({ chiuso, onChiudi }: { chiuso: boolean; onChiudi: (
   const entrambi = !!utente?.tenantOrmeggio && utente?.tenantModulo === "entrambi";
   const attivo = moduloAttivo(path);
 
-  if (chiuso) {
-    return (
-      <button
-        onClick={onChiudi}
-        title="Mostra il menù"
-        aria-label="Mostra il menù"
-        className="fixed left-2 top-3 z-40 grid h-10 w-10 place-items-center rounded-full border border-line bg-white text-ocean shadow-sm"
-      >
-        <Icona nome="freccia-destra" />
-      </button>
-    );
-  }
-
   const cambiaModulo = (dest: "noleggio" | "ormeggio") => {
     const eq = EQUIVALENZE.find((e) => path === e.chiave || path.startsWith(`${e.chiave}/`));
     const destinazione = eq ? eq[dest] : dest === "ormeggio" ? "/gestionale/ormeggio" : "/gestionale/oggi";
     localStorage.setItem("nb_modulo", dest);
     router.push(destinazione);
-    onChiudi();
   };
 
   const gruppiVisibili: Gruppo[] = ["noleggio", "ormeggio", "marketplace", "gestione"].filter((g) => {
@@ -263,12 +250,13 @@ export function NavLaterale({ chiuso, onChiudi }: { chiuso: boolean; onChiudi: (
   );
 }
 
-export function NavMobile() {
+// Variante permanente per schermi piccoli: barra di sezioni sempre visibile e
+// scorrevole, senza menu a scomparsa. Nessun comando di chiusura.
+export function NavOrizzontale() {
   const path = usePathname();
   const router = useRouter();
   const utente = useUtente({ redirect: true });
   const voci = vociVisibili(utente?.role, utente?.tenantOrmeggio ?? false, utente?.tenantModulo ?? null, utente?.tenantStatus);
-  const [aperto, setAperto] = useState(false);
   const entrambi = !!utente?.tenantOrmeggio && utente?.tenantModulo === "entrambi";
   const attivo = moduloAttivo(path);
   const gruppiVisibili: Gruppo[] = ["noleggio", "ormeggio", "marketplace", "gestione"].filter((g) => {
@@ -276,77 +264,49 @@ export function NavMobile() {
     if (g === "ormeggio") return attivo === "ormeggio";
     return true;
   }) as Gruppo[];
-  const principali = gruppiVisibili
-    .flatMap((g) => voci.filter((v) => v.gruppo === g && v.primaria))
-    .slice(0, 4);
 
   const cambiaModulo = (dest: "noleggio" | "ormeggio") => {
     const eq = EQUIVALENZE.find((e) => path === e.chiave || path.startsWith(`${e.chiave}/`));
     const destinazione = eq ? eq[dest] : dest === "ormeggio" ? "/gestionale/ormeggio" : "/gestionale/oggi";
     localStorage.setItem("nb_modulo", dest);
-    setAperto(false);
     router.push(destinazione);
   };
 
   return (
-    <>
-      {aperto && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-deep p-4 text-white md:hidden">
-          <div className="flex items-center justify-between pb-3">
-            <span className="font-display font-extrabold">Tutte le sezioni</span>
-            <button
-              className="flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-2 text-sm font-bold"
-              onClick={() => setAperto(false)}
-            >
-              <Icona nome="chiudi" className="h-4 w-4" /> Chiudi
-            </button>
+    <nav className="sticky top-0 z-30 border-b border-line bg-gradient-to-r from-[#9a3412] to-[#7a2a10] text-white md:hidden" aria-label="Sezioni del gestionale">
+      {entrambi && <div className="px-3 pt-2"><SelettoreModulo attivo={attivo} onChange={cambiaModulo} /></div>}
+      <div className="flex gap-3 overflow-x-auto px-3 py-2">
+        {gruppiVisibili.map((g) => (
+          <div key={g} className="flex shrink-0 items-center gap-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#f3cba6]">{NOMI_GRUPPO[g]}</span>
+            {voci.filter((v) => v.gruppo === g).map((v) => {
+              const attiva = voceAttiva(path, v.href);
+              return (
+                <Link
+                  key={v.href}
+                  href={v.href}
+                  aria-current={attiva ? "page" : undefined}
+                  className={"flex min-h-[40px] items-center gap-1.5 rounded-xl px-2.5 text-xs font-semibold " + (attiva ? "bg-white text-deep shadow" : "bg-white/10 text-[#ffe0c2]")}
+                >
+                  <Icona nome={v.icona} className="h-4 w-4" />
+                  {v.nome}
+                </Link>
+              );
+            })}
           </div>
-          <nav className="grid gap-1 overflow-y-auto pb-6 text-sm">
-            {entrambi && <div className="mb-2"><SelettoreModulo attivo={attivo} onChange={cambiaModulo} /></div>}
-            {gruppiVisibili.map((g) => (
-              <GruppoVoci key={g} gruppo={g} lista={voci.filter((v) => v.gruppo === g)} path={path} onNavigate={() => setAperto(false)} />
-            ))}
-            <div className="mt-1 border-t border-white/10 pt-1">
-              <LinkSitoPubblico onClick={() => setAperto(false)} />
-            </div>
-          </nav>
-        </div>
-      )}
-
-      <nav className="sticky bottom-0 z-30 grid grid-cols-5 border-t border-line bg-white py-1.5 text-center text-[11px] text-muted md:hidden">
-        {principali.map((v) => {
-          const attiva = voceAttiva(path, v.href);
-          return (
-            <Link
-              key={v.href}
-              href={v.href}
-              aria-current={attiva ? "page" : undefined}
-              className={"flex min-h-[46px] flex-col items-center justify-center gap-0.5 rounded-lg " + (attiva ? "font-bold text-ocean" : "")}
-            >
-              <Icona nome={v.icona} className="h-5 w-5" />
-              <span className="leading-none">{v.nome}</span>
-            </Link>
-          );
-        })}
-        <button
-          onClick={() => setAperto(true)}
-          className={"flex min-h-[46px] flex-col items-center justify-center gap-0.5 rounded-lg " + (aperto ? "font-bold text-ocean" : "")}
-        >
-          <Icona nome="menu" className="h-5 w-5" />
-          <span className="leading-none">Altro</span>
-        </button>
-      </nav>
-    </>
+        ))}
+      </div>
+    </nav>
   );
 }
 
 export function StrutturaGestionale({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const utente = useUtente({ redirect: true });
-  const [chiuso, setChiuso] = useState(false);
 
   useEffect(() => {
-    setChiuso(localStorage.getItem("nb_menu_chiuso") === "1");
+    // Neutralizza eventuali preferenze legacy di sidebar chiusa.
+    localStorage.removeItem("nb_menu_chiuso");
   }, []);
 
   useEffect(() => {
@@ -354,11 +314,6 @@ export function StrutturaGestionale({ children }: { children: React.ReactNode })
       window.location.href = "/gestionale/stato";
     }
   }, [utente, path]);
-
-  const cambiaChiusura = (valore: boolean) => {
-    setChiuso(valore);
-    localStorage.setItem("nb_menu_chiuso", valore ? "1" : "0");
-  };
 
   const esci = async () => {
     await fetch("/api/v1/auth/logout", { method: "POST" }).catch(() => {});
@@ -368,24 +323,16 @@ export function StrutturaGestionale({ children }: { children: React.ReactNode })
 
   return (
     <div className="flex min-h-screen">
-      <aside className={chiuso ? "hidden" : "hidden w-[228px] shrink-0 flex-col bg-gradient-to-b from-[#9a3412] to-[#7a2a10] p-3 text-white md:flex"}>
-        <div className="flex items-center justify-between px-2 pb-3 pt-2">
+      <aside className="hidden w-[228px] shrink-0 flex-col bg-gradient-to-b from-[#9a3412] to-[#7a2a10] p-3 text-white md:flex">
+        <div className="flex items-center px-2 pb-3 pt-2">
           <div className="flex items-center gap-2 font-display font-extrabold">
             <span className="grid h-8 w-8 place-items-center rounded-full bg-[#ffd9a8]"><img src="/img/logo-naboat-scuro.png" alt="" className="h-5 w-auto" /></span>
             NaBoat
           </div>
-          <button
-            onClick={() => cambiaChiusura(true)}
-            title="Nascondi il menù"
-            aria-label="Nascondi il menù"
-            className="grid h-9 w-9 place-items-center rounded-full text-[#ffe0c2] hover:bg-white/10 hover:text-white"
-          >
-            <Icona nome="freccia-sinistra" />
-          </button>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <NavLaterale chiuso={false} onChiudi={() => cambiaChiusura(true)} />
+          <NavLaterale />
         </div>
 
         <div className="mt-3 shrink-0 rounded-2xl bg-white/10 p-3 text-xs">
@@ -412,13 +359,8 @@ export function StrutturaGestionale({ children }: { children: React.ReactNode })
         </div>
       </aside>
 
-      {chiuso && (
-        <div className="hidden md:block">
-          <NavLaterale chiuso onChiudi={() => cambiaChiusura(false)} />
-        </div>
-      )}
-
       <div className="min-w-0 flex-1">
+        <NavOrizzontale />
         <header className="flex h-[67px] items-center justify-between gap-3 border-b border-line bg-white px-4 sm:px-5">
           <div className="flex items-center gap-2">
             <strong className="font-display">Gestionale</strong>
@@ -445,7 +387,6 @@ export function StrutturaGestionale({ children }: { children: React.ReactNode })
           )}
           {children}
         </main>
-        <NavMobile />
       </div>
     </div>
   );

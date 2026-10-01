@@ -1,6 +1,7 @@
 import { fail, ok } from "@/lib/api";
-import { chiaveDedup, normalizzaEmail, normalizzaTelefono } from "@/lib/anagrafica";
+import { normalizzaEmail } from "@/lib/anagrafica";
 import { prisma } from "@/lib/db";
+import { normalizzaTelefono } from "@/lib/telefono";
 import { requireAzienda } from "@/lib/tenant";
 import { z } from "zod";
 
@@ -36,20 +37,19 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
 
   if (telefonoPresente) {
-    const telNorm = p.data.telefono ? normalizzaTelefono(p.data.telefono) : "";
-    if (p.data.telefono && (telNorm.length < 8 || telNorm.length > 15)) return fail("Il telefono deve contenere da 8 a 15 cifre", 422);
-    if (telNorm) {
-      const dedupKey = chiaveDedup(telNorm);
+    if (p.data.telefono) {
+      const tel = normalizzaTelefono(p.data.telefono);
+      if (!tel.ok) return fail(tel.motivo, 422);
       const conflitto = await prisma.customer.findFirst({
-        where: { tenantId: t.tenantId, dedupKey, NOT: { id } },
+        where: { tenantId: t.tenantId, telefono: tel.canonico, NOT: { id } },
         select: { nome: true },
       });
       if (conflitto) return fail(`Esiste già un cliente con questo telefono (${conflitto.nome})`, 409);
-      dati.telefono = telNorm;
-      dati.dedupKey = dedupKey;
+      dati.telefono = tel.canonico;
+      dati.dedupKey = tel.canonico;
     } else {
       // Si può togliere il telefono solo se resta un'email e la chiave non collide.
-      const base = emailFinale ? `e:${emailFinale}` : cur.dedupKey;
+      const base = emailFinale ? `e:${emailFinale}` : `n:${cur.nome.toLowerCase()}`;
       const conflitto = await prisma.customer.findFirst({ where: { tenantId: t.tenantId, dedupKey: base, NOT: { id } }, select: { id: true } });
       dati.telefono = null;
       dati.dedupKey = conflitto ? `${base}:${cur.id.slice(0, 8)}` : base;

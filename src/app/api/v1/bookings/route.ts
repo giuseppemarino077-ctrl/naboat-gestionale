@@ -1,5 +1,6 @@
 import { fail, ok } from "@/lib/api";
-import { chiaveDedupContatti, normalizzaEmail, normalizzaTelefono } from "@/lib/anagrafica";
+import { chiaveDedupContatti, normalizzaEmail } from "@/lib/anagrafica";
+import { chiaveTelefono, normalizzaTelefono } from "@/lib/telefono";
 import { esitoPatente } from "@/lib/clienti";
 import { prisma } from "@/lib/db";
 import { bloccaRisorse, validaBarcaNoleggio, verificaDisponibilita } from "@/lib/disponibilita";
@@ -165,18 +166,20 @@ export async function POST(req: Request) {
   const extraCheck = await extrasDelTenant(t.tenantId, v.extraIds);
   if (!extraCheck.ok) return fail("Extra non validi per questa azienda", 422);
 
-  // Telefono normale (solo cifre, ultime 15) e validato come nel riferimento.
-  const cifreTel = (v.telefono ?? "").replace(/\D/g, "");
-  if (v.telefono && (cifreTel.length < 8 || cifreTel.length > 15)) {
-    return fail("Il telefono deve contenere da 8 a 15 cifre", 422);
+  // Telefono normalizzato in un unico punto (region default IT): il valore canonico
+  // E.164 è quello salvato; un numero non valido viene rifiutato.
+  let telefonoNorm: string | null = null;
+  if (v.telefono) {
+    const tel = normalizzaTelefono(v.telefono);
+    if (!tel.ok) return fail(tel.motivo, 422);
+    telefonoNorm = tel.canonico;
   }
-  const telefonoNorm = cifreTel ? cifreTel.slice(-15) : null;
   const emailNorm = normalizzaEmail(v.email);
 
   // Deduplica: si riusa l'anagrafica riconosciuta da telefono o email. Se i due
   // contatti appartengono a due clienti diversi si risponde 409 (nessuna fusione).
   const [perTelefono, perEmail] = await Promise.all([
-    telefonoNorm ? prisma.customer.findFirst({ where: { tenantId: t.tenantId, dedupKey: telefonoNorm }, select: { id: true, dedupKey: true } }) : null,
+    telefonoNorm ? prisma.customer.findFirst({ where: { tenantId: t.tenantId, OR: [{ dedupKey: telefonoNorm }, { telefono: telefonoNorm }] }, select: { id: true, dedupKey: true } }) : null,
     emailNorm ? prisma.customer.findFirst({ where: { tenantId: t.tenantId, email: emailNorm }, select: { id: true, dedupKey: true } }) : null,
   ]);
   if (perTelefono && perEmail && perTelefono.id !== perEmail.id) {
@@ -245,7 +248,7 @@ export async function POST(req: Request) {
           data: {
             tenantId: t.tenantId,
             nome: v.nuovoSkipper.nome,
-            telefono: normalizzaTelefono(v.nuovoSkipper.telefono) || null,
+            telefono: chiaveTelefono(v.nuovoSkipper.telefono),
             note: v.nuovoSkipper.note ?? null,
           },
           select: { id: true },

@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useUtente } from "@/components/Utente";
+import { SedeOperativa } from "@/components/SedeOperativa";
 
 // Editor del profilo pubblico dell'azienda: gli stessi dati mostrati su
 // /azienda/<slug>. Lo slug lo assegna NaBoat con la SEO: qui è in sola lettura.
@@ -36,6 +38,7 @@ const campi = [
 ] as const;
 
 export default function ImpostazioniPage() {
+  const utente = useUtente();
   const [p, setP] = useState<Profilo | null>(null);
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
@@ -193,6 +196,8 @@ export default function ImpostazioniPage() {
             </div>
             <p className="text-xs text-muted">Jpeg/png/webp, max 5 MB. Lo slug pubblico (<code>{p.slug ?? "assegnato da NaBoat"}</code>) e l&apos;indicatore «verificata» li assegna NaBoat.</p>
           </div>
+
+          <SedeOperativa owner={(utente?.role ?? "") !== "operatore"} />
 
           <div className="flex flex-wrap items-center gap-3">
             <button className="btn-primary" disabled={salvando} onClick={salva}>{salvando ? "Salvo…" : "Salva profilo"}</button>

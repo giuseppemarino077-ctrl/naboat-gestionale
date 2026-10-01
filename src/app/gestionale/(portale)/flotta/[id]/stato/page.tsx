@@ -7,16 +7,29 @@ import { Caricamento } from "@/components/ui/Caricamento";
 export default function StatoPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const [b, setB] = useState<{ nome: string; stato: string; archiviato: boolean; eliminazioneAt: string | null } | null>(null);
+  const [b, setB] = useState<{ nome: string; stato: string; archiviato: boolean; eliminazioneAt: string | null; pagamentiOnline: string } | null>(null);
+  const [pag, setPag] = useState<{ impostazione: string; abilitati: boolean; motivo: string | null; azienda: { pagamentiAttivi: boolean; bloccatiNaBoat: boolean; providerConfigurato: boolean; status: string } } | null>(null);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [nomeConferma, setNomeConferma] = useState("");
   const [busy, setBusy] = useState(false);
   const campo = "min-h-11 w-full rounded-xl border border-line bg-white px-3 text-base outline-none focus:border-ocean focus:ring-2 focus:ring-ocean/15 sm:text-sm";
 
-  const carica = () => fetch(`/api/v1/boats/${id}`).then((r) => (r.ok ? r.json() : Promise.reject())).then((j) => setB({ nome: j.nome, stato: j.stato, archiviato: j.archiviato, eliminazioneAt: j.eliminazioneAt })).catch(() => setErr("Barca non trovata."));
+  const carica = () => {
+    fetch(`/api/v1/boats/${id}`).then((r) => (r.ok ? r.json() : Promise.reject())).then((j) => setB({ nome: j.nome, stato: j.stato, archiviato: j.archiviato, eliminazioneAt: j.eliminazioneAt, pagamentiOnline: j.pagamentiOnline ?? "eredita" })).catch(() => setErr("Barca non trovata."));
+    fetch(`/api/v1/payments/abilitazione?boatId=${id}`).then((r) => (r.ok ? r.json() : null)).then((j) => j && setPag(j)).catch(() => {});
+  };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { carica(); }, [id]);
+
+  const salvaPagamenti = async (impostazione: string) => {
+    setBusy(true); setErr(""); setMsg("");
+    try {
+      const r = await fetch(`/api/v1/boats/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pagamentiOnline: impostazione }) });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); setErr(j.error ?? "Operazione non riuscita."); return; }
+      setMsg("Impostazione pagamenti aggiornata."); carica();
+    } finally { setBusy(false); }
+  };
 
   const cambiaStato = async (stato: string, esito: string) => {
     setBusy(true); setErr(""); setMsg("");
@@ -67,6 +80,37 @@ export default function StatoPage() {
             : <button type="button" disabled={busy} onClick={() => cambiaStato("disponibile", "Barca resa disponibile.")} className="btn-primary">Rendi disponibile</button>}
           {b.stato === "manutenzione" && <span className="rounded-xl bg-sand px-4 py-2.5 text-sm text-muted">In manutenzione: gestisci gli interventi da Manutenzione.</span>}
         </div>
+      </section>
+
+      <section className="card grid gap-3 p-5">
+        <h2 className="font-display text-lg font-bold text-ink">Pagamenti online su questa barca</h2>
+        {pag ? (
+          <>
+            <p className={"text-sm font-semibold " + (pag.abilitati ? "text-ok" : "text-warn")}>
+              {pag.abilitati ? "Pagamenti online attivi per questa barca." : `Non disponibili: ${pag.motivo ?? "motivo non specificato"}.`}
+            </p>
+            {(!pag.azienda.pagamentiAttivi || !pag.azienda.providerConfigurato) && (
+              <p className="rounded-xl bg-warn-soft p-3 text-xs text-warn">
+                Azienda: pagamenti {pag.azienda.pagamentiAttivi ? "attivi" : "disattivati"}
+                {pag.azienda.bloccatiNaBoat ? " · bloccati da NaBoat" : ""}
+                {pag.azienda.providerConfigurato ? "" : " · provider non configurato"}.
+                L'impostazione della barca non può aggirare questo stato.
+              </p>
+            )}
+            <div className="grid gap-2 sm:grid-cols-3">
+              {([
+                ["eredita", "Usa impostazione azienda"],
+                ["attivi", "Attivi per questa barca"],
+                ["disattivati", "Disattivati per questa barca"],
+              ] as const).map(([v, label]) => (
+                <label key={v} className={"flex min-h-11 cursor-pointer items-center justify-center rounded-xl border px-3 text-center text-sm font-semibold " + (b.pagamentiOnline === v ? "border-ocean bg-foam text-ocean" : "border-line bg-white text-ink")}>
+                  <input type="radio" className="sr-only" checked={b.pagamentiOnline === v} disabled={busy} onChange={() => salvaPagamenti(v)} />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </>
+        ) : <p className="text-sm text-muted">Calcolo dell'abilitazione…</p>}
       </section>
 
       <section className="card grid gap-3 border border-danger-line p-5">

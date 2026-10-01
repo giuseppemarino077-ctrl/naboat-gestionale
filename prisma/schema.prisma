@@ -46,6 +46,12 @@ model Tenant {
   logoUrl   String?
   indirizzoPartenza String?
   telefonoContatto  String?
+  // Sede operativa (base meteo): scelta per nome/indirizzo, non coincide per forza
+  // con la sede legale. Le coordinate sono un dato tecnico derivato dalla ricerca.
+  sedeOperativaNome    String?
+  sedeOperativaLat     Float?
+  sedeOperativaLon     Float?
+  sedeOperativaPlaceId String?
   status    TenantStatus @default(pending)
   createdAt DateTime     @default(now())
   users     User[]
@@ -323,6 +329,9 @@ model Boat {
   // differita (idempotente, non affidata a un timer del browser).
   eliminazioneRichiestaAt DateTime?
   eliminazioneAt          DateTime?
+  // Pagamenti online della singola barca: "eredita" | "attivi" | "disattivati".
+  // Il blocco generale dell'azienda resta comunque prevalente.
+  pagamentiOnline         String   @default("eredita")
   bookings         Booking[]
   blocks           Block[]
   expenses         Expense[]
@@ -396,6 +405,9 @@ model Customer {
   bookings  Booking[]
 
   @@unique([tenantId, dedupKey])
+  // Un solo cliente per numero canonico all'interno dell'azienda. `telefono` è
+  // nullable: in Postgres più NULL non violano il vincolo (clienti senza recapito).
+  @@unique([tenantId, telefono])
   @@index([tenantId])
   @@index([tenantId, createdAt])
 }
@@ -535,9 +547,14 @@ model Block {
   endAt     DateTime
   motivo    String?
   versione  Int      @default(1) // compare-and-swap sullo split del giorno
+  // Collegamento esplicito a una manutenzione (non dedotto dalle note). Un blocco
+  // può al massimo rappresentare una manutenzione.
+  maintenanceId String? @unique
+  maintenance   Maintenance? @relation(fields: [maintenanceId], references: [id], onDelete: SetNull)
   createdAt DateTime @default(now())
 
   @@index([tenantId, boatId, startAt])
+  @@index([maintenanceId])
 }
 
 // Modalità di utilizzo configurate per una singola barca (locazione, locazione con
@@ -907,6 +924,8 @@ model Maintenance {
   note         String?
   createdAt    DateTime       @default(now())
   expense      Expense? // spesa generata al completamento (una sola, collegata)
+  // Blocco calendario collegato (indisponibilità della barca per la manutenzione).
+  block        Block?
 
   @@index([tenantId, dataScadenza])
   @@index([boatId])
@@ -1253,6 +1272,9 @@ model Porto {
   indirizzo String?
   lat       Float?
   lon       Float?
+  // Identificativo del luogo presso Google Places (dato del provider, distinto dai
+  // campi inseriti dall'azienda). Usato per aggiornare nome/indirizzo/coordinate.
+  placeId   String?
   note      String? // indicazioni per il punto d'incontro
   orari     String?
   createdAt DateTime @default(now())

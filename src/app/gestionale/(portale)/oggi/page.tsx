@@ -47,12 +47,10 @@ export default function OggiPage() {
 
   const checkin = async (p: Partenza) => {
     const v = await modulo.apri(`Check-in · ${p.cliente}`, [
-      { nome: "carburante", etichetta: "Carburante alla partenza (%)", tipo: "number", valore: "100", min: 0, max: 100, aiuto: "Vuoto = non indicato" },
       { nome: "note", etichetta: "Note del check-in", tipo: "textarea", placeholder: "Dotazioni, stato generale…" },
     ], { confermaLabel: "Registra check-in" });
     if (!v) return;
     const r = await api(`/api/v1/bookings/${p.id}/checkin`, "POST", {
-      carburantePct: v.carburante.trim() === "" ? null : Number(v.carburante),
       note: v.note || null,
     });
     if (r) setMsg(`Check-in registrato per ${p.cliente}.`);
@@ -60,13 +58,11 @@ export default function OggiPage() {
 
   const checkout = async (p: Partenza) => {
     const v = await modulo.apri(`Check-out · ${p.cliente}`, [
-      { nome: "carburante", etichetta: "Carburante al rientro (%)", tipo: "number", min: 0, max: 100, aiuto: "Vuoto = non indicato" },
       { nome: "danni", etichetta: "Importo danni in euro", placeholder: "Vuoto = nessun danno" },
       { nome: "note", etichetta: "Note del rientro", tipo: "textarea" },
     ], { confermaLabel: "Registra check-out" });
     if (!v) return;
     const r = await api(`/api/v1/bookings/${p.id}/checkout`, "POST", {
-      carburantePct: v.carburante.trim() === "" ? null : Number(v.carburante),
       danniEuro: v.danni.trim() || null,
       note: v.note || null,
     });

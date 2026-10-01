@@ -41,8 +41,8 @@ export default function SchedaPrenotazione({
     return r.ok;
   };
 
-  const partenza = () => esegui("POST", `/api/v1/bookings/${pren.id}/checkin`, { carburantePct: null, note: null }, "Partenza registrata: l'impegno è completato.");
-  const rientro = () => esegui("POST", `/api/v1/bookings/${pren.id}/checkout`, { carburantePct: null, danniEuro: null, note: null }, "Rientro registrato: la barca risulta rientrata.");
+  const partenza = () => esegui("POST", `/api/v1/bookings/${pren.id}/checkin`, { note: null }, "Partenza registrata: l'impegno è completato.");
+  const rientro = () => esegui("POST", `/api/v1/bookings/${pren.id}/checkout`, { danniEuro: null, note: null }, "Rientro registrato: la barca risulta rientrata.");
   const annulla = async () => {
     const ok = await conferma.chiedi({ titolo: "Eliminare questa prenotazione e rendere nuovamente libera la barca?", messaggio: "La prenotazione viene annullata (nessun dato storico viene cancellato) e la barca torna disponibile.", confermaLabel: "Elimina prenotazione", pericoloso: true });
     if (ok) await esegui("DELETE", `/api/v1/bookings/${pren.id}?updatedAt=${encodeURIComponent(pren.updatedAt)}`, undefined, "Prenotazione annullata.");

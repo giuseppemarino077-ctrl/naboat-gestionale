@@ -1,5 +1,6 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
+import { bloccaRisorse, verificaDisponibilita } from "@/lib/disponibilita";
 import { requireAzienda } from "@/lib/tenant";
 import { z } from "zod";
 
@@ -49,6 +50,9 @@ const Schema = z.object({
   costoEuro: z.string().max(20).optional().nullable(),
   costoPrevistoEuro: z.string().max(20).optional().nullable(),
   note: z.string().max(1000).optional().nullable(),
+  // Comando esplicito per bloccare il calendario con un periodo (facoltativo).
+  bloccoInizio: z.string().datetime().optional().nullable(),
+  bloccoFine: z.string().datetime().optional().nullable(),
 });
 
 export async function POST(req: Request) {
@@ -80,18 +84,40 @@ export async function POST(req: Request) {
     if (costoPrevistoCent === null) return fail("Costo previsto non valido", 422);
   }
 
-  const item = await prisma.maintenance.create({
-    data: {
-      tenantId: t.tenantId,
-      boatId: boat.id,
-      tipo: p.data.tipo,
-      titolo: p.data.titolo,
-      dataScadenza,
-      oreMotore: p.data.oreMotore ?? null,
-      costoCent,
-      costoPrevistoCent,
-      note: p.data.note ?? null,
-    },
+  // Blocco calendario esplicito (facoltativo): se indicato il periodo, il blocco
+  // nasce collegato all'intervento nella stessa transazione.
+  let blocco: { startAt: Date; endAt: Date } | null = null;
+  if (p.data.bloccoInizio && p.data.bloccoFine) {
+    const s = new Date(p.data.bloccoInizio);
+    const e = new Date(p.data.bloccoFine);
+    if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime()) || !(s < e)) return fail("Periodo di blocco non valido", 422);
+    blocco = { startAt: s, endAt: e };
+  }
+
+  const item = await prisma.$transaction(async (tx) => {
+    if (blocco) {
+      await bloccaRisorse(tx, { boatIds: [boat.id] });
+      const disp = await verificaDisponibilita(tx, { tenantId: t.tenantId, boatId: boat.id, startAt: blocco.startAt, endAt: blocco.endAt });
+      if (!disp.ok) return { conflitto: disp.messaggio } as const;
+    }
+    const manutenzione = await tx.maintenance.create({
+      data: {
+        tenantId: t.tenantId,
+        boatId: boat.id,
+        tipo: p.data.tipo,
+        titolo: p.data.titolo,
+        dataScadenza,
+        oreMotore: p.data.oreMotore ?? null,
+        costoCent,
+        costoPrevistoCent,
+        note: p.data.note ?? null,
+      },
+    });
+    if (blocco) {
+      await tx.block.create({ data: { tenantId: t.tenantId, boatId: boat.id, startAt: blocco.startAt, endAt: blocco.endAt, motivo: "Manutenzione", maintenanceId: manutenzione.id } });
+    }
+    return { creato: manutenzione } as const;
   });
-  return ok(item, 201);
+  if ("conflitto" in item) return fail(item.conflitto ?? "Conflitto con un impegno esistente", 409);
+  return ok(item.creato, 201);
 }

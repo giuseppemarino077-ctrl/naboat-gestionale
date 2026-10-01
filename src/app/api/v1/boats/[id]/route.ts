@@ -34,6 +34,8 @@ const Schema = z.object({
   inPausa: z.boolean().optional(),
   archiviato: z.boolean().optional(),
   ordineFoto: z.array(z.string().max(500)).max(60).optional(),
+  // Pagamenti online della singola barca: eredita | attivi | disattivati.
+  pagamentiOnline: z.enum(["eredita", "attivi", "disattivati"]).optional(),
 });
 
 // Dettaglio barca con i riferimenti usati dalla scheda (porto, modello, dotazioni).

@@ -1,8 +1,10 @@
 import { prisma } from "@/lib/db";
 
 // Check-in alla partenza e check-out al rientro: condivisi dalle due rotte.
+// La rilevazione del carburante non fa più parte del flusso attivo: i campi storici
+// (checkinCarburantePct/checkoutCarburantePct) restano nel database in sola lettura
+// per i verbali già registrati, ma non vengono più richiesti né scritti.
 export type DatiPresenza = {
-  carburantePct?: number | null;
   note?: string | null;
   danniEuro?: string | null;
 };
@@ -59,7 +61,6 @@ export async function registraCheckin(tenantId: string, userId: string, bookingI
       data: {
         checkinAt: new Date(),
         checkinNote: dati.note ?? null,
-        checkinCarburantePct: dati.carburantePct ?? null,
         // Check-in e partenza sono la stessa azione: lo stato avanza atomicamente.
         ...(avanzamento ? { stato: "in_mare" as const } : {}),
       },
@@ -109,7 +110,6 @@ export async function registraCheckout(tenantId: string, userId: string, booking
       data: {
         checkoutAt: new Date(),
         checkoutNote: dati.note ?? null,
-        checkoutCarburantePct: dati.carburantePct ?? null,
         danniCent,
         stato: "rientrata",
       },
