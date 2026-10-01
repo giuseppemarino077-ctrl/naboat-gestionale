@@ -62,6 +62,10 @@ model Tenant {
   refunds           Refund[]
   maintenance       Maintenance[]
   tariffe           Tariffa[]
+  offerte           BoatOfferta[]
+  dotazioni         Dotazione[]
+  dotazioniAssociate BoatDotazione[]
+  extraBarche       ExtraBarca[]
 
   // --- Modulo Ormeggio (ormeggiatori e rimessaggi) ---
   aree              Area[]
@@ -296,24 +300,37 @@ model Boat {
   tenant           Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   nome             String
   tipo             String?
-  capienza         Int        @default(2)
-  potenzaCv        Int?
+  // Capacità: null = ancora non configurata (nessun numero fittizio). I lettori
+  // devono gestire il valore ignoto senza inventare un massimo.
+  capienza         Int?
+  // Potenza in CV: decimale (es. 40,5). L'obbligo di patente resta in patenteRichiesta.
+  potenzaCv        Float?
   patenteRichiesta Boolean    @default(false)
   stato            BoatStatus @default(disponibile)
   uso              UsoBarca   @default(noleggio) // noleggio oppure custodia (ormeggio/rimessaggio)
+  codiceInterno    String? // codice gestionale dell'azienda (non identificatore globale)
   proprietarioId   String?
   proprietario     Proprietario? @relation(fields: [proprietarioId], references: [id], onDelete: SetNull)
   specs            Json?
   fotoCopertina    String?
   fotoGallery      String[]   @default([])
   createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
   lat              Float?
   lon              Float?
+  // Richiesta di eliminazione: la barca sparisce subito da flotta/calendario
+  // ordinari, ma lo storico resta. eliminazioneAt governa la rimozione operativa
+  // differita (idempotente, non affidata a un timer del browser).
+  eliminazioneRichiestaAt DateTime?
+  eliminazioneAt          DateTime?
   bookings         Booking[]
   blocks           Block[]
   expenses         Expense[]
   maintenance      Maintenance[]
   tariffe          Tariffa[]
+  offerte          BoatOfferta[]
+  dotazioniAssociate BoatDotazione[]
+  extraBarche      ExtraBarca[]
   permanenze       Permanenza[]
   assegnazioniPosto AssegnazionePosto[]
 
@@ -367,9 +384,13 @@ model Customer {
   tenantId  String
   tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   nome      String
-  telefono  String
+  // Telefono facoltativo: un cliente può nascere con il solo nome (nessun recapito
+  // inventato). La deduplica avviene per telefono/email quando forniti.
+  telefono  String?
   email     String?
   note      String?
+  // Chiave di deduplica non vuota e univoca per azienda. Per i clienti senza contatti
+  // è derivata dal nome + un suffisso casuale, così non collide con altri omonimi.
   dedupKey  String
   createdAt DateTime @default(now())
   bookings  Booking[]
@@ -397,11 +418,32 @@ model Booking {
   formula     String?
   skipperId   String?
   skipper     Skipper?      @relation(fields: [skipperId], references: [id], onDelete: SetNull)
+  // Stato dell'assegnazione skipper, distinto dal catalogo: NONE (non serve) /
+  // UNASSIGNED (da assegnare) / ASSIGNED (uno skipper è collegato).
+  skipperStato String       @default("NONE")
+  // Nota operativa della scheda skipper (es. patente, lingua, preferenze).
+  skipperNote  String?
   extras      BookingExtra[]
-  patenteOk   Boolean       @default(false)
+  // Dichiarazione patente del cliente operativo: "YES" | "NO" | null (non ancora
+  // raccolta). Non sostituisce la patente verificata dell'account pubblico.
+  patenteRisposta String?
+  patenteOk   Boolean       @default(false) // conservato per compatibilità (equivalente a patenteRisposta = "YES")
   note        String?
+  // Modalità/offerta e sede operative scelte per questa prenotazione (snapshot dei
+  // riferimenti). `formula` resta come testo legacy.
+  offertaId   String?
+  offerta     BoatOfferta?  @relation(fields: [offertaId], references: [id], onDelete: SetNull)
+  portoId     String?
+  porto       Porto?        @relation(fields: [portoId], references: [id], onDelete: SetNull)
+  // Riprogrammazione (semantica BOATLY): la nuova prenotazione ricorda l'originale
+  // annullata. Solo la sostituta referenzia l'originale (collegamento 1:1).
+  sostituisceId String?     @unique
+  sostituisce   Booking?    @relation("Riprogrammazione", fields: [sostituisceId], references: [id], onDelete: SetNull)
+  sostituta     Booking?    @relation("Riprogrammazione")
+  motivoRiprogrammazione String?
   idempotencyKey String?    @unique
   idempotencyHash String? // impronta del payload: stessa chiave con dati diversi = 409
+  versione    Int           @default(1) // compare-and-swap: incrementata a ogni modifica operativa
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt // versione della prenotazione: controlli di concorrenza
 
@@ -492,9 +534,90 @@ model Block {
   startAt   DateTime
   endAt     DateTime
   motivo    String?
+  versione  Int      @default(1) // compare-and-swap sullo split del giorno
   createdAt DateTime @default(now())
 
   @@index([tenantId, boatId, startAt])
+}
+
+// Modalità di utilizzo configurate per una singola barca (locazione, locazione con
+// comandante, noleggio). Alimentano il selettore della prenotazione rapida e il
+// listino. `codice` è stabile; l'etichetta è presentata in italiano.
+model BoatOfferta {
+  id            String   @id @default(uuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  boatId        String
+  boat          Boat     @relation(fields: [boatId], references: [id], onDelete: Cascade)
+  codice        String // LOCAZIONE | LOCAZIONE_CON_COMANDANTE | NOLEGGIO
+  attiva        Boolean  @default(false)
+  // NON_DISPONIBILE | OPZIONALE | INCLUSO | OBBLIGATORIO
+  skipperModo   String   @default("NON_DISPONIBILE")
+  guidaAutonoma Boolean  @default(false)
+  etaMinima     Int? // età minima conducente (>=18), ammessa solo con guida autonoma
+  noteLimiti    String?
+  noteRequisiti String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  bookings Booking[]
+  tariffe  Tariffa[]
+
+  @@unique([boatId, codice])
+  @@index([tenantId, boatId])
+}
+
+// Catalogo dotazioni per azienda, con categoria (navigazione, comfort, …). Le voci
+// legacy in Boat.dotazioni (stringhe libere) restano lette: questa è l'evoluzione
+// strutturata, non una sostituzione che perde dati.
+model Dotazione {
+  id          String   @id @default(uuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  categoria   String   @default("OTHER") // NAVIGATION | COMFORT | ENTERTAINMENT | KITCHEN | ELECTRICAL | WATER_SPORTS | OTHER
+  nome        String
+  descrizione String?
+  ordine      Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  associazioni BoatDotazione[]
+
+  @@unique([tenantId, nome])
+  @@index([tenantId, categoria])
+}
+
+// Dotazione inclusa su una barca, con eventuale nota operativa.
+model BoatDotazione {
+  id          String    @id @default(uuid())
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  boatId      String
+  boat        Boat      @relation(fields: [boatId], references: [id], onDelete: Cascade)
+  dotazioneId String
+  dotazione   Dotazione @relation(fields: [dotazioneId], references: [id], onDelete: Cascade)
+  nota        String?
+  createdAt   DateTime  @default(now())
+
+  @@unique([boatId, dotazioneId])
+  @@index([tenantId, boatId])
+}
+
+// Override per barca di un extra del catalogo aziendale: prezzo e quantità massima
+// personalizzati. Vuoto = eredita il valore base.
+model ExtraBarca {
+  id          String   @id @default(uuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  extraId     String
+  extra       Extra    @relation(fields: [extraId], references: [id], onDelete: Cascade)
+  boatId      String
+  boat        Boat     @relation(fields: [boatId], references: [id], onDelete: Cascade)
+  prezzoCent  Int? // null = eredita Extra.prezzo
+  quantitaMax Int? // null = eredita Extra.quantitaMax
+  createdAt   DateTime @default(now())
+
+  @@unique([extraId, boatId])
+  @@index([tenantId, boatId])
 }
 model AuditLog {
   id        String   @id @default(uuid())
@@ -517,6 +640,7 @@ model Skipper {
   tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   nome      String
   telefono  String?
+  note      String?
   attivo    Boolean   @default(true)
   userId    String?   @unique // se lo skipper ha anche un accesso al portale, qui c'è il suo utente
   user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -532,13 +656,19 @@ model Extra {
   tenantId    String
   tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   nome        String
+  descrizione String?
   prezzo      Float?
-  unita       String         @default("noleggio") // persona | giorno | noleggio | fisso
+  // unita: persona | giorno | noleggio | fisso | per_ora | per_unita
+  unita       String         @default("noleggio")
   quantitaMax Int? // quantità massima acquistabile (null = nessun limite)
-  boatIds     String[]       @default([]) // barche su cui è disponibile (vuoto = tutte)
+  boatIds     String[]       @default([]) // legacy: elenco barche (vuoto = tutte)
+  // scope esplicito: "tutte" oppure "elenco". Sostituisce l'ambiguità del vecchio
+  // boatIds vuoto = tutte, così togliere l'ultima associazione non estende l'extra.
+  scope       String         @default("tutte")
   attivo      Boolean        @default(true)
   createdAt   DateTime       @default(now())
   bookings    BookingExtra[]
+  barche      ExtraBarca[]
 
   @@index([tenantId])
 }
@@ -804,10 +934,17 @@ model Tariffa {
   tipo       TariffaTipo
   stagione   TariffaStagione @default(tutto_anno)
   prezzoCent Int
+  // Piano base (BOATLY): nome leggibile, durata in ore e modalità collegata.
+  // Non sostituisce il listino stagionale: lo integra.
+  nomePiano  String?
+  durataOre  Float?
+  offertaId  String?
+  offerta    BoatOfferta?    @relation(fields: [offertaId], references: [id], onDelete: SetNull)
   attivo     Boolean         @default(true)
   createdAt  DateTime        @default(now())
 
   @@index([tenantId, tipo, stagione])
+  @@index([boatId])
 }
 
 enum ExpenseCategoria {
@@ -1120,6 +1257,7 @@ model Porto {
   orari     String?
   createdAt DateTime @default(now())
   boats     Boat[]
+  bookings  Booking[]
 
   @@index([tenantId])
 }

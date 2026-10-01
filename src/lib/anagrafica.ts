@@ -23,6 +23,27 @@ export function chiaveDedup(telefono: string | null | undefined): string {
   return normalizzaTelefono(telefono);
 }
 
+// Chiave di deduplica per i clienti senza telefono: email se presente, altrimenti
+// un identificatore stabile per nome + suffisso casuale. Un cliente senza contatti
+// non si identifica mai per il solo nome (due omonimi restano persone distinte).
+export function chiaveDedupContatti(
+  telefono: string | null | undefined,
+  email: string | null | undefined,
+  nome: string
+): string {
+  const tel = normalizzaTelefono(telefono);
+  if (tel) return tel;
+  const mail = normalizzaEmail(email);
+  if (mail) return `e:${mail}`;
+  const base = nome.trim().toLowerCase().replace(/\s+/g, " ").slice(0, 80);
+  return `n:${base}:${randomBytes(6).toString("hex")}`;
+}
+
+// Normalizzazione del nome per il confronto (solo presentazione/diagnostica).
+export function normalizzaNome(nome: string): string {
+  return nome.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
 export type TokenOspite = { token: string; scadenza: Date };
 
 // Token casuale monouso per collegare una richiesta ospite all'area personale.

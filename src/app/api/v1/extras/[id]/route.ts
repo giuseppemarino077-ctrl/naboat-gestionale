@@ -7,8 +7,9 @@ import { z } from "zod";
 
 const Schema = z.object({
   nome: z.string().trim().min(2).max(120).optional(),
+  descrizione: z.string().max(500).optional().nullable(),
   prezzo: z.number().min(0).max(100000).optional().nullable(),
-  unita: z.enum(["persona", "giorno", "noleggio", "fisso"]).optional(),
+  unita: z.enum(["persona", "giorno", "noleggio", "fisso", "per_ora", "per_unita"]).optional(),
   quantitaMax: z.number().int().min(1).max(1000).optional().nullable(),
   boatIds: z.array(z.string().uuid()).max(200).optional(),
   attivo: z.boolean().optional(),

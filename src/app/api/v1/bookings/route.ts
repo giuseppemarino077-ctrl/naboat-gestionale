@@ -1,5 +1,5 @@
 import { fail, ok } from "@/lib/api";
-import { chiaveDedup, normalizzaEmail } from "@/lib/anagrafica";
+import { chiaveDedupContatti, normalizzaEmail, normalizzaTelefono } from "@/lib/anagrafica";
 import { esitoPatente } from "@/lib/clienti";
 import { prisma } from "@/lib/db";
 import { bloccaRisorse, validaBarcaNoleggio, verificaDisponibilita } from "@/lib/disponibilita";
@@ -62,19 +62,37 @@ export async function GET(req: Request) {
   return rispostaPaginata(pulita, totale, pag);
 }
 
+const NuovoSkipper = z.object({
+  nome: z.string().min(2).max(160),
+  telefono: z.string().max(40).optional().nullable(),
+  note: z.string().max(2000).optional().nullable(),
+});
+
 const Schema = z.object({
   boatId: z.string().min(1),
   startAt: z.string().datetime(),
   endAt: z.string().datetime(),
   passeggeri: z.number().int().min(1).max(60).default(2),
-  clienteNome: z.string().min(1).max(120),
-  telefono: z.string().min(4).max(40),
-  email: z.string().email().max(160).optional(),
+  // Il form rapido impone 2–160 caratteri; l'API resta permissiva per i chiamanti
+  // esistenti (import, test, prenotazioni manuali) e non rifiuta nomi brevi.
+  clienteNome: z.string().min(1).max(160),
+  // Telefono ed email facoltativi: il cliente può nascere con il solo nome.
+  // Se fornito, il telefono è normalizzato a 8–15 cifre come nel riferimento.
+  telefono: z.string().max(40).optional().nullable(),
+  email: z.string().email().max(320).optional().nullable(),
   destinazione: z.string().max(120).optional(),
   formula: z.string().max(120).optional(),
-  note: z.string().max(2000).optional(),
-  patenteOk: z.boolean().default(false),
-  skipperId: z.string().optional(),
+  note: z.string().max(5000).optional(),
+  // Dichiarazione patente del cliente: "YES" | "NO" | null (non raccolta).
+  patenteRisposta: z.enum(["YES", "NO"]).nullable().optional(),
+  patenteOk: z.boolean().optional(), // compatibilità: equivalente a patenteRisposta "YES"
+  // Stato dell'assegnazione skipper: NONE | UNASSIGNED | ASSIGNED. Se manca, si deduce.
+  skipperStato: z.enum(["NONE", "UNASSIGNED", "ASSIGNED"]).optional(),
+  skipperId: z.string().uuid().optional().nullable(),
+  nuovoSkipper: NuovoSkipper.optional().nullable(),
+  // Modalità/sede operative della prenotazione (snapshot dei riferimenti).
+  offertaId: z.string().uuid().optional().nullable(),
+  portoId: z.string().uuid().optional().nullable(),
   // Collegamento esplicito a un cliente registrato: se presente, il requisito patente
   // si valuta sulla patente verificata dell'account (non sull'attestazione manuale).
   clienteAccountId: z.string().uuid().optional().nullable(),
@@ -83,6 +101,7 @@ const Schema = z.object({
   idempotencyKey: z.string().max(80).optional(),
   stato: z.enum(["da_confermare", "prenotata"]).default("prenotata"),
   prezzoEuro: z.string().max(20).optional().nullable(),
+  prezzoDaDefinire: z.boolean().optional(),
   pagato: z.boolean().optional(),
 });
 
@@ -95,18 +114,24 @@ function improntaPayload(v: z.infer<typeof Schema>): string {
     endAt: v.endAt,
     passeggeri: v.passeggeri,
     clienteNome: v.clienteNome,
-    telefono: v.telefono,
+    telefono: v.telefono ?? null,
     email: v.email ?? null,
     destinazione: v.destinazione ?? null,
     formula: v.formula ?? null,
     note: v.note ?? null,
-    patenteOk: v.patenteOk,
+    patenteRisposta: v.patenteRisposta ?? null,
+    patenteOk: v.patenteOk ?? false,
+    skipperStato: v.skipperStato ?? null,
     skipperId: v.skipperId ?? null,
+    nuovoSkipper: v.nuovoSkipper ?? null,
+    offertaId: v.offertaId ?? null,
+    portoId: v.portoId ?? null,
     clienteAccountId: v.clienteAccountId ?? null,
     extraIds: [...v.extraIds].sort(),
     extraQuantita: Object.fromEntries(Object.entries(v.extraQuantita ?? {}).sort(([a], [b]) => a.localeCompare(b))),
     stato: v.stato,
     prezzoEuro: v.prezzoEuro ?? null,
+    prezzoDaDefinire: v.prezzoDaDefinire ?? false,
     pagato: v.pagato ?? false,
   };
   return createHash("sha256").update(JSON.stringify(canonico)).digest("hex");
@@ -140,9 +165,32 @@ export async function POST(req: Request) {
   const extraCheck = await extrasDelTenant(t.tenantId, v.extraIds);
   if (!extraCheck.ok) return fail("Extra non validi per questa azienda", 422);
 
-  const dedupKey = chiaveDedup(v.telefono);
+  // Telefono normale (solo cifre, ultime 15) e validato come nel riferimento.
+  const cifreTel = (v.telefono ?? "").replace(/\D/g, "");
+  if (v.telefono && (cifreTel.length < 8 || cifreTel.length > 15)) {
+    return fail("Il telefono deve contenere da 8 a 15 cifre", 422);
+  }
+  const telefonoNorm = cifreTel ? cifreTel.slice(-15) : null;
+  const emailNorm = normalizzaEmail(v.email);
+
+  // Deduplica: si riusa l'anagrafica riconosciuta da telefono o email. Se i due
+  // contatti appartengono a due clienti diversi si risponde 409 (nessuna fusione).
+  const [perTelefono, perEmail] = await Promise.all([
+    telefonoNorm ? prisma.customer.findFirst({ where: { tenantId: t.tenantId, dedupKey: telefonoNorm }, select: { id: true, dedupKey: true } }) : null,
+    emailNorm ? prisma.customer.findFirst({ where: { tenantId: t.tenantId, email: emailNorm }, select: { id: true, dedupKey: true } }) : null,
+  ]);
+  if (perTelefono && perEmail && perTelefono.id !== perEmail.id) {
+    return fail("Telefono ed email appartengono a due clienti diversi: correggi uno dei contatti", 409);
+  }
+  const clienteEsistente = perTelefono ?? perEmail;
+  const dedupKey = clienteEsistente?.dedupKey ?? chiaveDedupContatti(telefonoNorm, emailNorm, v.clienteNome);
+
   const prezzoCent = v.prezzoEuro ? parseImportoEuro(v.prezzoEuro) : null;
   if (v.prezzoEuro && prezzoCent === null) return fail("Prezzo non valido", 422);
+  const prezzoDaDefinire = v.prezzoDaDefinire === true && prezzoCent === null;
+  if (v.prezzoEuro === "" ) return fail("Prezzo non valido", 422);
+  // Un incasso manuale richiede un importo determinato: non si incassa "da definire".
+  if (v.pagato && prezzoCent === null) return fail("Imposta il prezzo prima di registrare l'incasso", 422);
 
   // Un collegamento a un cliente registrato deve puntare a un account esistente.
   const clienteAccountId = v.clienteAccountId ?? null;
@@ -175,36 +223,76 @@ export async function POST(req: Request) {
 
       const boat = await tx.boat.findFirst({ where: { id: v.boatId, tenantId: t.tenantId } });
       if (!boat) return { err: "Barca non trovata", status: 404 };
+      if (boat.eliminazioneRichiestaAt) return { err: "Barca in fase di rimozione: non accetta nuove assegnazioni", status: 409 };
       const errBarca = validaBarcaNoleggio(boat, v.passeggeri);
       if (errBarca) return { err: errBarca, status: 422 };
-      // Requisito patente: cliente registrato -> patente verificata; ospite -> patenteOk.
+
+      // Modalità e sede operative: devono appartenere all'azienda; la modalità alla barca.
+      if (v.offertaId) {
+        const off = await tx.boatOfferta.findFirst({ where: { id: v.offertaId, tenantId: t.tenantId, boatId: v.boatId, attiva: true }, select: { id: true } });
+        if (!off) return { err: "Modalità non valida per questa barca", status: 422 };
+      }
+      if (v.portoId) {
+        const p = await tx.porto.findFirst({ where: { id: v.portoId, tenantId: t.tenantId }, select: { id: true } });
+        if (!p) return { err: "Sede non valida per questa azienda", status: 422 };
+      }
+
+      // Skipper: esistente oppure creato inline nella stessa transazione (nessun orfano).
+      let skipperId = v.skipperId ?? null;
+      let skipperStato = v.skipperStato ?? (skipperId ? "ASSIGNED" : "NONE");
+      if (v.nuovoSkipper) {
+        const sk = await tx.skipper.create({
+          data: {
+            tenantId: t.tenantId,
+            nome: v.nuovoSkipper.nome,
+            telefono: normalizzaTelefono(v.nuovoSkipper.telefono) || null,
+            note: v.nuovoSkipper.note ?? null,
+          },
+          select: { id: true },
+        });
+        skipperId = sk.id;
+        skipperStato = "ASSIGNED";
+      }
+      if (skipperId) {
+        const sk = await tx.skipper.findFirst({ where: { id: skipperId, tenantId: t.tenantId, attivo: true }, select: { id: true } });
+        if (!sk) return { err: "Skipper non valido", status: 422 };
+        skipperStato = "ASSIGNED";
+      } else if (skipperStato !== "UNASSIGNED") {
+        skipperStato = "NONE";
+      }
+
+      // Dichiarazione patente: "YES" | "NO" | null (non raccolta).
+      const patenteRisposta = v.patenteRisposta ?? (v.patenteOk ? "YES" : null);
+      const patenteOk = patenteRisposta === "YES";
+      // Requisito patente: cliente registrato -> patente verificata; ospite -> dichiarazione.
       const patente = clienteAccountId
         ? await tx.patenteNautica.findUnique({ where: { accountId: clienteAccountId }, select: { stato: true, scadenzaAt: true } })
         : null;
-      const errPatente = esitoPatente(boat, { patenteOk: v.patenteOk, skipperId: v.skipperId, clienteAccountId, patente });
-      if (errPatente) return { err: errPatente, status: 422 };
-
-      if (v.skipperId) {
-        const sk = await tx.skipper.findFirst({ where: { id: v.skipperId, tenantId: t.tenantId, attivo: true }, select: { id: true } });
-        if (!sk) return { err: "Skipper non valido", status: 422 };
+      if (boat.patenteRichiesta && !clienteAccountId) {
+        // Uno skipper già assegnato soddisfa il requisito anche se la dichiarazione
+        // patente non è stata raccolta. Senza skipper la dichiarazione è obbligatoria.
+        if (patenteRisposta == null && !skipperId) return { err: "Indica se il cliente ha la patente nautica richiesta per questa barca", status: 422 };
+        if (patenteRisposta === "NO" && !skipperId) return { err: "Il cliente non ha la patente richiesta: assegna uno skipper prima di salvare", status: 422 };
       }
+      const errPatente = esitoPatente(boat, { patenteOk, skipperId, clienteAccountId, patente });
+      if (errPatente) return { err: errPatente, status: 422 };
 
       const disp = await verificaDisponibilita(tx, {
         tenantId: t.tenantId,
         boatId: v.boatId,
         startAt: start,
         endAt: end,
-        skipperId: v.skipperId ?? null,
+        skipperId,
       });
       if (!disp.ok) return { err: disp.messaggio, status: 409 };
 
       // L'anagrafica non si sovrascrive da una prenotazione: se il cliente esiste
-      // già (stesso telefono) resta com'è; altrimenti lo si crea. Il contatto della
-      // singola prenotazione è comunque conservato sui campi della prenotazione.
+      // già (telefono/email riconosciuti) resta com'è; altrimenti lo si crea. Il
+      // contatto della singola prenotazione è comunque conservato sulla prenotazione.
       const customer = await tx.customer.upsert({
         where: { tenantId_dedupKey: { tenantId: t.tenantId, dedupKey } },
         update: {},
-        create: { tenantId: t.tenantId, nome: v.clienteNome, telefono: v.telefono, email: normalizzaEmail(v.email), dedupKey },
+        create: { tenantId: t.tenantId, nome: v.clienteNome, telefono: telefonoNorm, email: emailNorm, dedupKey },
         select: { id: true },
       });
 
@@ -217,15 +305,20 @@ export async function POST(req: Request) {
           endAt: end,
           passeggeri: v.passeggeri,
           clienteNome: v.clienteNome,
-          telefono: v.telefono,
-          email: normalizzaEmail(v.email),
+          telefono: telefonoNorm,
+          email: emailNorm,
           destinazione: v.destinazione,
           formula: v.formula,
           note: v.note,
-          patenteOk: v.patenteOk,
+          patenteRisposta: patenteRisposta ?? undefined,
+          patenteOk,
+          skipperStato,
           stato: v.stato,
+          offertaId: v.offertaId ?? undefined,
+          portoId: v.portoId ?? undefined,
           ...(prezzoCent !== null ? { prezzoCent } : {}),
-          skipperId: v.skipperId || undefined,
+          ...(prezzoDaDefinire ? { prezzoDaDefinire: true } : {}),
+          skipperId: skipperId ?? undefined,
           clienteAccountId: clienteAccountId ?? undefined,
           idempotencyKey: v.idempotencyKey,
           idempotencyHash: impronta,

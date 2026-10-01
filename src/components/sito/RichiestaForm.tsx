@@ -18,7 +18,7 @@ type Prev = {
 
 // Richiesta di prenotazione dalla scheda barca: non è una conferma automatica,
 // l'azienda risponde. Se il cliente ha già un account, la richiesta resta collegata.
-export function RichiestaForm({ boatId, capienza }: { boatId: string; capienza: number }) {
+export function RichiestaForm({ boatId, capienza }: { boatId: string; capienza: number | null }) {
   const [dati, setDati] = useState({ nome: "", telefono: "", email: "", inizio: "", fine: "", passeggeri: 2, note: "" });
   const [privacy, setPrivacy] = useState(false);
   const [esca, setEsca] = useState("");
@@ -104,7 +104,7 @@ export function RichiestaForm({ boatId, capienza }: { boatId: string; capienza: 
         </label>
       </div>
       <label className="grid gap-1 text-xs font-semibold text-deep">Persone
-        <input type="number" min={1} max={capienza} className={campo} value={dati.passeggeri} onChange={(e) => setDati({ ...dati, passeggeri: Number(e.target.value) })} />
+        <input type="number" min={1} max={capienza ?? undefined} className={campo} value={dati.passeggeri} onChange={(e) => setDati({ ...dati, passeggeri: Number(e.target.value) })} />
       </label>
       <input className={campo} placeholder="Nome e cognome *" value={dati.nome} onChange={(e) => setDati({ ...dati, nome: e.target.value })} required />
       <input className={campo} type="tel" placeholder="Telefono *" value={dati.telefono} onChange={(e) => setDati({ ...dati, telefono: e.target.value })} required />

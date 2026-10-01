@@ -50,6 +50,10 @@ const Schema = z.object({
   stagione: z.enum(["alta", "bassa", "tutto_anno"]).default("tutto_anno"),
   prezzoEuro: z.string().min(1).max(20),
   attivo: z.boolean().default(true),
+  // Piano base integrato (BOATLY): nome leggibile, durata in ore e modalità collegata.
+  nomePiano: z.string().max(120).optional().nullable(),
+  durataOre: z.number().min(1).max(24).optional().nullable(),
+  offertaId: z.string().uuid().optional().nullable(),
 });
 
 export async function POST(req: Request) {
@@ -71,8 +75,14 @@ export async function POST(req: Request) {
     select: { id: true },
   });
 
+  if (p.data.offertaId) {
+    const off = await prisma.boatOfferta.findFirst({ where: { id: p.data.offertaId, tenantId: t.tenantId }, select: { id: true } });
+    if (!off) return fail("Modalità non valida per questa azienda", 422);
+  }
+
+  const extra = { nomePiano: p.data.nomePiano ?? null, durataOre: p.data.durataOre ?? null, offertaId: p.data.offertaId ?? null };
   const tariffa = esistente
-    ? await prisma.tariffa.update({ where: { id: esistente.id }, data: { prezzoCent, attivo: p.data.attivo } })
+    ? await prisma.tariffa.update({ where: { id: esistente.id }, data: { prezzoCent, attivo: p.data.attivo, ...extra } })
     : await prisma.tariffa.create({
         data: {
           tenantId: t.tenantId,
@@ -81,6 +91,7 @@ export async function POST(req: Request) {
           stagione: p.data.stagione,
           prezzoCent,
           attivo: p.data.attivo,
+          ...extra,
         },
       });
 

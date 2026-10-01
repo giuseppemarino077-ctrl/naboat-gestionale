@@ -53,7 +53,7 @@ export type SnapshotNoleggio = {
   periodo: { inizioAt: string; fineAt: string };
   destinazione: string | null;
   formula: string | null;
-  barca: { nome: string; tipo: string | null; capienza: number; potenzaCv: number | null; patenteRichiesta: boolean };
+  barca: { nome: string; tipo: string | null; capienza: number | null; potenzaCv: number | null; patenteRichiesta: boolean };
   skipper: string | null;
   patenteOk: boolean;
   importi: { prezzoCent: number | null; cauzioneCent: number | null };
@@ -69,7 +69,7 @@ export function snapshotNoleggio(
     fineAt: Date;
     destinazione: string | null;
     formula: string | null;
-    barca: { nome: string; tipo: string | null; capienza: number; potenzaCv: number | null; patenteRichiesta: boolean };
+    barca: { nome: string; tipo: string | null; capienza: number | null; potenzaCv: number | null; patenteRichiesta: boolean };
     skipper: string | null;
     patenteOk: boolean;
     prezzoCent: number | null;

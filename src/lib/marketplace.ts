@@ -317,7 +317,7 @@ export type SchedaEvidenza = {
   tipo: string | null;
   fotoCopertina: string | null;
   patenteRichiesta: boolean;
-  capienza: number;
+  capienza: number | null;
   porto: string | null;
   azienda: string;
   aziendaSlug: string | null;

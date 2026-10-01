@@ -10,10 +10,11 @@ import { requireAzienda } from "@/lib/tenant";
 import { z } from "zod";
 
 const Schema = z.object({
-  nome: z.string().min(2).max(120).optional(),
+  nome: z.string().min(2).max(160).optional(),
   tipo: z.string().max(40).optional().nullable(),
-  capienza: z.number().int().min(1).max(60).optional(),
-  potenzaCv: z.number().int().min(0).max(2000).optional().nullable(),
+  capienza: z.number().int().min(1).max(60).optional().nullable(),
+  potenzaCv: z.number().min(0).max(100000).optional().nullable(),
+  codiceInterno: z.string().max(80).optional().nullable(),
   patenteRichiesta: z.boolean().optional(),
   stato: z.enum(["disponibile", "non_disponibile", "manutenzione"]).optional(),
   fotoCopertina: z.string().max(500).optional().nullable(),
@@ -34,6 +35,19 @@ const Schema = z.object({
   archiviato: z.boolean().optional(),
   ordineFoto: z.array(z.string().max(500)).max(60).optional(),
 });
+
+// Dettaglio barca con i riferimenti usati dalla scheda (porto, modello, dotazioni).
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const t = await requireAzienda(req);
+  if ("error" in t) return t.error;
+  const { id } = await params;
+  const barca = await prisma.boat.findFirst({
+    where: { id, tenantId: t.tenantId },
+    include: { porto: { select: { id: true, nome: true } }, modello: { select: { id: true, modello: true, marca: true } } },
+  });
+  if (!barca) return fail("Barca non trovata", 404);
+  return ok(barca);
+}
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const t = await requireAzienda(req);
@@ -131,7 +145,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   });
   // I testi della pagina pubblica seguono i dati della barca.
   await rigeneraBarca(esito.prima.id).catch(() => {});
-  return ok({ id, fotoCopertina: esito.fotoCopertina, fotoGallery: esito.fotoGallery });
+  // Contratto di risposta completo: il client non deve ricostruire la barca con
+  // un oggetto parziale (che azzererebbe i campi non inviati).
+  return ok(esito.aggiornata);
 }
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {

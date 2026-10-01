@@ -1,5 +1,6 @@
 import { fail, ok } from "@/lib/api";
 import { traccia, registraAzione } from "@/lib/audit";
+import { normalizzaTelefono } from "@/lib/anagrafica";
 import { esitoPatente } from "@/lib/clienti";
 import { prisma } from "@/lib/db";
 import { bloccaRisorse, validaBarcaNoleggio, verificaDisponibilita } from "@/lib/disponibilita";
@@ -46,8 +47,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const b = await prisma.booking.findFirst({
     where: { id, tenantId: t.tenantId },
     include: {
-      boat: { select: { id: true, nome: true, tipo: true, capienza: true, patenteRichiesta: true, fotoCopertina: true } },
+      boat: { select: { id: true, nome: true, tipo: true, capienza: true, patenteRichiesta: true, fotoCopertina: true, codiceInterno: true } },
       skipper: { select: { id: true, nome: true, telefono: true } },
+      offerta: { select: { id: true, codice: true, skipperModo: true } },
+      porto: { select: { id: true, nome: true } },
       customer: { select: { id: true, nome: true, telefono: true, email: true } },
       extras: { include: { extra: { select: { id: true, nome: true, prezzo: true } } } },
       payments: { orderBy: { createdAt: "desc" } },
@@ -83,9 +86,17 @@ const PatchSchema = z.object({
   passeggeri: z.number().int().min(1).max(60).optional(),
   destinazione: z.string().max(120).optional().nullable(),
   formula: z.string().max(120).optional().nullable(),
-  note: z.string().max(2000).optional().nullable(),
+  note: z.string().max(5000).optional().nullable(),
   patenteOk: z.boolean().optional(),
+  // Dichiarazione patente esplicita: "YES" | "NO" | null (non raccolta).
+  patenteRisposta: z.enum(["YES", "NO"]).nullable().optional(),
   skipperId: z.string().uuid().optional().nullable(),
+  // Stato skipper: NONE | UNASSIGNED | ASSIGNED; se manca si deduce dalla presenza.
+  skipperStato: z.enum(["NONE", "UNASSIGNED", "ASSIGNED"]).optional(),
+  skipperNote: z.string().max(2000).optional().nullable(),
+  nuovoSkipper: z.object({ nome: z.string().min(2).max(160), telefono: z.string().max(40).optional().nullable(), note: z.string().max(2000).optional().nullable() }).nullable().optional(),
+  offertaId: z.string().uuid().optional().nullable(),
+  portoId: z.string().uuid().optional().nullable(),
   // Collegamento a un cliente registrato: se presente, il requisito patente si valuta
   // sulla patente verificata dell'account e l'attestazione manuale non basta.
   clienteAccountId: z.string().uuid().optional().nullable(),
@@ -229,7 +240,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (p.data.stato === "cancellata") {
     const altriCampi = [
       p.data.prezzoEuro, p.data.boatId, p.data.startAt, p.data.endAt, p.data.clienteNome, p.data.telefono,
-      p.data.passeggeri, p.data.destinazione, p.data.formula, p.data.note, p.data.patenteOk, p.data.skipperId, p.data.clienteAccountId,
+      p.data.passeggeri, p.data.destinazione, p.data.formula, p.data.note, p.data.patenteOk, p.data.patenteRisposta,
+      p.data.skipperId, p.data.skipperStato, p.data.skipperNote, p.data.nuovoSkipper, p.data.offertaId, p.data.portoId, p.data.clienteAccountId,
     ].some((v) => v !== undefined);
     if (altriCampi) return fail("L'annullamento non si combina con altre modifiche", 422);
     return annullaPrenotazione(t, cur, { motivo: p.data.motivo ?? null, updatedAt: updatedAtAtteso });
@@ -261,8 +273,22 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (p.data.destinazione !== undefined) data.destinazione = p.data.destinazione;
   if (p.data.formula !== undefined) data.formula = p.data.formula;
   if (p.data.note !== undefined) data.note = p.data.note;
-  if (p.data.patenteOk !== undefined) data.patenteOk = p.data.patenteOk;
-  if (p.data.skipperId !== undefined) data.skipperId = p.data.skipperId;
+  // Dichiarazione patente: mantiene coerente il vecchio booleano per i lettori storici.
+  if (p.data.patenteRisposta !== undefined) {
+    data.patenteRisposta = p.data.patenteRisposta;
+    data.patenteOk = p.data.patenteRisposta === "YES";
+  } else if (p.data.patenteOk !== undefined) {
+    data.patenteOk = p.data.patenteOk;
+    data.patenteRisposta = p.data.patenteOk ? "YES" : null;
+  }
+  if (p.data.skipperId !== undefined) {
+    data.skipperId = p.data.skipperId;
+    if (p.data.skipperStato === undefined) data.skipperStato = p.data.skipperId ? "ASSIGNED" : "NONE";
+  }
+  if (p.data.skipperStato !== undefined) data.skipperStato = p.data.skipperStato;
+  if (p.data.skipperNote !== undefined) data.skipperNote = p.data.skipperNote;
+  if (p.data.offertaId !== undefined) data.offertaId = p.data.offertaId;
+  if (p.data.portoId !== undefined) data.portoId = p.data.portoId;
   if (p.data.clienteAccountId !== undefined) data.clienteAccountId = p.data.clienteAccountId;
 
   // Spostamento (barca / giorno / orario): si impostano i nuovi valori.
@@ -304,7 +330,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const nuovoStart = p.data.startAt ? new Date(p.data.startAt) : cur.startAt;
   const nuovoEnd = p.data.endAt ? new Date(p.data.endAt) : cur.endAt;
   const finalePasseggeri = p.data.passeggeri ?? cur.passeggeri;
-  const finalePatenteOk = p.data.patenteOk ?? cur.patenteOk;
+  const finalePatenteRisposta = p.data.patenteRisposta !== undefined
+    ? p.data.patenteRisposta
+    : p.data.patenteOk !== undefined
+      ? (p.data.patenteOk ? "YES" : null)
+      : (cur.patenteRisposta ?? (cur.patenteOk ? "YES" : null));
+  const finalePatenteOk = finalePatenteRisposta === "YES";
   const finaleSkipperId = p.data.skipperId !== undefined ? p.data.skipperId : cur.skipperId;
   const finaleClienteAccountId = p.data.clienteAccountId !== undefined ? p.data.clienteAccountId : cur.clienteAccountId;
   // Confermare o far partire una prenotazione rivaluta sempre il requisito patente
@@ -317,6 +348,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     p.data.passeggeri !== undefined ||
     p.data.skipperId !== undefined ||
     p.data.patenteOk !== undefined ||
+    p.data.patenteRisposta !== undefined ||
+    p.data.nuovoSkipper !== undefined ||
     p.data.clienteAccountId !== undefined ||
     statoRichiedePatente;
 
@@ -331,22 +364,43 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
         const boat = await tx.boat.findFirst({ where: { id: nuovoBoatId, tenantId: t.tenantId } });
         if (!boat) return { err: "Barca non trovata", status: 404 };
+        if (boat.eliminazioneRichiestaAt && nuovoBoatId !== cur.boatId) return { err: "Barca in fase di rimozione: non accetta nuove assegnazioni", status: 409 };
         const errBarca = validaBarcaNoleggio(boat, finalePasseggeri);
         if (errBarca) return { err: errBarca, status: 422 };
+        if (p.data.offertaId) {
+          const off = await tx.boatOfferta.findFirst({ where: { id: p.data.offertaId, tenantId: t.tenantId, boatId: nuovoBoatId, attiva: true }, select: { id: true } });
+          if (!off) return { err: "Modalità non valida per questa barca", status: 422 };
+        }
+        if (p.data.portoId) {
+          const po = await tx.porto.findFirst({ where: { id: p.data.portoId, tenantId: t.tenantId }, select: { id: true } });
+          if (!po) return { err: "Sede non valida per questa azienda", status: 422 };
+        }
         // Requisito patente: cliente registrato -> patente verificata e non scaduta;
         // ospite -> attestazione manuale patenteOk.
         if (finaleClienteAccountId) {
           const account = await tx.clienteAccount.findUnique({ where: { id: finaleClienteAccountId }, select: { id: true } });
           if (!account) return { err: "Cliente registrato non trovato", status: 422 };
         }
+        // Nuovo skipper creato inline per questa prenotazione (stessa transazione).
+        let skipperFinale = finaleSkipperId ?? null;
+        if (p.data.nuovoSkipper) {
+          const sk = await tx.skipper.create({
+            data: { tenantId: t.tenantId, nome: p.data.nuovoSkipper.nome, telefono: normalizzaTelefono(p.data.nuovoSkipper.telefono) || null, note: p.data.nuovoSkipper.note ?? null },
+            select: { id: true },
+          });
+          skipperFinale = sk.id;
+          (data as Record<string, unknown>).skipperId = sk.id;
+          (data as Record<string, unknown>).skipperStato = "ASSIGNED";
+        }
+
         const patente = finaleClienteAccountId
           ? await tx.patenteNautica.findUnique({ where: { accountId: finaleClienteAccountId }, select: { stato: true, scadenzaAt: true } })
           : null;
-        const errPatente = esitoPatente(boat, { patenteOk: finalePatenteOk, skipperId: finaleSkipperId, clienteAccountId: finaleClienteAccountId, patente });
+        const errPatente = esitoPatente(boat, { patenteOk: finalePatenteOk, skipperId: skipperFinale, clienteAccountId: finaleClienteAccountId, patente });
         if (errPatente) return { err: errPatente, status: 422 };
 
-        if (finaleSkipperId) {
-          const sk = await tx.skipper.findFirst({ where: { id: finaleSkipperId, tenantId: t.tenantId, attivo: true }, select: { id: true } });
+        if (skipperFinale) {
+          const sk = await tx.skipper.findFirst({ where: { id: skipperFinale, tenantId: t.tenantId, attivo: true }, select: { id: true } });
           if (!sk) return { err: "Skipper non valido", status: 422 };
         }
 
@@ -356,7 +410,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           startAt: nuovoStart,
           endAt: nuovoEnd,
           bookingId: cur.id,
-          skipperId: finaleSkipperId,
+          skipperId: skipperFinale,
         });
         if (!disp.ok) return { err: disp.messaggio, status: 409 };
 

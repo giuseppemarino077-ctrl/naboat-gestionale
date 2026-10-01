@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { motivoNonIdonea } from "@/lib/marketplace";
 import { bloccaPiano } from "@/lib/piani";
 import { portoDelTenant, modelloValido } from "@/lib/riferimenti";
+import { finalizzaRimozioni } from "@/lib/rimozione-barche";
 import { rigeneraBarca } from "@/lib/seo";
 import { requireAzienda } from "@/lib/tenant";
 import { z } from "zod";
@@ -10,6 +11,9 @@ import { z } from "zod";
 export async function GET(req: Request) {
   const t = await requireAzienda(req);
   if ("error" in t) return t.error;
+  // Finalizzazione idempotente delle rimozioni differite scadute (nessuna dipendenza
+  // da un timer del browser o da un cron dedicato).
+  await finalizzaRimozioni(t.tenantId).catch(() => {});
   // Le barche da noleggio e quelle in custodia sono due mondi separati: di default
   // si mostrano quelle da noleggio (comportamento di sempre), le altre si chiedono con ?uso=custodia.
   const uso = new URL(req.url).searchParams.get("uso") ?? "noleggio";
@@ -24,10 +28,13 @@ export async function GET(req: Request) {
 }
 
 const Schema = z.object({
-  nome: z.string().min(2).max(120),
+  nome: z.string().min(2).max(160),
   tipo: z.string().max(40).optional(),
-  capienza: z.number().int().min(1).max(60).default(2),
-  potenzaCv: z.number().int().min(0).max(2000).optional(),
+  // Capacità ignota esplicita: null = da configurare, nessun numero fittizio.
+  capienza: z.number().int().min(1).max(60).optional().nullable(),
+  // Potenza decimale (es. 40,5 CV).
+  potenzaCv: z.number().min(0).max(100000).optional().nullable(),
+  codiceInterno: z.string().max(80).optional().nullable(),
   patenteRichiesta: z.boolean().default(false),
   stato: z.enum(["disponibile", "non_disponibile", "manutenzione"]).default("disponibile"),
   uso: z.enum(["noleggio", "custodia"]).default("noleggio"),

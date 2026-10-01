@@ -75,7 +75,7 @@ export default async function BarcaPage({ params }: { params: Promise<{ slug: st
         <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-muted">
           {b.voto > 0 && <span>★ {b.voto.toFixed(1)} ({b.recensioni})</span>}
           <span>{b.tipo ?? "Imbarcazione"}</span>
-          <span>Fino a {b.capienza} persone</span>
+          {b.capienza != null && <span>Fino a {b.capienza} persone</span>}
         </div>
 
         <div className="mt-5 grid gap-3 md:grid-cols-[2fr_1fr]">
@@ -100,7 +100,7 @@ export default async function BarcaPage({ params }: { params: Promise<{ slug: st
             <div className={`rounded-[14px] border px-4 py-3 text-sm font-semibold ${patenteBox.classe}`}>{patenteBox.testo}</div>
 
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <div className="card p-3"><p className="text-xs text-muted">Persone</p><p className="font-bold">{b.capienza}</p></div>
+              <div className="card p-3"><p className="text-xs text-muted">Persone</p><p className="font-bold">{b.capienza ?? "Da definire"}</p></div>
               <div className="card p-3"><p className="text-xs text-muted">Lunghezza</p><p className="font-bold">{b.lunghezzaM != null ? `${b.lunghezzaM} m` : "—"}</p></div>
               <div className="card p-3"><p className="text-xs text-muted">Motore</p><p className="font-bold">{b.potenzaCv != null ? `${b.potenzaCv} CV` : "—"}</p></div>
               <div className="card p-3"><p className="text-xs text-muted">Cabine</p><p className="font-bold">{b.cabine ?? "—"}</p></div>

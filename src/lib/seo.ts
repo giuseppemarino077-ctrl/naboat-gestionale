@@ -52,11 +52,12 @@ export function generaPiattaforma(s: { seoTitoloDefault: string | null; seoDescr
 export function generaAzienda(t: {
   nome: string;
   indirizzoPartenza: string | null;
-  barche: { nome: string; tipo: string | null; capienza: number; patenteRichiesta: boolean }[];
+  barche: { nome: string; tipo: string | null; capienza: number | null; patenteRichiesta: boolean }[];
 }): Generato {
   const localita = t.indirizzoPartenza || ZONE_DEFAULT;
   const senzaPatente = t.barche.some((b) => !b.patenteRichiesta);
-  const capienzaMax = t.barche.length ? Math.max(...t.barche.map((b) => b.capienza)) : 0;
+  const capienze = t.barche.map((b) => b.capienza).filter((c): c is number => c != null);
+  const capienzaMax = capienze.length ? Math.max(...capienze) : 0;
   const tipi = [...new Set(t.barche.map((b) => b.tipo).filter(Boolean))] as string[];
 
   const titolo = tronca(`${t.nome} — Noleggio barche a ${localita}`, 60);
@@ -78,7 +79,7 @@ export function generaAzienda(t: {
 }
 
 export function generaBarca(
-  b: { nome: string; tipo: string | null; capienza: number; potenzaCv: number | null; patenteRichiesta: boolean },
+  b: { nome: string; tipo: string | null; capienza: number | null; potenzaCv: number | null; patenteRichiesta: boolean },
   azienda: string,
   localita?: string | null
 ): Generato {
@@ -86,7 +87,7 @@ export function generaBarca(
   const dotazioni = [
     b.patenteRichiesta ? "richiede patente nautica" : "senza patente",
     b.potenzaCv ? `${b.potenzaCv} CV` : "",
-    `fino a ${b.capienza} persone`,
+    b.capienza != null ? `fino a ${b.capienza} persone` : null,
   ].filter(Boolean);
 
   const titolo = tronca(`${b.nome} in affitto a ${zona} — ${b.tipo ?? "imbarcazione"}`, 60);
@@ -98,7 +99,7 @@ export function generaBarca(
     b.nome.toLowerCase(),
     b.tipo ? `noleggio ${b.tipo.toLowerCase()} ${zona}` : "",
     b.patenteRichiesta ? `noleggio con skipper ${zona}` : `noleggio senza patente ${zona}`,
-    `${b.capienza} posti`,
+    b.capienza != null ? `${b.capienza} posti` : "",
     azienda.toLowerCase(),
   ]);
 

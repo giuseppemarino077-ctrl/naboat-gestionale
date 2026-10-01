@@ -5,30 +5,40 @@ import { requireTenant } from "@/lib/tenant";
 // Finestra massima richiedibile in una sola chiamata (un calendario non carica anni interi).
 const FINESTRA_MASSIMA_GIORNI = 180;
 
-// Campi della prenotazione necessari al calendario. Token di pagamento/contratto,
-// foto dei verbali e chiave di idempotenza non vengono mai esposti.
+// Campi della prenotazione necessari al planning. Token di pagamento/contratto,
+// foto dei verbali e chiave di idempotenza non vengono mai esposti. Lo skipper
+// assegnato è incluso solo per nome/telefono, filtrato per permessi.
 const CAMPI_BOOKING = {
   id: true,
   boatId: true,
+  customerId: true,
   startAt: true,
   endAt: true,
   stato: true,
+  versione: true,
+  updatedAt: true,
   passeggeri: true,
   clienteNome: true,
   telefono: true,
+  email: true,
   destinazione: true,
   formula: true,
+  offertaId: true,
+  portoId: true,
   skipperId: true,
+  skipperStato: true,
+  skipperNote: true,
   patenteOk: true,
+  patenteRisposta: true,
   note: true,
   prezzoCent: true,
-  cauzioneCent: true,
-  cauzioneStato: true,
   origineCanale: true,
   contrattoFirmatoAt: true,
+  cauzioneStato: true,
   checkinAt: true,
   checkoutAt: true,
   boat: { select: { nome: true } },
+  skipper: { select: { nome: true, telefono: true } },
 } as const;
 
 // Calendario operativo: GET ?from=ISO&to=ISO -> barche + prenotazioni + blocchi nel range.
@@ -54,13 +64,31 @@ export async function GET(req: Request) {
     soloMio = suo?.id ?? "nessuno";
   }
 
-  const [boats, bookings, blocks] = await Promise.all([
-    // Il calendario del noleggio non mostra le barche in custodia (modulo ormeggio)
-    // né quelle archiviate.
+  const [boats, bookings, blocks, porti, offerte] = await Promise.all([
+    // Il calendario del noleggio non mostra le barche in custodia (modulo ormeggio),
+    // né quelle archiviate o in eliminazione.
     prisma.boat.findMany({
-      where: { tenantId: t.tenantId, uso: "noleggio", archiviato: false },
+      where: {
+        tenantId: t.tenantId,
+        uso: "noleggio",
+        archiviato: false,
+        eliminazioneRichiestaAt: null,
+      },
       orderBy: { nome: "asc" },
-      select: { id: true, nome: true, patenteRichiesta: true, capienza: true, uso: true, stato: true },
+      select: {
+        id: true,
+        nome: true,
+        tipo: true,
+        codiceInterno: true,
+        patenteRichiesta: true,
+        capienza: true,
+        potenzaCv: true,
+        uso: true,
+        stato: true,
+        portoId: true,
+        porto: { select: { nome: true } },
+        modello: { select: { marca: true, modello: true } },
+      },
     }),
     prisma.booking.findMany({
       where: {
@@ -76,13 +104,16 @@ export async function GET(req: Request) {
     }),
     prisma.block.findMany({
       where: { tenantId: t.tenantId, startAt: { lt: to }, endAt: { gt: from } },
-      include: { boat: { select: { nome: true } } },
+      select: { id: true, boatId: true, startAt: true, endAt: true, motivo: true, versione: true, boat: { select: { nome: true } } },
+      orderBy: { startAt: "asc" },
     }),
+    prisma.porto.findMany({ where: { tenantId: t.tenantId }, select: { id: true, nome: true }, orderBy: { nome: "asc" } }),
+    prisma.boatOfferta.findMany({ where: { tenantId: t.tenantId }, select: { id: true, boatId: true, codice: true, attiva: true }, orderBy: { createdAt: "asc" } }),
   ]);
 
   const prenotazioni = isSkipper
-    ? bookings.map((b) => ({ ...b, prezzoCent: null, cauzioneCent: null, note: null }))
+    ? bookings.map((b) => ({ ...b, prezzoCent: null, note: null, skipperNote: null, telefono: null, email: null }))
     : bookings;
 
-  return ok({ from, to, boats, bookings: prenotazioni, blocks });
+  return ok({ from, to, boats, bookings: prenotazioni, blocks, porti, offerte });
 }

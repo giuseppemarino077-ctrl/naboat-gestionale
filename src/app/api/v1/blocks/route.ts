@@ -11,7 +11,18 @@ export async function GET(req: Request) {
   const q = new URL(req.url).searchParams;
   const where: any = { tenantId: t.tenantId };
   if (q.get("boatId")) where.boatId = q.get("boatId");
-  return ok(await prisma.block.findMany({ where, orderBy: { startAt: "asc" }, take: 200, include: { boat: { select: { nome: true } } } }));
+  // Filtro per intersezione (non per solo inizio): un blocco ancora rilevante non
+  // sparisce perché iniziato prima della finestra richiesta.
+  const from = q.get("from");
+  const to = q.get("to");
+  if (from && to) {
+    const f = new Date(from);
+    const tt = new Date(to);
+    if (Number.isNaN(f.getTime()) || Number.isNaN(tt.getTime()) || !(f < tt)) return fail("Intervallo non valido", 422);
+    where.startAt = { lt: tt };
+    where.endAt = { gt: f };
+  }
+  return ok(await prisma.block.findMany({ where, orderBy: { startAt: "asc" }, take: 500, include: { boat: { select: { nome: true } } } }));
 }
 
 const Schema = z.object({
@@ -37,8 +48,9 @@ export async function POST(req: Request) {
     risultato = await prisma.$transaction(async (tx) => {
       await bloccaRisorse(tx, { boatIds: [p.data.boatId] });
 
-      const boat = await tx.boat.findFirst({ where: { id: p.data.boatId, tenantId: t.tenantId }, select: { id: true } });
+      const boat = await tx.boat.findFirst({ where: { id: p.data.boatId, tenantId: t.tenantId }, select: { id: true, eliminazioneRichiestaAt: true } });
       if (!boat) return { err: "Barca non trovata", status: 404 };
+      if (boat.eliminazioneRichiestaAt) return { err: "Barca in fase di rimozione", status: 409 };
 
       const disp = await verificaDisponibilita(tx, { tenantId: t.tenantId, boatId: p.data.boatId, startAt: start, endAt: end });
       if (!disp.ok) {

@@ -121,13 +121,16 @@ export async function verificaDisponibilita(
 // Barca utilizzabile per il noleggio e capienza sufficiente.
 // La scadenza manutentiva informativa non blocca: solo lo stato "manutenzione" ferma la barca.
 export function validaBarcaNoleggio(
-  boat: { uso: string; archiviato: boolean; stato: string; capienza: number },
+  boat: { uso: string; archiviato: boolean; stato: string; capienza: number | null },
   passeggeri: number
 ): string | null {
   if (boat.uso !== "noleggio") return "La barca non è destinata al noleggio";
   if (boat.archiviato) return "Barca archiviata";
+  // La barca non disponibile operativamente non accetta nuove assegnazioni.
+  if (boat.stato === "non_disponibile") return "Barca non disponibile";
   if (boat.stato === "manutenzione") return "Barca in manutenzione";
-  if (passeggeri > boat.capienza) return `Capienza max ${boat.capienza}`;
+  // Capacità ignota: nessun limite inventato, si procede senza rifiutare.
+  if (boat.capienza != null && passeggeri > boat.capienza) return `Capienza max ${boat.capienza}`;
   return null;
 }
 

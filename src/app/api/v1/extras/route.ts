@@ -15,8 +15,9 @@ export async function GET(req: Request) {
 
 const Schema = z.object({
   nome: z.string().trim().min(2).max(120),
+  descrizione: z.string().max(500).optional().nullable(),
   prezzo: z.number().min(0).max(100000).optional(),
-  unita: z.enum(["persona", "giorno", "noleggio", "fisso"]).default("noleggio"),
+  unita: z.enum(["persona", "giorno", "noleggio", "fisso", "per_ora", "per_unita"]).default("noleggio"),
   quantitaMax: z.number().int().min(1).max(1000).optional().nullable(),
   boatIds: z.array(z.string().uuid()).max(200).optional(),
 });
