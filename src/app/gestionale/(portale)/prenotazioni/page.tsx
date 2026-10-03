@@ -115,25 +115,25 @@ export default function PrenotazioniPage() {
       {err && <p className="rounded-2xl border border-coral/40 bg-[#fdeeea] p-3 text-sm font-semibold text-coral">{err}</p>}
 
       <div className="grid gap-3 rounded-3xl border border-line bg-white p-4 shadow-sm md:grid-cols-2 lg:grid-cols-4">
-        <input className="rounded-full border border-line bg-[#faf6f2] px-4 py-2.5 text-sm lg:col-span-2" placeholder="Cerca codice, cliente, telefono o barca…" value={cerca} onChange={(e) => setCerca(e.target.value)} />
+        <input className="rounded-full border border-line bg-[#f7faf9] px-4 py-2.5 text-sm lg:col-span-2" placeholder="Cerca codice, cliente, telefono o barca…" value={cerca} onChange={(e) => setCerca(e.target.value)} />
         <label className="grid gap-1 text-xs text-muted">Dal<input type="date" className="rounded-full border border-line p-2.5 text-sm" value={dal} onChange={(e) => setDal(e.target.value)} /></label>
         <label className="grid gap-1 text-xs text-muted">Al<input type="date" className="rounded-full border border-line p-2.5 text-sm" value={al} onChange={(e) => setAl(e.target.value)} /></label>
         <div className="flex flex-wrap items-center gap-1 lg:col-span-2">
           <span className="pr-1 text-xs font-semibold uppercase tracking-wider text-muted">Stato</span>
           {[["tutte", "Tutte"], ["da_confermare", "Da confermare"], ["prenotata", "Confermate"], ["in_mare", "In navigazione"], ["rientrata", "Completate"], ["no_show", "Non presentati"], ["cancellata", "Annullate"]].map(([v, l]) => (
-            <button key={v} className={"rounded-full px-3 py-1.5 text-xs font-bold " + (stato === v ? "bg-ocean text-white" : "text-ocean hover:bg-foam")} onClick={() => setStato(v)}>{l}</button>
+            <button key={v} className={"rounded-full px-3 py-1.5 text-xs font-bold " + (stato === v ? "bg-signature text-deep" : "text-ocean hover:bg-foam")} onClick={() => setStato(v)}>{l}</button>
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-1">
           <span className="pr-1 text-xs font-semibold uppercase tracking-wider text-muted">Fonte</span>
           {[["tutte", "Tutte"], ["naboat", "NaBoat"], ["diretto", "Dirette"]].map(([v, l]) => (
-            <button key={v} className={"rounded-full px-3 py-1.5 text-xs font-bold " + (fonte === v ? "bg-ocean text-white" : "text-ocean hover:bg-foam")} onClick={() => setFonte(v)}>{l}</button>
+            <button key={v} className={"rounded-full px-3 py-1.5 text-xs font-bold " + (fonte === v ? "bg-signature text-deep" : "text-ocean hover:bg-foam")} onClick={() => setFonte(v)}>{l}</button>
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-1">
           <span className="pr-1 text-xs font-semibold uppercase tracking-wider text-muted">Pagamento</span>
           {[["tutti", "Tutti"], ["pagate", "Pagate"], ["da-pagare", "Da pagare"]].map(([v, l]) => (
-            <button key={v} className={"rounded-full px-3 py-1.5 text-xs font-bold " + (pagamento === v ? "bg-ocean text-white" : "text-ocean hover:bg-foam")} onClick={() => setPagamento(v)}>{l}</button>
+            <button key={v} className={"rounded-full px-3 py-1.5 text-xs font-bold " + (pagamento === v ? "bg-signature text-deep" : "text-ocean hover:bg-foam")} onClick={() => setPagamento(v)}>{l}</button>
           ))}
         </div>
       </div>

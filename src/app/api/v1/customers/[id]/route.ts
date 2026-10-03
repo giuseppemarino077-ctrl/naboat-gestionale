@@ -1,4 +1,5 @@
 import { fail, ok } from "@/lib/api";
+import { registraAzione } from "@/lib/audit";
 import { normalizzaEmail } from "@/lib/anagrafica";
 import { prisma } from "@/lib/db";
 import { normalizzaTelefono } from "@/lib/telefono";
@@ -66,4 +67,35 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     throw e;
   }
   return ok({ ok: true });
+}
+
+// Eliminazione dall'anagrafica. Le prenotazioni restano nello storico: il
+// collegamento viene azzerato (il contatto della singola prenotazione è già
+// conservato sulla prenotazione stessa). Nessun dato di altre aziende.
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const t = await requireAzienda(req);
+  if ("error" in t) return t.error;
+  const { id } = await params;
+
+  const cur = await prisma.customer.findFirst({
+    where: { id, tenantId: t.tenantId },
+    select: { id: true, nome: true, _count: { select: { bookings: true } } },
+  });
+  if (!cur) return fail("Cliente non trovato", 404);
+
+  const scollegate = await prisma.$transaction(async (tx) => {
+    const r = await tx.booking.updateMany({ where: { customerId: cur.id, tenantId: t.tenantId }, data: { customerId: null } });
+    await tx.customer.delete({ where: { id: cur.id } });
+    return r.count;
+  });
+
+  await registraAzione({
+    tenantId: t.tenantId,
+    actorId: t.userId,
+    azione: "customer.delete",
+    entita: "Customer",
+    entitaId: cur.id,
+    nota: `${cur.nome} · ${scollegate} prenotazioni scollegate`,
+  });
+  return ok({ eliminato: true, prenotazioniScollegate: scollegate });
 }

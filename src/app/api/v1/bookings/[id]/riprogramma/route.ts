@@ -14,7 +14,7 @@ const Schema = z.object({
   offertaId: z.string().uuid().optional().nullable(),
   portoId: z.string().uuid().optional().nullable(),
   skipperId: z.string().uuid().optional().nullable(),
-  motivo: z.string().trim().min(3).max(1000),
+  motivo: z.string().trim().max(1000).optional(),
   updatedAt: z.string().datetime().optional(),
 });
 
@@ -126,7 +126,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         cauzioneStato: dentro.cauzioneStato,
         clienteAccountId: dentro.clienteAccountId,
         sostituisceId: dentro.id,
-        motivoRiprogrammazione: p.data.motivo,
+        motivoRiprogrammazione: p.data.motivo ?? null,
         extras: { create: dentro.extras.map((e) => ({ extraId: e.extraId, quantita: e.quantita })) },
       },
     });
@@ -134,7 +134,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     await tx.auditLog.create({
       data: {
         tenantId: t.tenantId, actorId: t.userId, azione: "booking.riprogrammata", entita: "Booking", entitaId: nuova.id,
-        dettagli: JSON.stringify({ originale: dentro.id, motivo: p.data.motivo, da: dentro.startAt.toISOString(), a: start.toISOString() }),
+        dettagli: JSON.stringify({ originale: dentro.id, motivo: p.data.motivo ?? null, da: dentro.startAt.toISOString(), a: start.toISOString() }),
       },
     });
     return { nuova };

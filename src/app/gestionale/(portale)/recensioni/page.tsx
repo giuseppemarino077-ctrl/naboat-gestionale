@@ -57,7 +57,7 @@ export default function RecensioniPage() {
             {sintesi.distribuzione.slice().reverse().map((d) => (
               <div key={d.voto} className="flex items-center gap-2 text-xs">
                 <span className="w-8 text-muted">{d.voto}★</span>
-                <div className="h-2 flex-1 rounded-full bg-[#efe9e3]">
+                <div className="h-2 flex-1 rounded-full bg-[#e8eeed]">
                   <div className="h-2 rounded-full bg-ocean" style={{ width: `${sintesi.totale ? (d.n / sintesi.totale) * 100 : 0}%` }} />
                 </div>
                 <span className="w-6 text-right text-muted">{d.n}</span>
@@ -79,7 +79,7 @@ export default function RecensioniPage() {
             </div>
             {r.commento && <p className="mt-2 whitespace-pre-line">{r.commento}</p>}
             {r.risposta ? (
-              <div className="mt-3 rounded-2xl bg-[#faf6f2] p-3">
+              <div className="mt-3 rounded-2xl bg-[#f7faf9] p-3">
                 <p className="text-[11px] font-bold uppercase tracking-wide text-ocean">La tua risposta</p>
                 <p className="mt-1 whitespace-pre-line">{r.risposta}</p>
               </div>

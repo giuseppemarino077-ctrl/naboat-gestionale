@@ -54,7 +54,7 @@ export function StrutturaAdmin({ children }: { children: React.ReactNode }) {
                 href={v.href}
                 className={
                   "rounded-full px-3 py-1.5 font-semibold transition " +
-                  (attiva ? "bg-white/20 text-white" : "text-[#ffe0c2] hover:bg-white/10 hover:text-white")
+                  (attiva ? "bg-white/20 text-white" : "text-[#c7e6e7] hover:bg-white/10 hover:text-white")
                 }
               >
                 {v.nome}

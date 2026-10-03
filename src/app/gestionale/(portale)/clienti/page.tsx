@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { mostraTelefono, telefonoWhatsApp } from "@/lib/telefono";
 import { Avviso } from "@/components/ui/Avviso";
 import { Caricamento } from "@/components/ui/Caricamento";
+import { useConferma } from "@/components/ui/Dialogo";
 
 type Cliente = { id: string; nome: string; telefono: string | null; email: string | null; note: string | null; _count?: { bookings: number } };
 
@@ -17,6 +18,7 @@ export default function ClientiPage() {
   const [totale, setTotale] = useState(0);
   const [pagina, setPagina] = useState(1);
   const [caricandoAltri, setCaricandoAltri] = useState(false);
+  const conferma = useConferma();
 
   const load = useCallback((query = "") => {
     setStato("carico");
@@ -59,6 +61,26 @@ export default function ClientiPage() {
     const r = await fetch(`/api/v1/customers/${edit.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nome: edit.nome, telefono: edit.telefono, email: edit.email || null, note: edit.note || null }) });
     if (!r.ok) { const j = await r.json().catch(() => ({})); setErr(j.error ?? "Non è stato possibile salvare."); return; }
     setEdit(null); setErr(""); load(q);
+  };
+
+  const elimina = async (c: Cliente) => {
+    const n = c._count?.bookings ?? 0;
+    const ok = await conferma.chiedi({
+      titolo: `Eliminare ${c.nome} dall'anagrafica?`,
+      messaggio: n > 0
+        ? `Il cliente ha ${n} ${n === 1 ? "prenotazione" : "prenotazioni"}: restano nello storico, ma non saranno più collegate all'anagrafica.`
+        : "Il cliente verrà rimosso dall'anagrafica.",
+      confermaLabel: "Elimina cliente",
+      pericoloso: true,
+    });
+    if (!ok) return;
+    const r = await fetch(`/api/v1/customers/${c.id}`, { method: "DELETE" });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { setErr(j.error ?? "Eliminazione non riuscita."); return; }
+    setList((prev) => prev.filter((x) => x.id !== c.id));
+    setTotale((tt) => Math.max(0, tt - 1));
+    if (edit?.id === c.id) setEdit(null);
+    setErr("");
   };
 
   const wa = (c: Cliente) => {
@@ -109,6 +131,7 @@ export default function ClientiPage() {
               <div className="flex gap-3 text-sm font-bold">
                 {linkWa && <a className="text-[#177469]" target="_blank" rel="noreferrer" href={linkWa}>WhatsApp →</a>}
                 <button className="text-ocean" onClick={() => setEdit({ ...c })}>Modifica</button>
+                <button className="text-danger" onClick={() => elimina(c)}>Elimina</button>
               </div>
             </div>
             {edit?.id === c.id && (
@@ -134,6 +157,8 @@ export default function ClientiPage() {
           )}
         </div>
       )}
+
+      {conferma.dialogo}
     </div>
   );
 }

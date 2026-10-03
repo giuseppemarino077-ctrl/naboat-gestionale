@@ -21,7 +21,7 @@ function FragmentRow({ c, aperto, onToggle }: { c: any; aperto: boolean; onToggl
         <td className={`p-2 font-bold ${c.residuoCent > 0 ? "text-coral" : "text-[#177469]"}`}>{euro(c.residuoCent)}</td>
       </tr>
       {aperto && (
-        <tr className="bg-[#faf6f2]">
+        <tr className="bg-[#f7faf9]">
           <td colSpan={7} className="p-3">
             <table className="w-full text-xs">
               <thead><tr className="text-left text-muted"><th className="p-1">Barca</th><th className="p-1">Tipo</th><th className="p-1">Stato</th><th className="p-1">Addebitato</th><th className="p-1">Incassato</th><th className="p-1">Residuo</th></tr></thead>

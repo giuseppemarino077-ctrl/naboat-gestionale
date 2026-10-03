@@ -42,7 +42,7 @@ export default function SicurezzaPage() {
               <p className="text-muted">1) Inquadra il QR o inserisci la chiave nella app (Google Authenticator, Authy…)</p>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img alt="QR 2FA" className="h-40 w-40 rounded bg-white p-2" src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(setup.uri)}`} />
-              <code className="break-all rounded bg-[#3a2418] p-2 text-[#f6e3d5]">{setup.secret}</code>
+              <code className="break-all rounded bg-[#03212d] p-2 text-[#bfe4e2]">{setup.secret}</code>
               <p className="text-muted">2) Inserisci il codice a 6 cifre generato dall'app:</p>
               <input className="rounded-md border border-line p-2" inputMode="numeric" maxLength={6} value={code} onChange={(e) => setCode(e.target.value)} placeholder="000000" />
               <button className="btn-primary w-fit" onClick={doEnable}>Conferma e attiva</button>

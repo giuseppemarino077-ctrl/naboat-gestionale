@@ -78,7 +78,7 @@ export default async function AziendaPage({
 
       <div className="relative isolate overflow-hidden bg-deep">
         {copertina && <div className="absolute inset-0 bg-cover bg-center opacity-60" style={{ backgroundImage: `url(${copertina})` }} aria-hidden />}
-        <div className="absolute inset-0 bg-gradient-to-t from-[#2a1408]/90 to-[#2a1408]/40" aria-hidden />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#03212d]/90 to-[#03212d]/40" aria-hidden />
         <div className="relative mx-auto flex max-w-5xl flex-col items-start gap-4 px-5 py-12 text-white md:flex-row md:items-end">
           <span className="grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-full border-4 border-white bg-white">
             {a.logoUrl ? (
@@ -91,12 +91,12 @@ export default async function AziendaPage({
           <div className="min-w-0">
             <h1 className="flex flex-wrap items-center gap-2 font-display text-3xl font-extrabold">
               {a.nome}
-              {a.verificata && <span className="rounded-full bg-gold px-2 py-0.5 text-xs font-bold text-[#3a2708]">✓ verificata</span>}
+              {a.verificata && <span className="rounded-full bg-gold px-2 py-0.5 text-xs font-bold text-deep">✓ verificata</span>}
             </h1>
             <p className="mt-1 text-sm text-white/85">
               {a.citta ?? a.indirizzoPartenza ?? ""}{a.annoFondazione ? ` · dal ${a.annoFondazione}` : ""}
             </p>
-            {wa && <a className="mt-3 inline-block rounded-[7px] bg-gold px-4 py-2 text-sm font-extrabold text-[#3a2708]" href={wa} target="_blank" rel="noreferrer">Contatta su WhatsApp</a>}
+            {wa && <a className="mt-3 inline-block rounded-[7px] bg-gold px-4 py-2 text-sm font-extrabold text-deep" href={wa} target="_blank" rel="noreferrer">Contatta su WhatsApp</a>}
           </div>
         </div>
       </div>

@@ -199,6 +199,18 @@ ${d.telefono ? `<p>Per qualsiasi necessità: <b>${telefono}</b></p>` : ""}
   };
 }
 
+// Invio del contratto di noleggio da leggere e firmare online.
+export function contrattoBody(d: { azienda: string; cliente: string; url: string }) {
+  const cliente = escapeHtml(d.cliente);
+  const azienda = escapeHtml(d.azienda);
+  const url = escapeHtml(d.url);
+  return {
+    subject: subjectSicuro(`Contratto di noleggio da firmare — ${d.azienda}`),
+    text: `Ciao ${d.cliente},\n\necco il contratto di noleggio da leggere e firmare online:\n${d.url}\n\nSe hai domande puoi rispondere a questa email o contattare ${d.azienda}.`,
+    html: `<p>Ciao ${cliente},</p><p>ecco il contratto di noleggio da leggere e firmare online:</p><p><a href="${url}">${url}</a></p><p>Se hai domande puoi rispondere a questa email o contattare <b>${azienda}</b>.</p>`,
+  };
+}
+
 // Reset password: link monouso valido 1 ora.
 export function resetPasswordBody(token: string) {
   const url = `${APP_URL}/gestionale/reimposta-password?token=${encodeURIComponent(token)}`;

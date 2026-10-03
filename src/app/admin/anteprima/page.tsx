@@ -10,7 +10,7 @@ export default async function PaginaAnteprima() {
 
   return (
     <div>
-      <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 bg-gold px-4 py-2 text-center text-sm font-bold text-[#3a2708]">
+      <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 bg-gold px-4 py-2 text-center text-sm font-bold text-deep">
         <span>Anteprima riservata — questa sarà la home di naboat.it. Non è ancora pubblica.</span>
         <a className="underline" href="/gestionale/oggi">
           Torna al gestionale →

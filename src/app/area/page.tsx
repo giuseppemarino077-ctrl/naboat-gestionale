@@ -124,8 +124,8 @@ function AreaPage() {
           </p>
         )}
         <div className="flex justify-center gap-2 text-sm">
-          <button onClick={() => setModo("login")} className={"rounded-full px-4 py-1.5 font-bold " + (modo === "login" ? "bg-ocean text-white" : "border border-line text-ocean")}>Accedi</button>
-          <button onClick={() => setModo("registrazione")} className={"rounded-full px-4 py-1.5 font-bold " + (modo === "registrazione" ? "bg-ocean text-white" : "border border-line text-ocean")}>Registrati</button>
+          <button onClick={() => setModo("login")} className={"rounded-full px-4 py-1.5 font-bold " + (modo === "login" ? "bg-signature text-deep" : "border border-line text-ocean")}>Accedi</button>
+          <button onClick={() => setModo("registrazione")} className={"rounded-full px-4 py-1.5 font-bold " + (modo === "registrazione" ? "bg-signature text-deep" : "border border-line text-ocean")}>Registrati</button>
         </div>
         <form onSubmit={autentica} className="card grid gap-3 p-5">
           {modo === "registrazione" && <input className={campo} placeholder="Nome e cognome *" value={auth.nome} onChange={(e) => setAuth({ ...auth, nome: e.target.value })} required />}
@@ -177,7 +177,7 @@ function AreaPage() {
           <h2 className="mt-1 font-display text-2xl font-extrabold">{prossima.boat?.nome ?? "Barca"}</h2>
           <p className="mt-1 text-white/90">{dataIt(prossima.startAt)} · {prossima.azienda?.nome}</p>
           <p className="mt-1 text-sm text-white/80">Stato: {STATO[prossima.stato] ?? prossima.stato}{prossima.residuoCent > 0 ? ` · saldo ${euro(prossima.residuoCent)}` : ""}</p>
-          {prossima.azienda?.telefono && <a className="mt-3 inline-block rounded-[7px] bg-gold px-4 py-2 text-sm font-extrabold text-[#3a2708]" href={`https://wa.me/${prossima.azienda.telefono.replace(/\D/g, "")}`} target="_blank" rel="noreferrer">Contatta l'azienda</a>}
+          {prossima.azienda?.telefono && <a className="mt-3 inline-block rounded-[7px] bg-gold px-4 py-2 text-sm font-extrabold text-deep" href={`https://wa.me/${prossima.azienda.telefono.replace(/\D/g, "")}`} target="_blank" rel="noreferrer">Contatta l'azienda</a>}
         </div>
       )}
 
@@ -235,7 +235,7 @@ function AreaPage() {
       <section className="card grid gap-3 p-5">
         <h2 className="font-display text-xl font-bold text-deep">Le tue recensioni</h2>
         {completate.filter((p: any) => !recensite.has(p.id)).length > 0 && (
-          <form className="grid gap-2 rounded-2xl bg-[#faf6f2] p-3" onSubmit={inviaRecensione}>
+          <form className="grid gap-2 rounded-2xl bg-[#f7faf9] p-3" onSubmit={inviaRecensione}>
             <p className="text-sm font-semibold">Lascia una recensione</p>
             <select className={campo} value={rec.bookingId} onChange={(e) => setRec({ ...rec, bookingId: e.target.value })} required>
               <option value="">Scegli l'uscita…</option>
@@ -254,7 +254,7 @@ function AreaPage() {
           <div key={r.id} className="rounded-2xl border border-line p-3 text-sm">
             <p className="font-bold text-gold">{"★".repeat(r.voto)}{"☆".repeat(5 - r.voto)} <span className="text-xs font-normal text-muted">{r.booking?.boat?.nome} · {r.booking?.tenant?.nome}</span></p>
             {r.commento && <p className="mt-1">{r.commento}</p>}
-            {r.risposta && <p className="mt-1 rounded-xl bg-[#faf6f2] p-2 text-xs"><b>Risposta dell'azienda:</b> {r.risposta}</p>}
+            {r.risposta && <p className="mt-1 rounded-xl bg-[#f7faf9] p-2 text-xs"><b>Risposta dell'azienda:</b> {r.risposta}</p>}
           </div>
         ))}
         {recensioni.length === 0 && completate.length === 0 && <p className="text-sm text-muted">Dopo la tua prima uscita potrai lasciare una recensione.</p>}

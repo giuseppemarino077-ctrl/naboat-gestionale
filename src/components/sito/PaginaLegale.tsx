@@ -66,7 +66,7 @@ export function PaginaLegale({
           </>
         ) : (
           <>
-            <div className="rounded-[14px] border border-[#fdba74] bg-[#fff4e6] p-4 text-[#8a4b08]">
+            <div className="rounded-[14px] border border-warn-line bg-warn-soft p-4 text-warn">
               <p className="font-bold">Configurazione incompleta</p>
               <p className="mt-1">
                 Il testo definitivo di questa pagina non è ancora stato approvato e configurato da NaBoat. Quello che

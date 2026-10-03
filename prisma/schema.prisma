@@ -52,6 +52,10 @@ model Tenant {
   sedeOperativaLat     Float?
   sedeOperativaLon     Float?
   sedeOperativaPlaceId String?
+  // Esperienze attivate dall'azienda (codici del catalogo) e voci personalizzate.
+  // L'allocazione alle singole barche resta su Boat.esperienze.
+  esperienzeAttive         String[] @default([])
+  esperienzePersonalizzate String[] @default([])
   status    TenantStatus @default(pending)
   createdAt DateTime     @default(now())
   users     User[]
@@ -348,6 +352,9 @@ model Boat {
   lunghezzaM   Float?
   cabine       Int?
   dotazioni    String[] @default([]) // prendisole, tendalino, doccia, audio, snorkeling…
+  // Esperienze offerte (codici del catalogo condiviso) e voci personalizzate libere.
+  esperienze               String[] @default([])
+  esperienzePersonalizzate String[] @default([])
   carburante   String?
   cauzioneCent Int?
   etaMinima    Int?
@@ -480,6 +487,9 @@ model Booking {
 
   // --- Contratto digitale ---
   contrattoToken     String?   @unique
+  // Testo delle condizioni personalizzato dall'azienda per questa prenotazione
+  // (una clausola per riga). Vuoto = si usano le condizioni predefinite.
+  contrattoTesto     String?
   contrattoFirmatoAt DateTime?
   contrattoFirmaNome String?
   contrattoFirmaIp   String?

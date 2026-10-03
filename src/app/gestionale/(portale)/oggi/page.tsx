@@ -1,8 +1,8 @@
 "use client";
-import { copiaTesto } from "@/lib/browser";
 import { etichettaGiorno, oggi as giornoOggi } from "@/lib/calendario";
 import { useAggiornamenti, segnalaCambiamento } from "@/lib/aggiorna";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Avviso } from "@/components/ui/Avviso";
 import { StatoVuoto } from "@/components/ui/StatoVuoto";
 import { Icona, type NomeIcona } from "@/components/ui/Icona";
@@ -22,8 +22,8 @@ export default function OggiPage() {
   const [me, setMe] = useState<any>(null);
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
-  const [link, setLink] = useState("");
   const modulo = useModulo();
+  const router = useRouter();
 
   const load = () => {
     fetch("/api/v1/today").then((r) => { if (!r.ok) throw new Error(); return r.json(); }).then(setData).catch(() => setErr("Non autorizzato: accedi per vedere i dati reali."));
@@ -69,13 +69,8 @@ export default function OggiPage() {
     if (r) setMsg(`Check-out registrato per ${p.cliente}.${v.danni.trim() ? " Danni registrati: se la cauzione è autorizzata puoi addebitarla da Pagamenti." : ""}`);
   };
 
-  const contratto = async (p: Partenza) => {
-    const r = await api(`/api/v1/bookings/${p.id}/contratto`, "POST");
-    if (r?.url) {
-      setLink(r.url);
-      await copiaTesto(r.url);
-      setMsg("Link del contratto copiato: invialo al cliente (WhatsApp o email).");
-    }
+  const contratto = (p: Partenza) => {
+    router.push(`/gestionale/prenotazioni/${p.id}/contratto`);
   };
 
   const promemoriaOggi = async () => {
@@ -94,19 +89,23 @@ export default function OggiPage() {
 
   return (
     <div className="grid gap-5">
-      <div className="rounded-3xl bg-gradient-to-br from-ocean to-sea px-6 py-6 text-white shadow-[0_18px_40px_-18px_rgba(194,65,12,0.75)]">
-        <p className="text-xs font-semibold uppercase tracking-widest text-white/75">{dataOggi}</p>
-        <h1 className="mt-1 text-3xl">Buongiorno{me?.nome ? `, ${me.nome}` : ""}.</h1>
-        <p className="mt-1 text-sm text-white/85">{me?.tenantNome ? me.tenantNome : "La tua giornata è sotto controllo."}</p>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button className="flex items-center gap-1.5 rounded-full bg-white/15 px-4 py-2 text-sm font-bold backdrop-blur hover:bg-white/25" onClick={promemoriaOggi}>
-            <Icona nome="mail" className="h-4 w-4" /> Promemoria di oggi
-          </button>
-          <a href="/gestionale/calendario" className="flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-sm font-bold text-ocean hover:brightness-105">
-            <Icona nome="piu" className="h-4 w-4" /> Nuova prenotazione
-          </a>
+      <header className="rounded-3xl bg-gradient-to-br from-ocean to-sea p-5 text-white shadow-[0_18px_40px_-18px_rgba(8,127,140,0.75)] sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-white/75">{dataOggi}</p>
+            <h1 className="mt-1 text-2xl sm:text-3xl">Buongiorno{me?.nome ? `, ${me.nome}` : ""}.</h1>
+            <p className="mt-1 text-sm text-white/85">{me?.tenantNome ? me.tenantNome : "La tua giornata è sotto controllo."}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button className="flex items-center gap-1.5 rounded-full bg-white/15 px-4 py-2 text-sm font-bold backdrop-blur hover:bg-white/25" onClick={promemoriaOggi}>
+              <Icona nome="mail" className="h-4 w-4" /> Promemoria di oggi
+            </button>
+            <a href="/gestionale/calendario" className="flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-sm font-bold text-ocean hover:brightness-105">
+              <Icona nome="piu" className="h-4 w-4" /> Nuova prenotazione
+            </a>
+          </div>
         </div>
-      </div>
+      </header>
 
       {me?.tenantStatus === "pending" && (
         <Avviso tono="attenzione">Account in attesa di approvazione NaBoat. L&apos;operatività si sblocca all&apos;attivazione.</Avviso>
@@ -120,58 +119,81 @@ export default function OggiPage() {
         err && <Avviso tono="errore">{err}</Avviso>
       )}
       {msg && <Avviso tono="ok">{msg}</Avviso>}
-      {link && <p className="card break-all p-3 text-xs text-muted">Contratto: {link}</p>}
 
-      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {kpi.map((k) => (
-          <div key={k.nome} className="card p-5">
-            <div className="flex items-center justify-between">
+          <div key={k.nome} className="card p-4">
+            <div className="flex items-center justify-between gap-2">
               <small className="text-xs font-semibold uppercase tracking-wide text-muted">{k.nome}</small>
-              <Icona nome={k.icona} className={"h-5 w-5 " + k.colore} />
+              <Icona nome={k.icona} className={"h-5 w-5 shrink-0 " + k.colore} />
             </div>
-            <div className="mt-2 font-display text-4xl">{k.valore ?? "–"}</div>
+            <div className="mt-2 font-display text-3xl sm:text-4xl">{k.valore ?? "–"}</div>
             {k.nota && <em className="text-xs not-italic text-muted">{k.nota}</em>}
           </div>
         ))}
       </div>
 
-      <div className="grid gap-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl">Prossime partenze</h2>
+      <section className="grid gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="flex items-baseline gap-2 text-xl">
+            Partenze di oggi
+            {data && <span className="text-sm font-normal text-muted">{data.partenze.length}</span>}
+          </h2>
           <a href="/gestionale/calendario" className="text-sm font-bold text-ocean">Vedi calendario →</a>
         </div>
 
-        {(data?.partenze ?? []).map((p) => (
-          <div key={p.id} className="card p-5">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <span className="grid h-12 w-12 place-items-center rounded-2xl bg-foam font-display text-lg font-bold text-ocean">{p.ora}</span>
-                <div>
-                  <p className="text-lg font-extrabold">{p.barca}</p>
-                  <p className="text-sm text-muted">{p.cliente}{p.dest ? ` · ${p.dest}` : ""}</p>
+        {(data?.partenze ?? []).map((p) => {
+          const completata = p.checkinFatto && p.checkoutFatto;
+          return (
+            <article key={p.id} className="card p-4 sm:p-5">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-foam font-display text-lg font-bold text-ocean">{p.ora}</span>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="truncate text-lg font-extrabold">{p.barca}</p>
+                      <span className={p.stato === "In mare" ? "badge-pending" : "badge-ready"}>{p.stato}</span>
+                      {p.prezzoCent != null && <span className="chip font-bold">{euro(p.prezzoCent)}</span>}
+                    </div>
+                    <p className="mt-0.5 truncate text-sm text-muted">{p.cliente}{p.dest ? ` · ${p.dest}` : ""}</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                      <span className={p.contrattoFirmato ? "chip border-ok-line bg-ok-soft text-ok" : "chip text-muted"}>{p.contrattoFirmato ? "contratto firmato" : "contratto da firmare"}</span>
+                      <span className={p.checkinFatto ? "chip border-ok-line bg-ok-soft text-ok" : "chip text-muted"}>{p.checkinFatto ? "check-in fatto" : "check-in da fare"}</span>
+                      <span className={p.checkoutFatto ? "chip border-ok-line bg-ok-soft text-ok" : "chip text-muted"}>{p.checkoutFatto ? "check-out fatto" : "check-out da fare"}</span>
+                      {p.cauzioneStato !== "non_richiesta" && <span className="badge-block">cauzione: {p.cauzioneStato.replace("_", " ")}</span>}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2 lg:shrink-0 lg:justify-end">
+                  <button className="btn-soft gap-1.5" onClick={() => contratto(p)}>
+                    <Icona nome="documento" className="h-4 w-4" /> Contratto
+                  </button>
+                  {!p.checkinFatto && (
+                    <button className="btn-primary gap-1.5" onClick={() => checkin(p)}>
+                      <Icona nome="checklist" className="h-4 w-4" /> Check-in
+                    </button>
+                  )}
+                  {p.checkinFatto && !p.checkoutFatto && (
+                    <button className="btn-primary gap-1.5" onClick={() => checkout(p)}>
+                      <Icona nome="check" className="h-4 w-4" /> Check-out
+                    </button>
+                  )}
+                  {completata && (
+                    <span className="chip border-ok-line bg-ok-soft text-ok">
+                      <Icona nome="check" className="h-4 w-4" /> Completata
+                    </span>
+                  )}
+                  {p.telefono && (
+                    <a className="btn-soft gap-1.5" href={`tel:${p.telefono}`}>
+                      <Icona nome="telefono" className="h-4 w-4" /> Chiama
+                    </a>
+                  )}
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className={p.stato === "In mare" ? "badge-pending" : "badge-ready"}>{p.stato}</span>
-                {p.prezzoCent != null && <span className="chip font-bold">{euro(p.prezzoCent)}</span>}
-              </div>
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
-              <span className={p.contrattoFirmato ? "chip border-ok-line bg-ok-soft text-ok" : "chip text-muted"}>{p.contrattoFirmato ? "contratto firmato" : "contratto da firmare"}</span>
-              <span className={p.checkinFatto ? "chip border-ok-line bg-ok-soft text-ok" : "chip text-muted"}>{p.checkinFatto ? "check-in fatto" : "check-in da fare"}</span>
-              <span className={p.checkoutFatto ? "chip border-ok-line bg-ok-soft text-ok" : "chip text-muted"}>{p.checkoutFatto ? "check-out fatto" : "check-out da fare"}</span>
-              {p.cauzioneStato !== "non_richiesta" && <span className="badge-block">cauzione: {p.cauzioneStato.replace("_", " ")}</span>}
-            </div>
-
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button className="btn-soft" onClick={() => contratto(p)}>Contratto link</button>
-              {!p.checkinFatto && <button className="btn-primary" onClick={() => checkin(p)}>Check-in</button>}
-              {p.checkinFatto && !p.checkoutFatto && <button className="btn-primary" onClick={() => checkout(p)}>Check-out</button>}
-              {p.telefono && <a className="btn-soft" href={`tel:${p.telefono}`}>Chiama {p.telefono}</a>}
-            </div>
-          </div>
-        ))}
+            </article>
+          );
+        })}
 
         {data && data.partenze.length === 0 && (
           <StatoVuoto
@@ -182,7 +204,7 @@ export default function OggiPage() {
             secondaria={{ label: "Vai a Flotta", href: "/gestionale/flotta" }}
           />
         )}
-      </div>
+      </section>
       {modulo.dialogo}
     </div>
   );

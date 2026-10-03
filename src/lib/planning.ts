@@ -101,26 +101,64 @@ export function cellaKey(boatId: string, g: Giorno) {
   return `${boatId}:${g}`;
 }
 
-export type Aspetto = { label: string; className: string };
+export type Aspetto = { label: string; className: string; categoria?: Categoria | "MISTA" | "LIBERA" | "NON_ATTIVA" };
 
-// Etichetta sintetica della cella, con la priorità del riferimento BOATLY.
+type Categoria = "IN_MARE" | "RIENTRATA" | "PRENOTATA" | "BLOCCO";
+
+const ETICHETTA_CATEGORIA: Record<Categoria, string> = {
+  IN_MARE: "In mare",
+  RIENTRATA: "Rientrata",
+  PRENOTATA: "Prenotata",
+  BLOCCO: "Blocco",
+};
+
+const STILE_CELLA: Record<Categoria, string> = {
+  IN_MARE: "bg-ok text-white ring-1 ring-inset ring-[#0f5a50]",
+  PRENOTATA: "bg-ok-soft text-ok ring-1 ring-inset ring-ok-line",
+  RIENTRATA: "bg-[#e6efee] text-[#3f4a49] ring-1 ring-inset ring-[#c2d2d0]",
+  BLOCCO: "bg-danger-soft text-danger ring-1 ring-inset ring-danger-line",
+};
+
+// Categoria di un singolo impegno della cella.
+function categoriaDi(item: PlanningItem): Categoria {
+  if (item.kind === "BLOCK") return "BLOCCO";
+  if (item.stato === "in_mare") return "IN_MARE";
+  if (item.stato === "rientrata") return "RIENTRATA";
+  return "PRENOTATA";
+}
+
+// Etichetta e stile di una singola prenotazione/blocco, usati quando la cella è
+// mista (più stati insieme) o nel selettore.
+export function aspettoItem(item: PlanningItem): { label: string; className: string } {
+  const c = categoriaDi(item);
+  const className =
+    c === "IN_MARE" ? "bg-ok text-white"
+      : c === "RIENTRATA" ? "bg-[#e6efee] text-[#3f4a49]"
+      : c === "PRENOTATA" ? "bg-ok-soft text-ok"
+      : "bg-danger-soft text-danger";
+  return { label: ETICHETTA_CATEGORIA[c], className };
+}
+
+// Etichetta sintetica della cella. La cella cambia colore SOLO quando tutti gli
+// impegni hanno lo stesso stato (es. tutte in mare, tutti blocchi); se gli stati
+// sono diversi la cella resta neutra e i singoli impegni si colorano da soli.
 export function aspettoCella(items: PlanningItem[], barcaAttiva: boolean): Aspetto {
-  if (!barcaAttiva && items.length === 0) {
-    return { label: "Non attiva", className: "bg-[#efeaf0] text-muted ring-1 ring-inset ring-line" };
+  if (items.length === 0) {
+    if (!barcaAttiva) return { label: "Non attiva", className: "bg-[#efeaf0] text-muted ring-1 ring-inset ring-line", categoria: "NON_ATTIVA" };
+    return { label: "Libera", className: "bg-white text-muted ring-1 ring-inset ring-line hover:bg-foam hover:text-ocean", categoria: "LIBERA" };
   }
-  const pren = items.filter((i) => i.kind === "BOOKING");
-  if (pren.length > 0) {
-    if (pren.some((b) => b.stato === "in_mare")) return { label: "IN MARE", className: "bg-ok text-white ring-1 ring-inset ring-[#0f5a50]" };
-    if (pren.some((b) => b.stato !== "rientrata")) {
-      return { label: pren.length === 1 ? "Prenotata" : `${pren.length} prenotazioni`, className: "bg-ok-soft text-ok ring-1 ring-inset ring-ok-line" };
-    }
-    return { label: "RIENTRATA", className: "bg-[#e6efee] text-[#3f4a49] ring-1 ring-inset ring-[#c2d2d0]" };
+  const categorie = items.map(categoriaDi);
+  const uguali = categorie.every((c) => c === categorie[0]);
+  if (!uguali) {
+    return { label: `${items.length} impegni`, className: "bg-white text-ink ring-1 ring-inset ring-line", categoria: "MISTA" };
   }
-  if (items.length > 0) {
-    return { label: items.length === 1 ? "Blocco" : `${items.length} blocchi`, className: "bg-danger-soft text-danger ring-1 ring-inset ring-danger-line" };
-  }
-  if (!barcaAttiva) return { label: "Non attiva", className: "bg-[#efeaf0] text-muted ring-1 ring-inset ring-line" };
-  return { label: "Libera", className: "bg-white text-muted ring-1 ring-inset ring-line hover:bg-foam hover:text-ocean" };
+  const c = categorie[0];
+  const n = items.length;
+  const label =
+    c === "BLOCCO" ? (n === 1 ? "Blocco" : `${n} blocchi`)
+      : c === "PRENOTATA" ? (n === 1 ? "Prenotata" : `${n} prenotazioni`)
+      : ETICHETTA_CATEGORIA[c].toUpperCase();
+  return { label, className: STILE_CELLA[c], categoria: c };
 }
 
 // Primo elemento da mostrare nella cella: in mare, prenotazione attiva, rientrata, blocco.

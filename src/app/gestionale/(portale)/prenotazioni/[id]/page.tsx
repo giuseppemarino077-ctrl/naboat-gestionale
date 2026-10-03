@@ -237,7 +237,7 @@ export default function PrenotazionePage() {
             onClick={() => setScheda(s.id)}
             className={
               "flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-bold transition " +
-              (scheda === s.id ? "bg-ocean text-white" : "text-ocean hover:bg-foam")
+              (scheda === s.id ? "bg-signature text-deep" : "text-ocean hover:bg-foam")
             }
           >
             <Icona nome={s.icona} className="h-4 w-4" />
@@ -359,7 +359,8 @@ export default function PrenotazionePage() {
             <p className="mt-1 text-sm text-muted">{b.contrattoFirmatoAt ? `Firmato il ${dt(b.contrattoFirmatoAt)}${b.contrattoFirmaNome ? ` da ${b.contrattoFirmaNome}` : ""}.` : "Non ancora firmato."}</p>
             {puoImporti ? (
               <div className="mt-3 flex flex-wrap gap-2">
-                <button className="btn-primary" disabled={busy} onClick={contratto}>Genera link contratto</button>
+                <Link className="btn-primary" href={`/gestionale/prenotazioni/${id}/contratto`}>Apri e modifica contratto</Link>
+                <button className="btn-soft" disabled={busy} onClick={contratto}>Genera link contratto</button>
                 {linkContratto && <a className="btn-soft" href={linkContratto} target="_blank" rel="noreferrer">Apri link</a>}
               </div>
             ) : (
@@ -412,7 +413,7 @@ function azioniLabel(label: string, busy: boolean) {
 
 function Fatto({ icona, etichetta, valore }: { icona: NomeIcona; etichetta: string; valore: string }) {
   return (
-    <div className="flex items-center gap-2 rounded-2xl bg-[#faf6f2] px-3 py-2">
+    <div className="flex items-center gap-2 rounded-2xl bg-[#f7faf9] px-3 py-2">
       <Icona nome={icona} className="h-4 w-4 text-ocean" />
       <div className="min-w-0">
         <p className="text-[10px] uppercase tracking-wide text-muted">{etichetta}</p>

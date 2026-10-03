@@ -1,6 +1,7 @@
 import { fail, ok } from "@/lib/api";
 import { traccia } from "@/lib/audit";
 import { prisma } from "@/lib/db";
+import { CODICI_ESPERIENZA } from "@/lib/esperienze";
 import { motivoNonIdonea } from "@/lib/marketplace";
 import { bloccaPiano, verificaFotoPiano, verificaPubblicazione } from "@/lib/piani";
 import { portoDelTenant, modelloValido } from "@/lib/riferimenti";
@@ -27,6 +28,8 @@ const Schema = z.object({
   lunghezzaM: z.number().min(0).max(200).optional().nullable(),
   cabine: z.number().int().min(0).max(30).optional().nullable(),
   dotazioni: z.array(z.string().max(60)).max(40).optional(),
+  esperienze: z.array(z.string().max(40)).max(40).optional(),
+  esperienzePersonalizzate: z.array(z.string().max(80)).max(20).optional(),
   carburante: z.string().max(80).optional().nullable(),
   cauzioneCent: z.number().int().min(0).max(100000000).optional().nullable(),
   etaMinima: z.number().int().min(0).max(99).optional().nullable(),
@@ -61,6 +64,18 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!cur) return fail("Barca non trovata", 404);
   if (p.data.portoId && !(await portoDelTenant(t.tenantId, p.data.portoId))) return fail("Porto non valido per questa azienda", 422);
   if (p.data.modelloId && !(await modelloValido(p.data.modelloId))) return fail("Modello non valido", 422);
+  if (p.data.esperienze && p.data.esperienze.some((c) => !CODICI_ESPERIENZA.has(c))) return fail("Esperienza non valida", 422);
+  if (p.data.esperienzePersonalizzate) {
+    const pulite = p.data.esperienzePersonalizzate.map((s) => s.trim()).filter(Boolean);
+    p.data.esperienzePersonalizzate = Array.from(new Set(pulite));
+  }
+  if (p.data.esperienze || p.data.esperienzePersonalizzate) {
+    const ten = await prisma.tenant.findUnique({ where: { id: t.tenantId }, select: { esperienzeAttive: true, esperienzePersonalizzate: true } });
+    const attive = new Set(ten?.esperienzeAttive ?? []);
+    const custom = new Set(ten?.esperienzePersonalizzate ?? []);
+    if (p.data.esperienze?.some((c) => !attive.has(c))) return fail("Esperienza non attiva per questa azienda", 422);
+    if (p.data.esperienzePersonalizzate?.some((s) => !custom.has(s))) return fail("Esperienza personalizzata non valida", 422);
+  }
 
   // Tutto il calcolo di pubblicabilità e limiti sta nella transazione, con il
   // lock del piano: due pubblicazioni simultanee non sfondano il tetto Free.

@@ -63,7 +63,6 @@ export default function FlottaPage() {
           <input type="checkbox" checked={archiviate} onChange={(e) => setArchiviate(e.target.checked)} />
           Solo archiviate
         </label>
-        <Link href="/gestionale/turni" className="ml-auto text-sm font-semibold text-ocean">Skipper e turni →</Link>
       </div>
 
       {boats && filtrate.length === 0 ? (

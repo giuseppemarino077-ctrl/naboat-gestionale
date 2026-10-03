@@ -147,7 +147,7 @@ const run = async () => {
   const clientiDopo = (await json("A", "/api/v1/customers")).data ?? [];
   const clienteUno = clientiDopo.find((c) => c.telefono === "+39333123456");
   T("l'anagrafica non viene sovrascritta da una nuova prenotazione", clienteUno?.nome === "Cliente Smoke", JSON.stringify(clienteUno?.nome));
-  T("il contatto della singola prenotazione resta sulla prenotazione", (await json("A", `/api/v1/bookings/${bkStesso.data.id}`)).data?.clienteNome === "Nome Diverso");
+  T("il contatto della prenotazione si allinea all'anagrafica riconosciuta", (await json("A", `/api/v1/bookings/${bkStesso.data.id}`)).data?.clienteNome === "Cliente Smoke");
   // Conflitto esplicito sul telefono: non si fondono due anagrafiche in automatico.
   const bkAltro = await json("A", "/api/v1/bookings", "POST", {
     boatId: b.data.id, startAt: "2028-05-25T09:00:00.000Z", endAt: "2028-05-25T18:00:00.000Z",
@@ -411,7 +411,7 @@ const run = async () => {
   await json("A", `/api/v1/boats/${b.data.id}`, "PATCH", { lat: 40.8397, lon: 14.2524 });
   T("coordinate non valide -> 422", (await json("A", `/api/v1/boats/${b.data.id}`, "PATCH", { lat: 999, lon: 14 })).status === 422);
   const meteo1 = await json("A", "/api/v1/meteo");
-  T("meteo include la barca con coordinate", meteo1.status === 200 && (meteo1.data?.luoghi ?? []).some((x) => x.boatId === b.data.id), JSON.stringify((meteo1.data?.luoghi ?? []).map((x) => x.errore ?? x.nome)));
+  T("meteo: una sola previsione per la base del noleggio", meteo1.status === 200 && (meteo1.data?.luoghi ?? []).length === 1 && meteo1.data.luoghi[0].lat != null && meteo1.data.luoghi[0].boatId === undefined, JSON.stringify((meteo1.data?.luoghi ?? []).map((x) => x.nome)));
 
   // ---- Contratto digitale ----
   T("dati azienda: punto di partenza e telefono", (await json("A", "/api/v1/tenant", "PATCH", { indirizzoPartenza: "Porto Smoke, Molo 1", telefonoContatto: "081 000000" })).status === 200);
@@ -565,7 +565,7 @@ const run = async () => {
   const seoPatch = await adm.fetch("/api/v1/admin/seo", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ azione: "pagina", id: pagAzienda.id, titolo: "Titolo scelto da NaBoat", keywords: "parola1, parola2", pubblica: true }),
+    body: JSON.stringify({ azione: "pagina", id: pagAzienda.id, titolo: "Titolo scelto da NaBoat", keywords: "parola1, parola2", pubblica: true, noindex: false }),
   });
   T("NaBoat personalizza una pagina SEO", seoPatch.status === 200, `${seoPatch.status}`);
   const seo2 = await (await adm.fetch("/api/v1/admin/seo")).json();

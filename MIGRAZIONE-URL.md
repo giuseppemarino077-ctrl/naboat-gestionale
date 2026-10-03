@@ -17,7 +17,7 @@ quindi i link già inviati per email continuano a funzionare.
 | `/calendario` | `/gestionale/calendario` |
 | `/prenotazioni` | `/gestionale/prenotazioni` |
 | `/prenotazioni/[id]` | `/gestionale/prenotazioni/[id]` |
-| `/turni` | `/gestionale/turni` |
+| `/turni` | `/gestionale/skipper` |
 | `/meteo` | `/gestionale/meteo` |
 | `/flotta` | `/gestionale/flotta` |
 | `/manutenzione` | `/gestionale/manutenzione` |

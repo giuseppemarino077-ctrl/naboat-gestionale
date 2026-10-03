@@ -8,7 +8,7 @@ export default function ErroreGlobale({ error, reset }: { error: Error & { diges
   }, [error]);
 
   return (
-    <div className="grid min-h-screen place-items-center bg-[#faf6f2] p-6">
+    <div className="grid min-h-screen place-items-center bg-[#f7faf9] p-6">
       <div className="card grid max-w-md gap-3 p-8 text-center">
         <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-danger-soft text-danger">
           <Icona nome="avviso" className="h-7 w-7" />

@@ -245,7 +245,7 @@ export default function PagamentiPage() {
         </div>
         {link && (
           <div className="grid gap-1">
-            <code className="break-all rounded bg-[#3a2418] p-2 text-[#f6e3d5]">{link}</code>
+            <code className="break-all rounded bg-[#03212d] p-2 text-[#bfe4e2]">{link}</code>
             <button className="w-fit text-sm font-bold text-ocean" onClick={() => copiaTesto(link)}>Copia link</button>
           </div>
         )}

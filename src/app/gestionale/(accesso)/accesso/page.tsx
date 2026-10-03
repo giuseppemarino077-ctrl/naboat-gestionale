@@ -63,7 +63,7 @@ export default function LoginPage() {
         aria-hidden
       />
       {/* Velo scuro per far leggere bene il modulo */}
-      <div className="fixed inset-0 bg-[#2a1408]/55" aria-hidden />
+      <div className="fixed inset-0 bg-[#03212d]/55" aria-hidden />
 
       <div className="relative grid min-h-screen place-items-center p-5">
         <div className="w-full max-w-md">

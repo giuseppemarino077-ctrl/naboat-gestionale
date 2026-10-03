@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import {
   CONDIZIONI_NOLEGGIO,
+  condizioniDaTesto,
   improntaContratto,
   ipRichiesta,
   snapshotNoleggio,
@@ -36,6 +37,7 @@ const SELECT_CONTRATTO = {
   prezzoCent: true,
   cauzioneCent: true,
   contrattoToken: true,
+  contrattoTesto: true,
   contrattoFirmatoAt: true,
   contrattoFirmaNome: true,
   contrattoVersione: true,
@@ -109,6 +111,7 @@ function snapshotDaLive(b: PrenotazioneContratto, adesso = new Date()): Snapshot
       patenteOk: b.patenteOk,
       prezzoCent: b.prezzoCent,
       cauzioneCent: b.cauzioneCent,
+      condizioni: condizioniDaTesto(b.contrattoTesto),
     },
     adesso
   );
@@ -164,7 +167,7 @@ function rendiLegacy(b: PrenotazioneContratto) {
     patenteOk: b.patenteOk,
     prezzoCent: b.prezzoCent,
     cauzioneCent: b.cauzioneCent,
-    condizioni: CONDIZIONI_NOLEGGIO,
+    condizioni: condizioniDaTesto(b.contrattoTesto) ?? CONDIZIONI_NOLEGGIO,
   };
 }
 

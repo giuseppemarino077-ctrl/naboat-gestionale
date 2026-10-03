@@ -3,7 +3,7 @@ import { Icona } from "@/components/ui/Icona";
 
 export default function PaginaNonTrovata() {
   return (
-    <div className="grid min-h-screen place-items-center bg-[#faf6f2] p-6">
+    <div className="grid min-h-screen place-items-center bg-[#f7faf9] p-6">
       <div className="card grid max-w-md gap-3 p-8 text-center">
         <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-info-soft text-info">
           <Icona nome="pin" className="h-7 w-7" />

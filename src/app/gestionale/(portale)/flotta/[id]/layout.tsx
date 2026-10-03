@@ -41,16 +41,16 @@ export default function LayoutBarca({ children }: { children: React.ReactNode })
         <>
           <nav className="flex flex-wrap items-center gap-1 rounded-2xl border border-line bg-white p-1.5">
             {voci.map((v) => (
-              <Link key={v.href} href={v.href} className={"rounded-xl px-3 py-2 text-sm font-semibold " + (attivo(v.href, v.exact) ? "bg-ocean text-white" : "text-ink hover:bg-foam")}>{v.label}</Link>
+              <Link key={v.href} href={v.href} className={"rounded-xl px-3 py-2 text-sm font-semibold " + (attivo(v.href, v.exact) ? "bg-signature text-deep" : "text-ink hover:bg-foam")}>{v.label}</Link>
             ))}
             <details className="relative">
-              <summary className={"cursor-pointer list-none rounded-xl px-3 py-2 text-sm font-semibold " + (altre.some((a) => attivo(a.href)) ? "bg-ocean text-white" : "text-ink hover:bg-foam")}>Altre impostazioni ▾</summary>
+              <summary className={"cursor-pointer list-none rounded-xl px-3 py-2 text-sm font-semibold " + (altre.some((a) => attivo(a.href)) ? "bg-signature text-deep" : "text-ink hover:bg-foam")}>Altre impostazioni ▾</summary>
               <div className="absolute left-0 z-30 mt-1 min-w-[220px] rounded-xl border border-line bg-white p-1 shadow-lg">
                 {altre.map((a) => <Link key={a.href} href={a.href} className="block rounded-lg px-3 py-2 text-sm hover:bg-foam">{a.label}</Link>)}
               </div>
             </details>
             <span className="mx-1 h-6 w-px bg-line" />
-            <Link href={`/gestionale/flotta/${id}/foto`} className={"rounded-xl px-3 py-2 text-sm font-semibold " + (attivo(`/gestionale/flotta/${id}/foto`) ? "bg-ocean text-white" : "text-muted hover:bg-foam")}>Foto e pubblicazione</Link>
+            <Link href={`/gestionale/flotta/${id}/foto`} className={"rounded-xl px-3 py-2 text-sm font-semibold " + (attivo(`/gestionale/flotta/${id}/foto`) ? "bg-signature text-deep" : "text-muted hover:bg-foam")}>Foto e pubblicazione</Link>
           </nav>
           {nome === null ? <Caricamento /> : children}
         </>

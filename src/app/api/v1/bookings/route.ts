@@ -1,5 +1,6 @@
 import { fail, ok } from "@/lib/api";
-import { chiaveDedupContatti, normalizzaEmail } from "@/lib/anagrafica";
+import { normalizzaEmail } from "@/lib/anagrafica";
+import { risolviCliente } from "@/lib/anagrafica-server";
 import { chiaveTelefono, normalizzaTelefono } from "@/lib/telefono";
 import { esitoPatente } from "@/lib/clienti";
 import { prisma } from "@/lib/db";
@@ -185,8 +186,6 @@ export async function POST(req: Request) {
   if (perTelefono && perEmail && perTelefono.id !== perEmail.id) {
     return fail("Telefono ed email appartengono a due clienti diversi: correggi uno dei contatti", 409);
   }
-  const clienteEsistente = perTelefono ?? perEmail;
-  const dedupKey = clienteEsistente?.dedupKey ?? chiaveDedupContatti(telefonoNorm, emailNorm, v.clienteNome);
 
   const prezzoCent = v.prezzoEuro ? parseImportoEuro(v.prezzoEuro) : null;
   if (v.prezzoEuro && prezzoCent === null) return fail("Prezzo non valido", 422);
@@ -289,27 +288,22 @@ export async function POST(req: Request) {
       });
       if (!disp.ok) return { err: disp.messaggio, status: 409 };
 
-      // L'anagrafica non si sovrascrive da una prenotazione: se il cliente esiste
-      // già (telefono/email riconosciuti) resta com'è; altrimenti lo si crea. Il
-      // contatto della singola prenotazione è comunque conservato sulla prenotazione.
-      const customer = await tx.customer.upsert({
-        where: { tenantId_dedupKey: { tenantId: t.tenantId, dedupKey } },
-        update: {},
-        create: { tenantId: t.tenantId, nome: v.clienteNome, telefono: telefonoNorm, email: emailNorm, dedupKey },
-        select: { id: true },
-      });
+      // L'anagrafica non si sovrascrive da una prenotazione: il cliente viene
+      // riconosciuto per telefono, email o nome e i dati salvati allineano la
+      // prenotazione (senza doppioni).
+      const anag = await risolviCliente(tx, t.tenantId, { nome: v.clienteNome, telefono: telefonoNorm, email: emailNorm });
 
       const booking = await tx.booking.create({
         data: {
           tenantId: t.tenantId,
           boatId: v.boatId,
-          customerId: customer.id,
+          customerId: anag.customerId,
           startAt: start,
           endAt: end,
           passeggeri: v.passeggeri,
-          clienteNome: v.clienteNome,
-          telefono: telefonoNorm,
-          email: emailNorm,
+          clienteNome: anag.nome,
+          telefono: anag.telefono,
+          email: anag.email,
           destinazione: v.destinazione,
           formula: v.formula,
           note: v.note,

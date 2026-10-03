@@ -17,7 +17,7 @@ export function Manutenzione({
   return (
     <div className="relative isolate grid min-h-screen place-items-center overflow-hidden bg-deep px-5 py-14 text-center text-white">
       <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${immagine})` }} aria-hidden />
-      <div className="absolute inset-0 bg-[#2a1408]/75" aria-hidden />
+      <div className="absolute inset-0 bg-[#03212d]/75" aria-hidden />
 
       <div className="relative w-full max-w-lg">
         <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-white/15 backdrop-blur">
@@ -30,7 +30,7 @@ export function Manutenzione({
 
         <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
           <a
-            className="inline-block rounded-[7px] bg-gold px-6 py-3 font-extrabold text-[#3a2708] hover:brightness-110"
+            className="inline-block rounded-[7px] bg-gold px-6 py-3 font-extrabold text-deep hover:brightness-110"
             href={LINK_SONDAGGIO}
             target="_blank"
             rel="noopener noreferrer"

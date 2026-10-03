@@ -5,7 +5,7 @@ import { aData, aggiungiGiorni, fineGiorno, giornoDi, inizioGiorno, istante, ogg
 import { useAggiornamenti, segnalaCambiamento } from "@/lib/aggiorna";
 import { uuidSicuro } from "@/lib/browser";
 import {
-  aspettoCella, cellaKey, fineGiornoEsclusiva, finestraGiorni,
+  aspettoCella, aspettoItem, cellaKey, etichettaStato, fineGiornoEsclusiva, finestraGiorni,
   indicizza,
   type PlanningBlock, type PlanningBoat, type PlanningBooking, type PlanningItem, type PlanningOfferta,
 } from "@/lib/planning";
@@ -42,6 +42,7 @@ export default function PlanningCalendario({ start, onVai }: { start: string; on
   const [fBarca, setFBarca] = useState("");
   const [fTipo, setFTipo] = useState<"tutti" | "prenotazioni" | "blocchi">("tutti");
   const [sel, setSel] = useState<Sel>(null);
+  const [itemScelto, setItemScelto] = useState<string | null>(null);
   const [mobileGiorno, setMobileGiorno] = useState<string>(
     giorni.includes(oggi) ? oggi : giorni[0],
   );
@@ -111,7 +112,7 @@ export default function PlanningCalendario({ start, onVai }: { start: string; on
     : items;
   const barcheCruscotto = datiOggi ? datiOggi.boats : dati.boats;
 
-  const apriCella = (boatId: string, giorno: string) => { setErr(""); setMsg(""); setSel({ boatId, giorno }); };
+  const apriCella = (boatId: string, giorno: string) => { setErr(""); setMsg(""); setItemScelto(null); setSel({ boatId, giorno }); };
 
   const dopoAzione = async (esito: string) => {
     setMsg(esito);
@@ -136,6 +137,12 @@ export default function PlanningCalendario({ start, onVai }: { start: string; on
   const selBoat = sel ? barcaDi(sel.boatId) : null;
   const selItems = sel ? indice.get(cellaKey(sel.boatId, sel.giorno)) ?? [] : [];
   const selAttiva = selBoat?.stato === "disponibile";
+  // Blocco che copre l'intera giornata: impedisce di aggiungere prenotazioni quel giorno.
+  const bloccoInteraGiornata = !!sel && selItems.some(
+    (i) => i.kind === "BLOCK"
+      && new Date(i.startAt).getTime() <= inizioGiorno(sel.giorno).getTime()
+      && new Date(i.endAt).getTime() >= fineGiornoEsclusiva(sel.giorno).getTime(),
+  );
   const nessunaBarca = dati.boats.length === 0;
   const filtroVuoto = !nessunaBarca && barche.length === 0;
 
@@ -250,7 +257,7 @@ export default function PlanningCalendario({ start, onVai }: { start: string; on
                         onClick={() => setMobileGiorno(g)}
                         aria-pressed={attivo}
                         className={"min-w-[58px] snap-start rounded-2xl border px-2 py-2 text-center transition " +
-                          (attivo ? "border-ocean bg-ocean text-white shadow"
+                          (attivo ? "border-signature bg-signature text-deep shadow"
                             : weekend ? "border-[#f7d9c9] bg-foam text-ocean"
                             : "border-line bg-white text-ink")}
                       >
@@ -271,12 +278,10 @@ export default function PlanningCalendario({ start, onVai }: { start: string; on
                 {celleMobile.map(({ boat, items: cellItems }) => {
                   const attiva = boat.stato === "disponibile";
                   const app = aspettoCella(cellItems, attiva);
-                  const booking = cellItems.find((i) => i.kind === "BOOKING") as PlanningBooking | undefined;
-                  const tone = booking
-                    ? booking.stato === "in_mare" ? "border-[#0f5a50] bg-ok text-white"
-                      : booking.stato === "rientrata" ? "border-[#c2d2d0] bg-[#e6efee] text-[#3f4a49]"
-                      : "border-ok-line bg-ok-soft text-ink"
-                    : cellItems.length > 0 ? "border-danger-line bg-danger-soft text-ink"
+                  const tone = app.categoria === "IN_MARE" ? "border-[#0f5a50] bg-ok text-white"
+                    : app.categoria === "RIENTRATA" ? "border-[#c2d2d0] bg-[#e6efee] text-[#3f4a49]"
+                    : app.categoria === "PRENOTATA" ? "border-ok-line bg-ok-soft text-ink"
+                    : app.categoria === "BLOCCO" ? "border-danger-line bg-danger-soft text-ink"
                     : attiva ? "border-line bg-white text-ink" : "border-line bg-[#efeaf0] text-muted";
                   return (
                     <button key={boat.id} type="button" onClick={() => apriCella(boat.id, mobileGiorno)} className={`w-full rounded-2xl border p-3.5 text-left shadow-sm ${tone}`}>
@@ -289,16 +294,24 @@ export default function PlanningCalendario({ start, onVai }: { start: string; on
                       </span>
                       {cellItems.length > 0 ? (
                         <span className="mt-3 block space-y-1 rounded-xl bg-white/60 p-2.5 text-xs">
-                          {[...cellItems].sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime()).map((it) => (
-                            <span key={it.id} className="flex items-center justify-between gap-3">
-                              <strong className="truncate">
-                                {it.kind === "BOOKING" ? (it.clienteNome ?? "Cliente") : (it.motivo || "Non disponibile")}
-                                {it.kind === "BOOKING" && it.note ? " · ✎" : ""}
-                              </strong>
-                              {it.kind === "BOOKING" && <span className="shrink-0 font-semibold">{oreDi(it.startAt)}–{oreDi(it.endAt)}</span>}
-                              {it.kind === "BLOCK" && <span className="shrink-0 font-semibold">blocco</span>}
-                            </span>
-                          ))}
+                          {[...cellItems].sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime()).map((it) => {
+                            const ai = aspettoItem(it);
+                            return (
+                              <span key={it.id} className={"flex items-center justify-between gap-3 rounded-lg px-1.5 py-1 " + (app.categoria === "MISTA" ? ai.className : "")}>
+                                <strong className="truncate">
+                                  {it.kind === "BOOKING" ? (it.clienteNome ?? "Cliente") : (it.motivo || "Non disponibile")}
+                                  {it.kind === "BOOKING" && it.note ? " · ✎" : ""}
+                                </strong>
+                                {it.kind === "BOOKING" && (
+                                  <span className="flex shrink-0 items-center gap-1.5">
+                                    <span className="font-semibold">{oreDi(it.startAt)}–{oreDi(it.endAt)}</span>
+                                    <span className={"rounded-full px-1.5 py-0.5 text-[9px] font-bold " + ai.className}>{ai.label}</span>
+                                  </span>
+                                )}
+                                {it.kind === "BLOCK" && <span className="shrink-0 font-semibold">blocco</span>}
+                              </span>
+                            );
+                          })}
                           {cellItems.length > 1 && <span className="block pt-0.5 text-[10px] font-semibold opacity-70">{cellItems.length} impegni — tocca per il dettaglio</span>}
                         </span>
                       ) : (
@@ -315,7 +328,7 @@ export default function PlanningCalendario({ start, onVai }: { start: string; on
 
           {/* Desktop */}
           {!filtroVuoto && (
-            <div className="hidden max-h-[calc(100dvh-14rem)] overflow-auto overscroll-contain sm:block lg:max-h-[70vh]">
+            <div className="hidden overflow-x-auto sm:block">
               <table className="min-w-max border-separate border-spacing-0 text-left">
                 <thead>
                   <tr>
@@ -328,7 +341,7 @@ export default function PlanningCalendario({ start, onVai }: { start: string; on
                       const isOggi = g === oggi;
                       return (
                         <th key={g} scope="col" className={"sticky top-0 z-30 w-[104px] min-w-[104px] border-b border-r border-line px-2 py-2 text-center " +
-                          (isOggi ? "bg-ocean text-white" : weekend ? "bg-foam text-ocean" : "bg-white text-ink")}>
+                          (isOggi ? "bg-signature text-deep" : weekend ? "bg-foam text-ocean" : "bg-white text-ink")}>
                           <span className="block text-[10px] font-bold uppercase tracking-wide">{d.toLocaleDateString("it-IT", { weekday: "short" }).replace(".", "")}</span>
                           <span className="mt-0.5 block text-lg font-semibold leading-none">{d.getDate()}</span>
                           <span className="mt-1 block text-[9px] font-semibold uppercase">{d.toLocaleDateString("it-IT", { month: "short" }).replace(".", "")}</span>
@@ -367,17 +380,23 @@ export default function PlanningCalendario({ start, onVai }: { start: string; on
                                 <span className="w-full text-center">{app.label}</span>
                                 {ordinati.length > 0 && (
                                   <span className="mt-1 block w-full space-y-0.5 overflow-y-auto" style={{ maxHeight: ordinati.length > 2 ? 56 : undefined }}>
-                                    {ordinati.map((it) => it.kind === "BOOKING" ? (
-                                      <span key={it.id} className="block w-full truncate rounded bg-white/45 px-1 py-0.5 text-[9px] font-semibold">
-                                        {oreDi(it.startAt)} {it.clienteNome ?? "Cliente"}
-                                        {it.stato === "da_confermare" ? " · da conf." : ""}
-                                        {it.note ? " · ✎" : ""}
-                                      </span>
-                                    ) : (
-                                      <span key={it.id} className="block w-full truncate rounded bg-white/45 px-1 py-0.5 text-[9px] font-semibold">
-                                        {it.motivo ? `Blocco · ${it.motivo}` : "Blocco"}
-                                      </span>
-                                    ))}
+                                    {ordinati.map((it) => {
+                                      const ai = aspettoItem(it);
+                                      return (
+                                        <span key={it.id} className={"block w-full truncate rounded px-1 py-0.5 text-[9px] font-semibold " + (app.categoria === "MISTA" ? ai.className : "bg-white/45")}>
+                                          {it.kind === "BOOKING" ? (
+                                            <>
+                                              {oreDi(it.startAt)} {it.clienteNome ?? "Cliente"}
+                                              {it.stato === "da_confermare" ? " · da conf." : ""}
+                                              {it.note ? " · ✎" : ""}
+                                              {app.categoria === "MISTA" ? ` · ${ai.label}` : ""}
+                                            </>
+                                          ) : (
+                                            it.motivo ? `Blocco · ${it.motivo}` : "Blocco"
+                                          )}
+                                        </span>
+                                      );
+                                    })}
                                   </span>
                                 )}
                               </button>
@@ -437,56 +456,89 @@ export default function PlanningCalendario({ start, onVai }: { start: string; on
                       busy={busy}
                       oggi={oggi}
                       onCrea={async (payload) => { const esito = await chiama("POST", "/api/v1/bookings", payload); if (esito.ok) setSel(null); return esito.ok; }}
-                      onBlocca={async (motivo, manutenzione) => {
-                        const esito = await chiama("POST", "/api/v1/blocks", { boatId: selBoat.id, startAt: inizioGiorno(sel.giorno).toISOString(), endAt: fineGiorno(sel.giorno).toISOString(), motivo: motivo || undefined, manutenzione, idempotencyKey: uuidSicuro() });
+                      onBlocca={async (motivo, manutenzione, orario) => {
+                        const start = orario ? istante(sel.giorno, orario.dalle) : inizioGiorno(sel.giorno);
+                        const end = orario ? istante(sel.giorno, orario.alle) : fineGiorno(sel.giorno);
+                        const esito = await chiama("POST", "/api/v1/blocks", { boatId: selBoat.id, startAt: start.toISOString(), endAt: end.toISOString(), motivo: motivo || undefined, manutenzione, idempotencyKey: uuidSicuro() });
                         if (esito.ok) setSel(null);
                         return esito.ok;
                       }}
                     />
                   )}
                 </>
+              ) : selItems.length > 1 && !itemScelto ? (
+                <div className="space-y-3">
+                  <p className="text-sm text-muted">Ci sono {selItems.length} impegni in questa giornata: scegli quale aprire.</p>
+                  {[...selItems].sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime()).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setItemScelto(item.id)}
+                      className="w-full rounded-2xl border border-line bg-white p-4 text-left hover:border-ocean hover:bg-foam"
+                    >
+                      <span className="flex items-center justify-between gap-3">
+                        <span className="min-w-0">
+                          <span className="block truncate text-base font-semibold">{item.kind === "BOOKING" ? (item.clienteNome ?? "Cliente") : (item.motivo || "Non disponibile")}</span>
+                          <span className="mt-1 flex items-center gap-2 text-xs text-muted">
+                            {oreDi(item.startAt)}–{oreDi(item.endAt)}
+                            <span className={"rounded-full px-2 py-0.5 text-[10px] font-bold " + aspettoItem(item).className}>
+                              {item.kind === "BOOKING" ? etichettaStato(item.stato) : "Blocco"}
+                            </span>
+                          </span>
+                        </span>
+                        <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-ocean shadow-sm">Apri →</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
               ) : (
                 <>
-                  {selItems.map((item) =>
-                    item.kind === "BOOKING" ? (
-                      <SchedaPrenotazione
-                        key={item.id}
-                        pren={item}
-                        boat={selBoat}
-                        giorno={sel.giorno}
-                        oggi={oggi}
-                        skippers={skippers}
-                        porti={dati.porti}
-                        offerte={dati.offerte.filter((o) => o.boatId === selBoat.id && o.attiva)}
-                        azienda={me?.tenantNome ?? ""}
-                        busy={busy}
-                        puòImporti={me?.vedeImporti !== false}
-                        puoGestire={me?.role !== "skipper"}
-                        onAzione={chiama}
-                        onRicarica={dopoAzione}
-                      />
-                    ) : (
-                      <BloccoCella
-                        key={item.id}
-                        blocco={item}
-                        giorno={sel.giorno}
-                        busy={busy}
-                        onRilascia={async (scope) => {
-                          const url = scope === "giorno"
-                            ? `/api/v1/blocks/${item.id}/giorno`
-                            : `/api/v1/blocks/${item.id}`;
-                          const esito = await chiama("POST", url, { giorno: sel.giorno });
-                          if (esito.ok) setSel(null);
-                          return esito.ok;
-                        }}
-                      />
-                    ),
+                  {selItems.length > 1 && (
+                    <button type="button" onClick={() => setItemScelto(null)} className="text-sm font-semibold text-ocean hover:underline">← Torna all&apos;elenco degli impegni</button>
                   )}
+                  {[...selItems]
+                    .filter((i) => selItems.length === 1 || i.id === itemScelto)
+                    .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
+                    .map((item) =>
+                      item.kind === "BOOKING" ? (
+                        <SchedaPrenotazione
+                          key={item.id}
+                          pren={item}
+                          boat={selBoat}
+                          giorno={sel.giorno}
+                          oggi={oggi}
+                          skippers={skippers}
+                          porti={dati.porti}
+                          offerte={dati.offerte.filter((o) => o.boatId === selBoat.id && o.attiva)}
+                          azienda={me?.tenantNome ?? ""}
+                          busy={busy}
+                          puòImporti={me?.vedeImporti !== false}
+                          puoGestire={me?.role !== "skipper"}
+                          onAzione={chiama}
+                          onRicarica={dopoAzione}
+                        />
+                      ) : (
+                        <BloccoCella
+                          key={item.id}
+                          blocco={item}
+                          giorno={sel.giorno}
+                          busy={busy}
+                          onRilascia={async (scope) => {
+                            const esito = scope === "giorno"
+                              ? await chiama("POST", `/api/v1/blocks/${item.id}/giorno`, { giorno: sel.giorno })
+                              : await chiama("DELETE", `/api/v1/blocks/${item.id}`);
+                            if (esito.ok) setSel(null);
+                            return esito.ok;
+                          }}
+                        />
+                      ),
+                    )}
                   {/* Giornata parzialmente occupata: si può aggiungere un'altra
-                      prenotazione negli orari liberi (la disponibilità è validata dal server). */}
-                  {selAttiva && (
+                      prenotazione negli orari liberi (la disponibilità è validata dal server).
+                      Con un blocco a giornata intera l'aggiunta è vietata. */}
+                  {selAttiva && !bloccoInteraGiornata && (
                     <details className="rounded-2xl border border-line bg-white p-4">
-                      <summary className="cursor-pointer px-1 py-2 text-sm font-semibold text-ocean">+ Aggiungi un'altra prenotazione</summary>
+                      <summary className="cursor-pointer px-1 py-2 text-sm font-semibold text-ocean">+ Aggiungi un&apos;altra prenotazione</summary>
                       <div className="mt-3 border-t border-line pt-3">
                         <FormCellaNuova
                           boat={selBoat}
@@ -497,14 +549,21 @@ export default function PlanningCalendario({ start, onVai }: { start: string; on
                           busy={busy}
                           oggi={oggi}
                           onCrea={async (payload) => { const esito = await chiama("POST", "/api/v1/bookings", payload); if (esito.ok) setSel(null); return esito.ok; }}
-                          onBlocca={async (motivo, manutenzione) => {
-                            const esito = await chiama("POST", "/api/v1/blocks", { boatId: selBoat.id, startAt: inizioGiorno(sel.giorno).toISOString(), endAt: fineGiorno(sel.giorno).toISOString(), motivo: motivo || undefined, manutenzione, idempotencyKey: uuidSicuro() });
+                          onBlocca={async (motivo, manutenzione, orario) => {
+                            const start = orario ? istante(sel.giorno, orario.dalle) : inizioGiorno(sel.giorno);
+                            const end = orario ? istante(sel.giorno, orario.alle) : fineGiorno(sel.giorno);
+                            const esito = await chiama("POST", "/api/v1/blocks", { boatId: selBoat.id, startAt: start.toISOString(), endAt: end.toISOString(), motivo: motivo || undefined, manutenzione, idempotencyKey: uuidSicuro() });
                             if (esito.ok) setSel(null);
                             return esito.ok;
                           }}
                         />
                       </div>
                     </details>
+                  )}
+                  {bloccoInteraGiornata && (
+                    <p className="rounded-2xl border border-danger-line bg-danger-soft p-4 text-sm font-medium text-danger">
+                      Barca bloccata per l&apos;intera giornata: non è possibile aggiungere prenotazioni. Per farlo, libera prima il blocco.
+                    </p>
                   )}
                 </>
               )}

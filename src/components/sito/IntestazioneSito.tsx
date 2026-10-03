@@ -50,7 +50,7 @@ export function IntestazioneSito({ appBase }: { appBase: string }) {
             Accedi
           </a>
           <a
-            className="rounded-[7px] bg-gold px-4 py-2 text-sm font-extrabold text-[#3a2708] hover:brightness-110"
+            className="rounded-[7px] bg-gold px-4 py-2 text-sm font-extrabold text-deep hover:brightness-110"
             href={`/gestionale/registrazione`}
           >
             Registra la tua azienda
@@ -107,7 +107,7 @@ export function IntestazioneSito({ appBase }: { appBase: string }) {
             <a className="rounded-[9px] border border-sea bg-sea/15 px-4 py-3 text-center font-extrabold" href={`/gestionale/accesso`}>
               Accedi
             </a>
-            <a className="rounded-[9px] bg-gold px-4 py-3 text-center font-extrabold text-[#3a2708]" href={`/gestionale/registrazione`}>
+            <a className="rounded-[9px] bg-gold px-4 py-3 text-center font-extrabold text-deep" href={`/gestionale/registrazione`}>
               Registra la tua azienda
             </a>
             <p className="mt-2 text-center text-xs text-white/60">Hai già un account e gestisci la tua flotta? Accedi dal portale.</p>

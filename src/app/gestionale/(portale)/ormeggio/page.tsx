@@ -39,13 +39,13 @@ const dataBreve = (v: string | null) => (v ? new Date(v).toLocaleDateString("it-
 const STILE: Record<Stato, string> = {
   in_sosta: "border-[#a9e0d0] bg-[#d8f3ea] text-[#177469]",
   da_fare: "border-[#f0d59a] bg-[#fff0cc] text-[#9a6406]",
-  in_mare: "border-[#fdba74] bg-[#ffe8d5] text-deep",
+  in_mare: "border-[#8fddd5] bg-[#e1f5f2] text-deep",
   bloccata: "border-[#f6c9be] bg-[#fdeeea] text-coral",
 };
 const FILL: Record<Stato, string> = {
   in_sosta: "#177469",
   da_fare: "#b7791f",
-  in_mare: "#c2410c",
+  in_mare: "#087f8c",
   bloccata: "#e8755b",
 };
 const NOME_STATO: Record<Stato, string> = {
@@ -203,12 +203,12 @@ export default function OrmeggioPage() {
             {sel.attivitaDaFare > 0 ? ` · ${sel.attivitaDaFare} attività da fare` : ""}
           </p>
         </div>
-        <button onClick={() => setSelId(null)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#faf6f2] text-muted" title="Chiudi" aria-label="Chiudi"><Icona nome="chiudi" className="h-4 w-4" /></button>
+        <button onClick={() => setSelId(null)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#f7faf9] text-muted" title="Chiudi" aria-label="Chiudi"><Icona nome="chiudi" className="h-4 w-4" /></button>
       </div>
 
       <div className="mt-3 inline-flex w-fit rounded-full border border-line bg-white p-1">
         {(["scheda", "attivita", "conto"] as const).filter((t) => t !== "conto" || vedeImporti).map((t) => (
-          <button key={t} onClick={() => setTab(t)} className={"rounded-full px-3 py-1.5 text-xs font-bold capitalize " + (tab === t ? "bg-ocean text-white" : "text-ocean")}>
+          <button key={t} onClick={() => setTab(t)} className={"rounded-full px-3 py-1.5 text-xs font-bold capitalize " + (tab === t ? "bg-signature text-deep" : "text-ocean")}>
             {t === "attivita" ? "Attività" : t === "conto" ? "Conto" : "Scheda"}
           </button>
         ))}
@@ -237,7 +237,7 @@ export default function OrmeggioPage() {
             {(dettaglio?.attivita ?? []).map((a: any) => (
               <div key={a.id} className="flex items-center justify-between gap-2 rounded-2xl border border-line px-3 py-2">
                 <span className="min-w-0 truncate">{a.tipo}{a.quantita ? ` · ${a.quantita}${a.unita ? " " + a.unita : ""}` : ""}</span>
-                <span className={"shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold " + (a.stato === "completato" ? "bg-[#d8f3ea] text-[#177469]" : a.stato === "in_corso" ? "bg-[#ffe8d5] text-deep" : "bg-[#fff0cc] text-[#9a6406]")}>
+                <span className={"shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold " + (a.stato === "completato" ? "bg-[#d8f3ea] text-[#177469]" : a.stato === "in_corso" ? "bg-[#e1f5f2] text-deep" : "bg-[#fff0cc] text-[#9a6406]")}>
                   {a.stato === "completato" ? "Completato" : a.stato === "in_corso" ? "In corso" : "Da fare"}
                 </span>
               </div>
@@ -261,9 +261,9 @@ export default function OrmeggioPage() {
             ))}
             {dettaglio && (
               <div className="mt-1 grid grid-cols-3 gap-2 text-center text-xs">
-                <div className="rounded-2xl bg-[#faf6f2] p-2"><p className="text-muted">Addebitato</p><p className="font-bold">{euro(dettaglio.conto?.totaleAddebitiCent ?? 0)}</p></div>
-                <div className="rounded-2xl bg-[#faf6f2] p-2"><p className="text-muted">Pagato</p><p className="font-bold">{euro(dettaglio.conto?.incassatoCent ?? 0)}</p></div>
-                <div className="rounded-2xl bg-[#faf6f2] p-2"><p className="text-muted">Residuo</p><p className="font-bold">{euro(dettaglio.conto?.residuoCent ?? 0)}</p></div>
+                <div className="rounded-2xl bg-[#f7faf9] p-2"><p className="text-muted">Addebitato</p><p className="font-bold">{euro(dettaglio.conto?.totaleAddebitiCent ?? 0)}</p></div>
+                <div className="rounded-2xl bg-[#f7faf9] p-2"><p className="text-muted">Pagato</p><p className="font-bold">{euro(dettaglio.conto?.incassatoCent ?? 0)}</p></div>
+                <div className="rounded-2xl bg-[#f7faf9] p-2"><p className="text-muted">Residuo</p><p className="font-bold">{euro(dettaglio.conto?.residuoCent ?? 0)}</p></div>
               </div>
             )}
           </div>
@@ -302,7 +302,7 @@ export default function OrmeggioPage() {
       {msg && <Avviso tono="ok">{msg}</Avviso>}
 
       {/* Intestazione */}
-      <div className="rounded-3xl bg-gradient-to-br from-ocean to-sea px-6 py-6 text-white shadow-[0_18px_40px_-18px_rgba(194,65,12,0.75)]">
+      <div className="rounded-3xl bg-gradient-to-br from-ocean to-sea px-6 py-6 text-white shadow-[0_18px_40px_-18px_rgba(8,127,140,0.75)]">
         <p className="text-xs font-semibold uppercase tracking-widest text-white/75">Ormeggio</p>
         <h1 className="mt-1 text-3xl">Griglia dei posti</h1>
         <p className="mt-1 text-sm text-white/85">Lettere sulle righe, numeri sulle colonne: il posto si legge come A1. Le sagome mostrano le barche nelle celle.</p>
@@ -318,7 +318,7 @@ export default function OrmeggioPage() {
 
       {/* Schede interne */}
       <div className="inline-flex w-fit flex-wrap rounded-full border border-line bg-white p-1 shadow-sm">
-        <span className="rounded-full bg-ocean px-4 py-2 text-sm font-bold text-white">Griglia</span>
+        <span className="rounded-full bg-signature px-4 py-2 text-sm font-bold text-deep">Griglia</span>
         <Link className="rounded-full px-4 py-2 text-sm font-bold text-ocean hover:bg-foam" href="/gestionale/ormeggio/da-fare">Da fare</Link>
         <Link className="rounded-full px-4 py-2 text-sm font-bold text-ocean hover:bg-foam" href="/gestionale/ormeggio/movimenti">Movimenti</Link>
         <Link className="rounded-full px-4 py-2 text-sm font-bold text-ocean hover:bg-foam" href="/gestionale/ormeggio/conti">Conti</Link>
@@ -335,8 +335,8 @@ export default function OrmeggioPage() {
         )}
         <input className="min-w-[180px] flex-1 rounded-full border border-line bg-white p-2.5 text-sm" placeholder="Cerca barca, proprietario o coordinata" value={ricerca} onChange={(e) => setRicerca(e.target.value)} />
         <div className="inline-flex rounded-full border border-line bg-white p-1">
-          <button className={"rounded-full px-3 py-1.5 text-sm font-bold " + (vista === "griglia" ? "bg-ocean text-white" : "text-ocean")} onClick={() => setVista("griglia")}>Griglia</button>
-          <button className={"rounded-full px-3 py-1.5 text-sm font-bold " + (vista === "elenco" ? "bg-ocean text-white" : "text-ocean")} onClick={() => setVista("elenco")}>Elenco</button>
+          <button className={"rounded-full px-3 py-1.5 text-sm font-bold " + (vista === "griglia" ? "bg-signature text-deep" : "text-ocean")} onClick={() => setVista("griglia")}>Griglia</button>
+          <button className={"rounded-full px-3 py-1.5 text-sm font-bold " + (vista === "elenco" ? "bg-signature text-deep" : "text-ocean")} onClick={() => setVista("elenco")}>Elenco</button>
         </div>
         <button className={"flex items-center gap-1.5 rounded-full px-4 py-2.5 text-sm font-bold " + (configura ? "bg-deep text-white" : "border border-line bg-white text-ocean")} onClick={() => setConfigura(!configura)}><Icona nome="ingranaggio" className="h-4 w-4" /> {configura ? "Fine configurazione" : "Configura"}</button>
       </div>
@@ -345,10 +345,10 @@ export default function OrmeggioPage() {
       <div className="flex flex-wrap items-center gap-3 text-xs">
         <span className="inline-flex items-center gap-1"><i className="h-3 w-3 rounded-full bg-[#d8f3ea] ring-1 ring-[#a9e0d0]" /> In sosta</span>
         <span className="inline-flex items-center gap-1"><i className="h-3 w-3 rounded-full bg-[#fff0cc] ring-1 ring-[#f0d59a]" /> Da fare</span>
-        <span className="inline-flex items-center gap-1"><i className="h-3 w-3 rounded-full bg-[#ffe8d5] ring-1 ring-[#fdba74]" /> In mare: posto assegnato</span>
+        <span className="inline-flex items-center gap-1"><i className="h-3 w-3 rounded-full bg-[#e1f5f2] ring-1 ring-[#8fddd5]" /> In mare: posto assegnato</span>
         <span className="inline-flex items-center gap-1"><i className="h-3 w-3 rounded-full bg-[#fdeeea] ring-1 ring-[#f6c9be]" /> Bloccata</span>
         <span className="inline-flex items-center gap-1"><i className="h-3 w-3 rounded-full bg-white ring-1 ring-line" /> libero</span>
-        <span className="inline-flex items-center gap-1"><i className="h-3 w-3 rounded-full bg-[#efe9e3] ring-1 ring-line" /> non utilizzabile</span>
+        <span className="inline-flex items-center gap-1"><i className="h-3 w-3 rounded-full bg-[#e8eeed] ring-1 ring-line" /> non utilizzabile</span>
       </div>
 
       {configura && (
@@ -429,7 +429,7 @@ export default function OrmeggioPage() {
                             const base = "relative grid h-[84px] place-items-center rounded-2xl border p-1 text-center text-[10px] transition " + (visibile ? "" : "opacity-30 ");
 
                             if (posto.bloccato) {
-                              return <button key={posto.id} onClick={() => configura && toggleBlocco(posto)} title={configura ? "Clicca per riabilitare" : "Posto non utilizzabile"} className={base + "cursor-default border-dashed border-line bg-[#efe9e3] text-muted"}><b className="absolute left-1 top-0.5 text-[10px]">{posto.codice}</b><span>non usabile</span></button>;
+                              return <button key={posto.id} onClick={() => configura && toggleBlocco(posto)} title={configura ? "Clicca per riabilitare" : "Posto non utilizzabile"} className={base + "cursor-default border-dashed border-line bg-[#e8eeed] text-muted"}><b className="absolute left-1 top-0.5 text-[10px]">{posto.codice}</b><span>non usabile</span></button>;
                             }
                             if (posto.permanenza) {
                               const p = posto.permanenza;
@@ -486,7 +486,7 @@ export default function OrmeggioPage() {
           <form className="grid max-h-[90vh] w-full max-w-2xl gap-3 overflow-y-auto rounded-3xl bg-white p-6 text-sm shadow-2xl" onClick={(e) => e.stopPropagation()} onSubmit={assegna}>
             <div className="flex items-center justify-between">
               <h2 className="text-lg">Assegna il posto {postoScelto.codice}</h2>
-              <button type="button" className="grid h-9 w-9 place-items-center rounded-full bg-[#faf6f2] text-muted" onClick={() => setPostoScelto(null)} aria-label="Chiudi"><Icona nome="chiudi" className="h-4 w-4" /></button>
+              <button type="button" className="grid h-9 w-9 place-items-center rounded-full bg-[#f7faf9] text-muted" onClick={() => setPostoScelto(null)} aria-label="Chiudi"><Icona nome="chiudi" className="h-4 w-4" /></button>
             </div>
             <fieldset className="grid gap-2 rounded-2xl border border-line p-3">
               <legend className="px-1 text-xs font-bold text-muted">Proprietario</legend>

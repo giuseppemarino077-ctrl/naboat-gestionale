@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { IntestazioneSito } from "@/components/sito/IntestazioneSito";
 import { PiedeSito } from "@/components/sito/PiedeSito";
 import { catalogoPubblico } from "@/lib/marketplace";
+import { ESPERIENZE, etichetteEsperienze, nomeEsperienza } from "@/lib/esperienze";
 import { contestoSito } from "@/lib/sito-server";
 
 const euro = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
@@ -27,7 +28,7 @@ const DOMANDE = [
   { d: "La cauzione?", r: "Dove è attiva, la cauzione si blocca sulla carta e si libera al rientro se tutto è in ordine. I dettagli li indica l'azienda." },
 ];
 
-type Ricerca = { tipo?: string; porto?: string; dal?: string; al?: string; persone?: string; skipper?: string; patente?: string };
+type Ricerca = { tipo?: string; porto?: string; dal?: string; al?: string; persone?: string; skipper?: string; patente?: string; esp?: string | string[] };
 const uno = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) || "";
 
 export default async function NoleggiaPage({ searchParams }: { searchParams: Promise<Ricerca> }) {
@@ -35,6 +36,7 @@ export default async function NoleggiaPage({ searchParams }: { searchParams: Pro
   const { appBase } = await contestoSito();
 
   const pat = uno(sp.patente);
+  const esp = Array.isArray(sp.esp) ? sp.esp : sp.esp ? [sp.esp] : [];
   const filtri = {
     tipo: uno(sp.tipo) || undefined,
     porto: uno(sp.porto) || undefined,
@@ -43,11 +45,12 @@ export default async function NoleggiaPage({ searchParams }: { searchParams: Pro
     persone: uno(sp.persone) ? Number(uno(sp.persone)) : undefined,
     skipper: uno(sp.skipper) === "1" ? true : undefined,
     patente: (pat === "si" || pat === "no" ? pat : undefined) as "si" | "no" | undefined,
+    esperienze: esp.length ? esp : undefined,
   };
   const { schede, tipi, porti, conData } = await catalogoPubblico(filtri);
 
   // Conserva gli altri filtri quando si cambia un solo valore (pill e link).
-  const attivi: Record<string, string> = {};
+  const attivi: Record<string, string | string[]> = {};
   if (filtri.tipo) attivi.tipo = filtri.tipo;
   if (filtri.porto) attivi.porto = filtri.porto;
   if (filtri.dal) attivi.dal = filtri.dal;
@@ -55,10 +58,17 @@ export default async function NoleggiaPage({ searchParams }: { searchParams: Pro
   if (filtri.persone) attivi.persone = String(filtri.persone);
   if (filtri.skipper) attivi.skipper = "1";
   if (filtri.patente) attivi.patente = filtri.patente;
-  const href = (patch: Record<string, string | undefined>) => {
+  if (esp.length) attivi.esp = esp;
+  const href = (patch: Record<string, string | string[] | undefined>) => {
     const p = { ...attivi, ...patch };
     const qs = new URLSearchParams();
-    for (const [k, v] of Object.entries(p)) if (v) qs.set(k, v);
+    for (const [k, v] of Object.entries(p)) {
+      if (Array.isArray(v)) {
+        for (const x of v) if (x) qs.append(k, x);
+      } else if (v) {
+        qs.set(k, v);
+      }
+    }
     const s = qs.toString();
     return s ? `/noleggia?${s}` : "/noleggia";
   };
@@ -132,6 +142,27 @@ export default async function NoleggiaPage({ searchParams }: { searchParams: Pro
               </div>
             </details>
 
+            <details className="md:col-span-4" open={esp.length > 0}>
+              <summary className="cursor-pointer text-sm font-bold text-ocean">
+                Esperienze{esp.length > 0 ? ` (${esp.length})` : ""}
+              </summary>
+              <div className="mt-3 grid gap-4">
+                {ESPERIENZE.map((g) => (
+                  <div key={g.gruppo}>
+                    <p className="text-xs font-bold uppercase tracking-wide text-muted">{g.gruppo}</p>
+                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2">
+                      {g.voci.map((v) => (
+                        <label key={v.codice} className="flex items-center gap-2 text-xs font-semibold text-deep">
+                          <input type="checkbox" name="esp" value={v.codice} defaultChecked={esp.includes(v.codice)} />
+                          {v.nome}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </details>
+
             <div className="flex items-center gap-2 md:col-span-4">
               <button type="submit" className="btn-primary">Cerca</button>
               <a className="text-sm font-bold text-ocean" href="/noleggia">Azzera filtri</a>
@@ -161,35 +192,54 @@ export default async function NoleggiaPage({ searchParams }: { searchParams: Pro
           </div>
         )}
 
+        {esp.length > 0 && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+            <span className="font-semibold text-muted">Esperienze:</span>
+            {esp.map((c) => (
+              <a key={c} className="rounded-full border border-ocean bg-foam px-3 py-1 font-semibold text-deep" href={href({ esp: esp.filter((x) => x !== c) })}>
+                {nomeEsperienza(c)} ✕
+              </a>
+            ))}
+          </div>
+        )}
+
         <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {schede.map((b) => (
-            <a key={b.id} href={`/barca/${b.slug ?? b.id}`} className="card overflow-hidden transition hover:shadow-md">
-              <div className="h-40 bg-sand">
-                {b.fotoCopertina && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={b.fotoCopertina} alt={b.nome} className="h-full w-full object-cover" loading="lazy" />
-                )}
-              </div>
-              <div className="p-4">
-                <h3 className="font-display text-lg font-bold text-deep">{b.nome}</h3>
-                <p className="mt-1 text-xs text-muted">{b.tipo ?? "Barca"} · {b.capienza} persone · {b.porto ?? "base da definire"}</p>
-                <p className="mt-1 text-xs text-muted">
-                  {b.patenteRichiesta ? "Serve patente" : "Senza patente"}
-                  {b.conSkipper ? " · skipper disponibile" : ""}
-                  {b.voto > 0 ? ` · ★ ${b.voto.toFixed(1)}` : ""}
-                </p>
-                {conData ? (
-                  <p className="mt-2 font-display text-lg font-extrabold text-ocean">
-                    {b.prezzoPeriodoCent != null
-                      ? `${euro(b.prezzoPeriodoCent)} · ${b.prezzoEtichetta}`
-                      : <span className="text-sm font-bold text-muted">Preventivo da definire</span>}
+          {schede.map((b) => {
+            const etichette = etichetteEsperienze(b.esperienze ?? [], b.esperienzePersonalizzate ?? []).slice(0, 2);
+            return (
+              <a key={b.id} href={`/barca/${b.slug ?? b.id}`} className="card overflow-hidden transition hover:shadow-md">
+                <div className="h-40 bg-sand">
+                  {b.fotoCopertina && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={b.fotoCopertina} alt={b.nome} className="h-full w-full object-cover" loading="lazy" />
+                  )}
+                </div>
+                <div className="p-4">
+                  <h3 className="font-display text-lg font-bold text-deep">{b.nome}</h3>
+                  <p className="mt-1 text-xs text-muted">{b.tipo ?? "Barca"} · {b.capienza} persone · {b.porto ?? "base da definire"}</p>
+                  <p className="mt-1 text-xs text-muted">
+                    {b.patenteRichiesta ? "Serve patente" : "Senza patente"}
+                    {b.conSkipper ? " · skipper disponibile" : ""}
+                    {b.voto > 0 ? ` · ★ ${b.voto.toFixed(1)}` : ""}
                   </p>
-                ) : (
-                  <p className="mt-2 font-display text-lg font-extrabold text-ocean">{b.prezzoDaCent != null ? `da ${euro(b.prezzoDaCent)}` : "Su richiesta"}</p>
-                )}
-              </div>
-            </a>
-          ))}
+                  {etichette.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {etichette.map((e) => <span key={e} className="rounded-full bg-foam px-2 py-0.5 text-[10px] font-semibold text-deep">{e}</span>)}
+                    </div>
+                  )}
+                  {conData ? (
+                    <p className="mt-2 font-display text-lg font-extrabold text-ocean">
+                      {b.prezzoPeriodoCent != null
+                        ? `${euro(b.prezzoPeriodoCent)} · ${b.prezzoEtichetta}`
+                        : <span className="text-sm font-bold text-muted">Preventivo da definire</span>}
+                    </p>
+                  ) : (
+                    <p className="mt-2 font-display text-lg font-extrabold text-ocean">{b.prezzoDaCent != null ? `da ${euro(b.prezzoDaCent)}` : "Su richiesta"}</p>
+                  )}
+                </div>
+              </a>
+            );
+          })}
           {schede.length === 0 && (
             <p className="text-sm text-muted">
               {conData ? "Nessuna barca libera in queste date con i filtri scelti." : "Nessuna barca pubblicata con questo filtro."}

@@ -329,6 +329,8 @@ export type SchedaEvidenza = {
   prezzoPeriodoCent?: number | null;
   prezzoEtichetta?: string | null;
   disponibile?: boolean;
+  esperienze?: string[];
+  esperienzePersonalizzate?: string[];
 };
 
 // Criterio del carosello (documentato, non fornito dalla fonte): punteggio = voto medio × ln(recensioni+1);
@@ -427,6 +429,7 @@ export type FiltriCatalogo = {
   persone?: number;
   skipper?: boolean; // richiede che l'azienda offra lo skipper
   patente?: "si" | "no"; // requisito di patente dichiarato sulla barca
+  esperienze?: string[]; // codici del catalogo esperienze (una barca è inclusa se ne offre almeno una)
 };
 
 export type CatalogoPubblico = {
@@ -482,6 +485,7 @@ export async function catalogoPubblico(filtri: FiltriCatalogo = {}): Promise<Cat
   if (filtri.patente === "si") where.patenteRichiesta = true;
   if (filtri.patente === "no") where.patenteRichiesta = false;
   if (filtri.porto) where.porto = { nome: filtri.porto };
+  if (filtri.esperienze?.length) where.esperienze = { hasSome: filtri.esperienze };
   const tenantWhere: Prisma.TenantWhereInput = { status: "active", moduloMarketplace: true };
   if (filtri.skipper === true) tenantWhere.skippers = { some: { attivo: true } };
   if (filtri.skipper === false) tenantWhere.skippers = { none: { attivo: true } };
@@ -548,6 +552,8 @@ export async function catalogoPubblico(filtri: FiltriCatalogo = {}): Promise<Cat
       prezzoPeriodoCent,
       prezzoEtichetta: conData && tipoPeriodo ? ETICHETTA_TIPO[tipoPeriodo] : null,
       disponibile: conData ? true : undefined,
+      esperienze: b.esperienze,
+      esperienzePersonalizzate: b.esperienzePersonalizzate,
     };
   });
 

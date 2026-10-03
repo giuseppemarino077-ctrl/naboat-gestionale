@@ -1,7 +1,7 @@
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
 
-export const viewport: Viewport = { themeColor: "#c2410c" };
+export const viewport: Viewport = { themeColor: "#052f3f" };
 
 export const metadata: Metadata = {
   title: "NaBoat Gestionale",

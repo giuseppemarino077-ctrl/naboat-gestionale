@@ -35,7 +35,7 @@ const REDIRECT_VECCHI = [
   ["/in-attesa", "/gestionale/stato"],
   ["/oggi", "/gestionale/oggi"],
   ["/calendario", "/gestionale/calendario"],
-  ["/turni", "/gestionale/turni"],
+  ["/turni", "/gestionale/skipper"],
   ["/meteo", "/gestionale/meteo"],
   ["/flotta", "/gestionale/flotta"],
   ["/manutenzione", "/gestionale/manutenzione"],

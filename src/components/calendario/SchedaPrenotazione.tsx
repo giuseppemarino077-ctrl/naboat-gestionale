@@ -43,6 +43,21 @@ export default function SchedaPrenotazione({
 
   const partenza = () => esegui("POST", `/api/v1/bookings/${pren.id}/checkin`, { note: null }, "Partenza registrata: l'impegno è completato.");
   const rientro = () => esegui("POST", `/api/v1/bookings/${pren.id}/checkout`, { danniEuro: null, note: null }, "Rientro registrato: la barca risulta rientrata.");
+
+  // L'anagrafica è del cliente, ma la prenotazione conserva una copia di nome e
+  // contatti: dopo la modifica si allinea, così il calendario mostra i dati nuovi.
+  const salvaCliente = async (body: Record<string, unknown>) => {
+    const r = await onAzione("PATCH", `/api/v1/customers/${pren.customerId}`, body);
+    if (!r.ok) { setEsito({ tipo: "err", testo: r.j?.error ?? "Operazione non riuscita." }); return false; }
+    const snap: Record<string, unknown> = { clienteNome: body.nome, updatedAt: pren.updatedAt };
+    if (body.telefono) snap.telefono = body.telefono;
+    if (body.email) snap.email = body.email;
+    await onAzione("PATCH", `/api/v1/bookings/${pren.id}`, snap);
+    setEsito({ tipo: "ok", testo: "Anagrafica aggiornata." });
+    await onRicarica("Anagrafica aggiornata.");
+    return true;
+  };
+
   const annulla = async () => {
     const ok = await conferma.chiedi({ titolo: "Eliminare questa prenotazione e rendere nuovamente libera la barca?", messaggio: "La prenotazione viene annullata (nessun dato storico viene cancellato) e la barca torna disponibile.", confermaLabel: "Elimina prenotazione", pericoloso: true });
     if (ok) await esegui("DELETE", `/api/v1/bookings/${pren.id}?updatedAt=${encodeURIComponent(pren.updatedAt)}`, undefined, "Prenotazione annullata.");
@@ -106,9 +121,14 @@ export default function SchedaPrenotazione({
         {pren.customerId && (
           <details className="rounded-xl bg-white/80 p-3">
             <summary className="cursor-pointer px-1 py-1 text-sm font-semibold text-ocean">Modifica cliente</summary>
-            <FormCliente pren={pren} busy={busy} onSalva={(body) => esegui("PATCH", `/api/v1/customers/${pren.customerId}`, body, "Anagrafica aggiornata.")} />
+            <FormCliente pren={pren} busy={busy} onSalva={salvaCliente} />
           </details>
         )}
+
+        <details className="rounded-xl bg-white/80 p-3">
+          <summary className="cursor-pointer px-1 py-1 text-sm font-semibold text-ocean">{pren.note ? "Modifica note prenotazione" : "Aggiungi note prenotazione"}</summary>
+          <FormNote pren={pren} busy={busy} onSalva={(nota) => esegui("PATCH", `/api/v1/bookings/${pren.id}`, { note: nota, updatedAt: pren.updatedAt }, "Note prenotazione aggiornate.")} />
+        </details>
 
         {puoRiprogrammare && (
           <details className="rounded-xl bg-white/80 p-3">
@@ -169,7 +189,7 @@ function FormSkipper({
         </div>
       )}
       <input placeholder="Nota skipper (facoltativa)" value={nota} onChange={(e) => setNota(e.target.value)} className={campo} />
-      <button type="button" disabled={busy} onClick={salva} className="min-h-11 rounded-xl bg-ocean px-4 text-sm font-semibold text-white disabled:opacity-50">Salva skipper</button>
+      <button type="button" disabled={busy} onClick={salva} className="min-h-11 rounded-xl bg-signature px-4 text-sm font-semibold text-deep disabled:opacity-50">Salva skipper</button>
     </div>
   );
 }
@@ -178,21 +198,30 @@ function FormCliente({ pren, busy, onSalva }: { pren: PlanningBooking; busy: boo
   const [nome, setNome] = useState(pren.clienteNome ?? "");
   const [telefono, setTelefono] = useState(pren.telefono ?? "");
   const [email, setEmail] = useState(pren.email ?? "");
-  const [note, setNote] = useState("");
 
   const salva = async () => {
-    const body: Record<string, unknown> = { nome, telefono: telefono || null, email: email || null, note: note || undefined };
-    // Le note cliente sono separate dalle note prenotazione: qui si aggiorna l'anagrafica.
-    await onSalva(body);
+    // Solo anagrafica: le note della prenotazione si gestiscono separatamente.
+    await onSalva({ nome, telefono: telefono || null, email: email || null });
   };
 
   return (
     <div className="mt-3 grid gap-3 sm:grid-cols-2">
       <label className="grid gap-1 text-sm">Nome<input value={nome} onChange={(e) => setNome(e.target.value)} minLength={2} maxLength={160} className={campo} /></label>
       <label className="grid gap-1 text-sm">Telefono<input value={telefono} onChange={(e) => setTelefono(e.target.value)} maxLength={40} className={campo} /></label>
-      <label className="grid gap-1 text-sm">Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={320} className={campo} /></label>
-      <label className="grid gap-1 text-sm">Note cliente<textarea rows={2} maxLength={5000} value={note} onChange={(e) => setNote(e.target.value)} className={campo + " py-2"} /></label>
-      <button type="button" disabled={busy} onClick={salva} className="min-h-11 rounded-xl bg-ocean px-4 text-sm font-semibold text-white disabled:opacity-50 sm:col-span-2">Salva anagrafica</button>
+      <label className="grid gap-1 text-sm sm:col-span-2">Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={320} className={campo} /></label>
+      <button type="button" disabled={busy} onClick={salva} className="min-h-11 rounded-xl bg-signature px-4 text-sm font-semibold text-deep disabled:opacity-50 sm:col-span-2">Salva anagrafica</button>
+    </div>
+  );
+}
+
+function FormNote({ pren, busy, onSalva }: { pren: PlanningBooking; busy: boolean; onSalva: (nota: string) => Promise<boolean> }) {
+  const [nota, setNota] = useState(pren.note ?? "");
+  return (
+    <div className="mt-3 grid gap-3">
+      <label className="grid gap-1 text-sm">Note della prenotazione
+        <textarea rows={3} maxLength={5000} value={nota} onChange={(e) => setNota(e.target.value)} className={campo + " py-2"} placeholder="Itinerario, richieste, promemoria…" />
+      </label>
+      <button type="button" disabled={busy} onClick={() => onSalva(nota)} className="min-h-11 rounded-xl bg-signature px-4 text-sm font-semibold text-deep disabled:opacity-50">Salva note prenotazione</button>
     </div>
   );
 }
@@ -213,19 +242,17 @@ function FormRiprogramma({
   const [offertaId, setOffertaId] = useState(pren.offertaId ?? "");
   const [portoId, setPortoId] = useState(pren.portoId ?? "");
   const [skipperId, setSkipperId] = useState(pren.skipperId ?? "");
-  const [motivo, setMotivo] = useState("");
   const [errore, setErrore] = useState("");
 
   const salva = async () => {
     setErrore("");
-    if (motivo.trim().length < 3) { setErrore("Indica il motivo della riprogrammazione."); return; }
     const start = istante(inizioData, inizioOra);
     const end = istante(fineData, fineOra);
     if (!(start < end)) { setErrore("Orari incoerenti."); return; }
     await onSalva({
       boatId: boat.id, startAt: start.toISOString(), endAt: end.toISOString(), passeggeri,
       offertaId: offertaId || null, portoId: portoId || null, skipperId: skipperId || null,
-      motivo: motivo.trim(), updatedAt: pren.updatedAt,
+      updatedAt: pren.updatedAt,
     });
   };
 
@@ -240,9 +267,8 @@ function FormRiprogramma({
       {offerte.length > 0 && <label className="grid gap-1 text-xs font-semibold">Modalità<select value={offertaId} onChange={(e) => setOffertaId(e.target.value)} className={campo}><option value="">Predefinita</option>{offerte.map((o) => <option key={o.id} value={o.id}>{etichettaOfferta(o.codice)}</option>)}</select></label>}
       {porti.length > 0 && <label className="grid gap-1 text-xs font-semibold">Sede<select value={portoId} onChange={(e) => setPortoId(e.target.value)} className={campo}><option value="">Predefinita</option>{porti.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></label>}
       <label className="grid gap-1 text-xs font-semibold">Skipper<select value={skipperId} onChange={(e) => setSkipperId(e.target.value)} className={campo}><option value="">Nessuno</option>{skippers.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}</select></label>
-      <label className="grid gap-1 text-xs font-semibold sm:col-span-2">Motivo *<input value={motivo} onChange={(e) => setMotivo(e.target.value)} maxLength={1000} className={campo} /></label>
       <p className="text-xs text-muted sm:col-span-2">La prenotazione originale viene annullata e ne viene creata una nuova collegata, in un'unica operazione.</p>
-      <button type="button" disabled={busy} onClick={salva} className="min-h-11 rounded-xl bg-ocean px-4 text-sm font-semibold text-white disabled:opacity-50 sm:col-span-2">Riprogramma</button>
+      <button type="button" disabled={busy} onClick={salva} className="min-h-11 rounded-xl bg-signature px-4 text-sm font-semibold text-deep disabled:opacity-50 sm:col-span-2">Riprogramma</button>
     </div>
   );
 }

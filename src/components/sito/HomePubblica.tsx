@@ -67,7 +67,7 @@ export function HomePubblica({ appBase, contenuti, numeri = { barche: 0, senzaPa
           style={{ backgroundImage: `url(${contenuti.immagine})` }}
           aria-hidden
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-[#2a1408]/70 via-[#2a1408]/60 to-[#2a1408]/85" aria-hidden />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#03212d]/70 via-[#03212d]/60 to-[#03212d]/85" aria-hidden />
         <div className="relative mx-auto max-w-3xl px-5 py-24 text-center text-white md:py-32">
           <p className="text-[11px] font-extrabold uppercase tracking-[0.22em] text-aqua">
             Noleggio barche · Aziende · Skipper
@@ -79,7 +79,7 @@ export function HomePubblica({ appBase, contenuti, numeri = { barche: 0, senzaPa
               Scopri come funziona
             </a>
             <a
-              className="rounded-[7px] bg-gold px-6 py-3 text-base font-extrabold text-[#3a2708] hover:brightness-110"
+              className="rounded-[7px] bg-gold px-6 py-3 text-base font-extrabold text-deep hover:brightness-110"
               href={`/gestionale/registrazione`}
             >
               Sei un noleggiatore? Registrati
@@ -163,7 +163,7 @@ export function HomePubblica({ appBase, contenuti, numeri = { barche: 0, senzaPa
           </div>
           <div className="text-center">
             <a
-              className="inline-block rounded-[7px] bg-gold px-6 py-3 font-extrabold text-[#3a2708] hover:brightness-110"
+              className="inline-block rounded-[7px] bg-gold px-6 py-3 font-extrabold text-deep hover:brightness-110"
               href={`/gestionale/registrazione`}
             >
               Registra la tua azienda

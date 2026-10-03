@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useUtente, dimenticaUtente } from "@/components/Utente";
 import { aziendaNonAttiva, percorsoConsentitoInAttesa } from "@/lib/accesso";
 import { Icona, type NomeIcona } from "@/components/ui/Icona";
@@ -26,9 +26,10 @@ const VOCI: Voce[] = [
   { href: "/gestionale/calendario", icona: "calendario", nome: "Calendario", ruoli: AZIENDA_E_SKIPPER, modulo: "noleggio", gruppo: "noleggio", primaria: true },
   { href: "/gestionale/prenotazioni", icona: "lista", nome: "Prenotazioni", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio", primaria: true },
   { href: "/gestionale/flotta", icona: "barca", nome: "Flotta", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio", primaria: true },
+  { href: "/gestionale/esperienze", icona: "etichetta", nome: "Esperienze", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio", primaria: true },
   { href: "/gestionale/clienti", icona: "clienti", nome: "Clienti", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio", primaria: true },
   { href: "/gestionale/economia", icona: "euro", nome: "Economia", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio", primaria: true },
-  { href: "/gestionale/turni", icona: "orologio", nome: "Turni", ruoli: AZIENDA_E_SKIPPER, modulo: "noleggio", gruppo: "noleggio", primaria: false },
+  { href: "/gestionale/skipper", icona: "orologio", nome: "Skipper", ruoli: AZIENDA_E_SKIPPER, modulo: "noleggio", gruppo: "noleggio", primaria: true },
   { href: "/gestionale/meteo", icona: "meteo", nome: "Meteo", ruoli: AZIENDA_E_SKIPPER, modulo: "noleggio", gruppo: "noleggio", primaria: false },
   { href: "/gestionale/manutenzione", icona: "manutenzione", nome: "Manutenzione", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio", primaria: false },
 
@@ -107,7 +108,7 @@ function VoceLink({
       className={
         "flex items-center gap-2.5 rounded-xl px-3 py-2 transition " +
         (compatto ? "" : "text-sm ") +
-        (attiva ? "bg-white/15 font-semibold text-white shadow-inner" : "text-[#ffe0c2] hover:bg-white/10 hover:text-white")
+        (attiva ? "bg-white/15 font-semibold text-white shadow-inner" : "text-[#c7e6e7] hover:bg-white/10 hover:text-white")
       }
     >
       <Icona nome={v.icona} className="h-[18px] w-[18px] shrink-0" />
@@ -129,38 +130,17 @@ function GruppoVoci({
   onNavigate?: () => void;
   scuro?: boolean;
 }) {
-  const [mostraAltre, setMostraAltre] = useState(false);
   const primarie = lista.filter((v) => v.primaria);
   const secondarie = lista.filter((v) => !v.primaria);
   if (lista.length === 0) return null;
   return (
     <div className="grid gap-0.5">
-      <p className={"px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-widest " + (scuro ? "text-[#f3cba6]" : "text-muted")}>
+      <p className={"px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-widest " + (scuro ? "text-[#8fddd5]" : "text-muted")}>
         {NOMI_GRUPPO[gruppo]}
       </p>
-      {primarie.map((v) => (
+      {[...primarie, ...secondarie].map((v) => (
         <VoceLink key={v.href} v={v} attiva={voceAttiva(path, v.href)} onClick={onNavigate} />
       ))}
-      {secondarie.length > 0 && (
-        <>
-          <button
-            type="button"
-            aria-expanded={mostraAltre}
-            onClick={() => setMostraAltre((x) => !x)}
-            className={
-              "flex items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm transition " +
-              (scuro ? "text-[#ffe0c2] hover:bg-white/10 hover:text-white" : "text-ocean hover:bg-foam")
-            }
-          >
-            <Icona nome={mostraAltre ? "freccia-giu" : "freccia-destra"} className="h-[18px] w-[18px] shrink-0" />
-            <span>Altre funzioni</span>
-            <span className="ml-auto rounded-full bg-white/15 px-1.5 text-[11px] font-bold">{secondarie.length}</span>
-          </button>
-          {mostraAltre && <div className="ml-3 grid gap-0.5 border-l border-white/15 pl-1">{secondarie.map((v) => (
-            <VoceLink key={v.href} v={v} attiva={voceAttiva(path, v.href)} onClick={onNavigate} />
-          ))}</div>}
-        </>
-      )}
     </div>
   );
 }
@@ -202,7 +182,7 @@ function LinkSitoPubblico({ scuro = true, onClick }: { scuro?: boolean; onClick?
       onClick={onClick}
       className={
         "flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-semibold transition " +
-        (scuro ? "text-[#ffe0c2] hover:bg-white/10 hover:text-white" : "text-ocean hover:bg-foam")
+        (scuro ? "text-[#c7e6e7] hover:bg-white/10 hover:text-white" : "text-ocean hover:bg-foam")
       }
     >
       <Icona nome="esterno" className="h-[18px] w-[18px] shrink-0" />
@@ -273,12 +253,12 @@ export function NavOrizzontale() {
   };
 
   return (
-    <nav className="sticky top-0 z-30 border-b border-line bg-gradient-to-r from-[#9a3412] to-[#7a2a10] text-white md:hidden" aria-label="Sezioni del gestionale">
+    <nav className="sticky top-0 z-30 border-b border-line bg-gradient-to-r from-[#052f3f] to-[#031f29] text-white md:hidden" aria-label="Sezioni del gestionale">
       {entrambi && <div className="px-3 pt-2"><SelettoreModulo attivo={attivo} onChange={cambiaModulo} /></div>}
       <div className="flex gap-3 overflow-x-auto px-3 py-2">
         {gruppiVisibili.map((g) => (
           <div key={g} className="flex shrink-0 items-center gap-1.5">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#f3cba6]">{NOMI_GRUPPO[g]}</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#8fddd5]">{NOMI_GRUPPO[g]}</span>
             {voci.filter((v) => v.gruppo === g).map((v) => {
               const attiva = voceAttiva(path, v.href);
               return (
@@ -286,7 +266,7 @@ export function NavOrizzontale() {
                   key={v.href}
                   href={v.href}
                   aria-current={attiva ? "page" : undefined}
-                  className={"flex min-h-[40px] items-center gap-1.5 rounded-xl px-2.5 text-xs font-semibold " + (attiva ? "bg-white text-deep shadow" : "bg-white/10 text-[#ffe0c2]")}
+                  className={"flex min-h-[40px] items-center gap-1.5 rounded-xl px-2.5 text-xs font-semibold " + (attiva ? "bg-white text-deep shadow" : "bg-white/10 text-[#c7e6e7]")}
                 >
                   <Icona nome={v.icona} className="h-4 w-4" />
                   {v.nome}
@@ -323,10 +303,10 @@ export function StrutturaGestionale({ children }: { children: React.ReactNode })
 
   return (
     <div className="flex min-h-screen">
-      <aside className="hidden w-[228px] shrink-0 flex-col bg-gradient-to-b from-[#9a3412] to-[#7a2a10] p-3 text-white md:flex">
+      <aside className="hidden w-[228px] shrink-0 flex-col bg-gradient-to-b from-[#052f3f] to-[#031f29] p-3 text-white md:flex">
         <div className="flex items-center px-2 pb-3 pt-2">
           <div className="flex items-center gap-2 font-display font-extrabold">
-            <span className="grid h-8 w-8 place-items-center rounded-full bg-[#ffd9a8]"><img src="/img/logo-naboat-scuro.png" alt="" className="h-5 w-auto" /></span>
+            <span className="grid h-8 w-8 place-items-center rounded-full bg-[#8fddd5]"><img src="/img/logo-naboat-scuro.png" alt="" className="h-5 w-auto" /></span>
             NaBoat
           </div>
         </div>
@@ -347,12 +327,12 @@ export function StrutturaGestionale({ children }: { children: React.ReactNode })
             )}
             <div className="min-w-0">
               <p className="truncate font-semibold text-white">{utente?.tenantNome ?? utente?.email ?? ""}</p>
-              {utente?.tenantStatus && <p className="text-[10px] uppercase tracking-wide text-[#f3cba6]">{utente.tenantStatus}</p>}
+              {utente?.tenantStatus && <p className="text-[10px] uppercase tracking-wide text-[#8fddd5]">{utente.tenantStatus}</p>}
             </div>
           </div>
           <button
             onClick={esci}
-            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 font-bold text-[#ffe0c2] hover:bg-white/20 hover:text-white"
+            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 font-bold text-[#c7e6e7] hover:bg-white/20 hover:text-white"
           >
             <Icona nome="uscita" className="h-4 w-4" /> Esci
           </button>

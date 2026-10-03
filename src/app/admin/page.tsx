@@ -39,7 +39,7 @@ function Pill({
       onClick={onClick}
       className={
         "rounded-full px-4 py-2 text-sm font-bold transition " +
-        (attivo ? "bg-ocean text-white shadow-[0_6px_18px_-6px_rgba(194,65,12,0.7)]" : "text-ocean hover:bg-foam")
+        (attivo ? "bg-signature text-deep shadow-[0_6px_18px_-6px_rgba(8,127,140,0.7)]" : "text-ocean hover:bg-foam")
       }
     >
       {children}
@@ -253,7 +253,7 @@ export default function AdminPage() {
   return (
     <div className="grid gap-6">
       {/* Intestazione */}
-      <div className="rounded-3xl bg-gradient-to-br from-ocean to-sea px-6 py-6 text-white shadow-[0_18px_40px_-18px_rgba(194,65,12,0.75)]">
+      <div className="rounded-3xl bg-gradient-to-br from-ocean to-sea px-6 py-6 text-white shadow-[0_18px_40px_-18px_rgba(8,127,140,0.75)]">
         <p className="text-xs font-semibold uppercase tracking-widest text-white/70">NaBoat Admin</p>
         <h1 className="mt-1 text-3xl">Pannello di controllo</h1>
         <p className="mt-1 text-sm text-white/85">Aziende, servizi e sito pubblico in un unico posto.</p>
@@ -309,13 +309,13 @@ export default function AdminPage() {
               <span className="text-sm font-bold text-[#9a6406]">
                 {pendingCount === 1 ? "1 azienda in attesa di approvazione" : `${pendingCount} aziende in attesa di approvazione`}
               </span>
-              <span className="rounded-full bg-gold px-4 py-2 text-sm font-bold text-[#3a2708]">Mostra</span>
+              <span className="rounded-full bg-gold px-4 py-2 text-sm font-bold text-deep">Mostra</span>
             </button>
           )}
 
           <div className="grid gap-3 rounded-3xl border border-line bg-white p-4 shadow-sm md:grid-cols-[1fr_auto]">
             <input
-              className="w-full rounded-full border border-line bg-[#faf6f2] px-4 py-3 text-sm outline-none focus:border-ocean"
+              className="w-full rounded-full border border-line bg-[#f7faf9] px-4 py-3 text-sm outline-none focus:border-ocean"
               placeholder="Cerca un'azienda per nome…"
               value={cerca}
               onChange={(e) => setCerca(e.target.value)}
@@ -369,7 +369,7 @@ export default function AdminPage() {
                   </div>
 
                   {p && (
-                    <div className="mt-4 flex flex-wrap items-center gap-2 rounded-2xl bg-[#faf6f2] p-3 text-xs">
+                    <div className="mt-4 flex flex-wrap items-center gap-2 rounded-2xl bg-[#f7faf9] p-3 text-xs">
                       <span className="text-muted">Pagamenti:</span>
                       {p.pagamentiBloccatiNaBoat ? <span className="badge-block">bloccati da NaBoat</span> : attivi ? <span className="badge-ready">attivi</span> : <span className="badge-pending">non attivi</span>}
                       {p.stripeAttivo && <span className="badge-block">Stripe</span>}
@@ -541,7 +541,7 @@ export default function AdminPage() {
             <p className="mt-1 text-sm text-muted">Immagine a tutto schermo dietro il modulo di accesso. Carica una foto orizzontale (almeno 1600 pixel di larghezza) per un effetto migliore.</p>
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <div className="grid gap-2">
-                <div className="h-40 w-full overflow-hidden rounded-2xl border border-line bg-[#3a2418]">
+                <div className="h-40 w-full overflow-hidden rounded-2xl border border-line bg-[#03212d]">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={aspetto?.loginImmagine || aspetto?.predefinita || "/img/sfondo-login.jpg"} alt="sfondo" className="h-full w-full object-cover" />
                 </div>
@@ -572,7 +572,7 @@ export default function AdminPage() {
             <p className="mt-1 text-sm text-muted">Titolo, riga di presentazione e foto di apertura della home. Lasciando vuoti i testi si usano quelli predefiniti; senza una foto dedicata si usa quella della pagina di accesso.</p>
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <div className="grid gap-2">
-                <div className="h-40 w-full overflow-hidden rounded-2xl border border-line bg-[#3a2418]">
+                <div className="h-40 w-full overflow-hidden rounded-2xl border border-line bg-[#03212d]">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={aspetto?.homeImmagine || aspetto?.loginImmagine || aspetto?.predefinita || "/img/sfondo-login.jpg"} alt="foto di apertura della home" className="h-full w-full object-cover" />
                 </div>
@@ -627,7 +627,7 @@ export default function AdminPage() {
               <input className="rounded-2xl border border-line p-3" maxLength={40} value={aspetto?.legaleVersione ?? ""} onChange={(e) => setAspetto((a) => (a ? { ...a, legaleVersione: e.target.value } : a))} onBlur={() => salvaAspetto({ legaleVersione: aspetto?.legaleVersione || null })} placeholder="es. 2026-09" />
             </label>
             {(aspetto?.legaleVersione ?? "") !== "" && (aspetto?.legaleVersione ?? "") !== TERMINI_VERSIONE && (
-              <p className="mt-2 rounded-2xl border border-[#fdba74] bg-[#fff4e6] p-3 text-xs font-semibold text-[#8a4b08]">
+              <p className="mt-2 rounded-2xl border border-warn-line bg-warn-soft p-3 text-xs font-semibold text-warn">
                 Attenzione: la versione mostrata non coincide con quella registrata all&apos;accettazione
                 («{TERMINI_VERSIONE}»). Aggiorna la costante nel codice prima di pubblicare i nuovi testi.
               </p>
@@ -660,7 +660,7 @@ export default function AdminPage() {
               </label>
               <label className="grid gap-1 text-sm" title="Non collegato: cambia il campo «Serve patente» sulla singola barca">
                 Soglia patente (CV) <span className="text-xs font-normal text-muted">non collegata</span>
-                <input type="number" disabled className="rounded-2xl border border-line bg-[#f3eee9] p-3 text-muted" value={aspetto?.sogliaPatenteCv ?? 40} onChange={() => {}} />
+                <input type="number" disabled className="rounded-2xl border border-line bg-[#eef2f1] p-3 text-muted" value={aspetto?.sogliaPatenteCv ?? 40} onChange={() => {}} />
               </label>
             </div>
             <p className="mt-2 text-xs text-muted">Soglia patente: l&apos;obbligo di patente dipende solo dall&apos;interruttore «Serve patente» impostato sulla singola barca, non dai CV del motore. Il valore resta in archivio ma non produce effetti.</p>
@@ -692,13 +692,13 @@ export default function AdminPage() {
             <p className="mt-3 text-xs text-muted">Piano Pro: i prezzi e i giorni di prova non sono ancora collegati a un pagamento o a una scadenza automatica, quindi non sono modificabili da qui. Il passaggio a Pro resta manuale da <b>Piani</b>.</p>
             <div className="mt-2 grid gap-3 md:grid-cols-3">
               <label className="grid gap-1 text-sm">Giorni di prova <span className="text-xs font-normal text-muted">non collegato</span>
-                <input type="number" disabled className="rounded-2xl border border-line bg-[#f3eee9] p-3 text-muted" value={aspetto?.pianoProvaGiorni ?? 0} onChange={() => {}} />
+                <input type="number" disabled className="rounded-2xl border border-line bg-[#eef2f1] p-3 text-muted" value={aspetto?.pianoProvaGiorni ?? 0} onChange={() => {}} />
               </label>
               <label className="grid gap-1 text-sm">Pro · prezzo al mese (€) <span className="text-xs font-normal text-muted">non collegato</span>
-                <input type="number" disabled className="rounded-2xl border border-line bg-[#f3eee9] p-3 text-muted" value={aspetto?.pianoProPrezzoMensileCent != null ? aspetto.pianoProPrezzoMensileCent / 100 : ""} onChange={() => {}} />
+                <input type="number" disabled className="rounded-2xl border border-line bg-[#eef2f1] p-3 text-muted" value={aspetto?.pianoProPrezzoMensileCent != null ? aspetto.pianoProPrezzoMensileCent / 100 : ""} onChange={() => {}} />
               </label>
               <label className="grid gap-1 text-sm">Pro · prezzo all&apos;anno (€) <span className="text-xs font-normal text-muted">non collegato</span>
-                <input type="number" disabled className="rounded-2xl border border-line bg-[#f3eee9] p-3 text-muted" value={aspetto?.pianoProPrezzoAnnualeCent != null ? aspetto.pianoProPrezzoAnnualeCent / 100 : ""} onChange={() => {}} />
+                <input type="number" disabled className="rounded-2xl border border-line bg-[#eef2f1] p-3 text-muted" value={aspetto?.pianoProPrezzoAnnualeCent != null ? aspetto.pianoProPrezzoAnnualeCent / 100 : ""} onChange={() => {}} />
               </label>
             </div>
           </div>

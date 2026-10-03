@@ -14,7 +14,7 @@ export default function TenantBadge() {
   if (!dati?.tenantNome) return null;
 
   return (
-    <div className="mt-auto border-t border-white/10 p-2 text-xs text-[#f3cba6]">
+    <div className="mt-auto border-t border-white/10 p-2 text-xs text-[#8fddd5]">
       <div>{(dati.tenantStatus ?? "").toUpperCase()}</div>
       <div className="mt-1 flex items-center gap-2">
         {dati.tenantLogo ? (

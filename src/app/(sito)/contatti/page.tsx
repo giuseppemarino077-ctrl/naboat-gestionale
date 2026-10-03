@@ -33,7 +33,7 @@ export default async function PaginaContatti() {
         <div className="mt-10 grid gap-8 md:grid-cols-[1fr_1.15fr]">
           <div className="grid content-start gap-4">
             <a
-              className="inline-block justify-self-start rounded-[7px] bg-ocean px-6 py-3 font-bold text-white hover:brightness-110"
+              className="inline-block justify-self-start rounded-[7px] bg-signature px-6 py-3 font-bold text-deep hover:brightness-105"
               href="mailto:info@naboat.it"
             >
               info@naboat.it

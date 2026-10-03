@@ -5,12 +5,14 @@ import Link from "next/link";
 import { Avviso } from "@/components/ui/Avviso";
 import { Caricamento } from "@/components/ui/Caricamento";
 import { useConferma } from "@/components/ui/Dialogo";
+import { nomeEsperienza } from "@/lib/esperienze";
 
 type Boat = {
   id: string; nome: string; tipo: string | null; codiceInterno: string | null; capienza: number | null;
   potenzaCv: number | null; patenteRichiesta: boolean; portoId: string | null; modelloId: string | null;
   descrizione: string | null; lunghezzaM: number | null; cabine: number | null; carburante: string | null;
   cauzioneCent: number | null; etaMinima: number | null;
+  esperienze: string[]; esperienzePersonalizzate: string[];
 };
 
 export default function DatiBarcaPage() {
@@ -42,6 +44,13 @@ export default function DatiBarcaPage() {
       setB(j as Boat);
       setMsg(esito);
     } finally { setBusy(false); }
+  };
+
+  const rimuoviEsperienza = (campo: "esperienze" | "personalizzate", valore: string) => {
+    if (!b) return;
+    const esp = campo === "esperienze" ? (b.esperienze ?? []).filter((c) => c !== valore) : (b.esperienze ?? []);
+    const cus = campo === "personalizzate" ? (b.esperienzePersonalizzate ?? []).filter((c) => c !== valore) : (b.esperienzePersonalizzate ?? []);
+    salva({ esperienze: esp, esperienzePersonalizzate: cus }, "Esperienza rimossa dalla barca.");
   };
 
   const duplica = async () => {
@@ -113,6 +122,31 @@ export default function DatiBarcaPage() {
           </div>
           <p className="mt-3 text-xs text-muted">Foto, copertina e pubblicazione si gestiscono da <Link href={`/gestionale/flotta/${id}/foto`} className="font-semibold text-ocean">Foto e pubblicazione</Link>.</p>
         </details>
+      </section>
+
+      <section className="card grid gap-3 p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-display text-lg font-bold text-ink">Esperienze allocate</h2>
+          <Link href="/gestionale/esperienze" className="text-sm font-semibold text-ocean hover:underline">Gestisci dal tab Esperienze →</Link>
+        </div>
+        {(b.esperienze?.length ?? 0) + (b.esperienzePersonalizzate?.length ?? 0) === 0 ? (
+          <p className="text-sm text-muted">Nessuna esperienza allocata a questa barca. Attivale e assegnale dal tab «Esperienze».</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {(b.esperienze ?? []).map((c) => (
+              <span key={`cat-${c}`} className="inline-flex items-center gap-2 rounded-full border border-line bg-white px-3 py-1.5 text-sm">
+                {nomeEsperienza(c)}
+                <button type="button" aria-label={`Rimuovi ${nomeEsperienza(c)}`} disabled={busy} onClick={() => rimuoviEsperienza("esperienze", c)} className="font-bold text-danger disabled:opacity-40">×</button>
+              </span>
+            ))}
+            {(b.esperienzePersonalizzate ?? []).map((c) => (
+              <span key={`cus-${c}`} className="inline-flex items-center gap-2 rounded-full border border-line bg-white px-3 py-1.5 text-sm">
+                {c}
+                <button type="button" aria-label={`Rimuovi ${c}`} disabled={busy} onClick={() => rimuoviEsperienza("personalizzate", c)} className="font-bold text-danger disabled:opacity-40">×</button>
+              </span>
+            ))}
+          </div>
+        )}
       </section>
 
       <div className="grid gap-3 sm:grid-cols-2">

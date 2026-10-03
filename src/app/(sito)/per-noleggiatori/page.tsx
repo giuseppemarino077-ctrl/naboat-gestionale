@@ -49,7 +49,7 @@ export default async function PerNoleggiatoriPage() {
         <div className="mx-auto max-w-5xl px-5 py-12">
           <h1 className="font-display text-4xl font-extrabold">Per i noleggiatori</h1>
           <p className="mt-3 max-w-2xl text-white/85">Il gestionale completo e un profilo pubblico della tua azienda, con il tuo indirizzo da condividere su WhatsApp e Google.</p>
-          <a className="mt-6 inline-block rounded-[7px] bg-gold px-6 py-3 font-extrabold text-[#3a2708]" href={`/gestionale/registrazione`}>Registra la tua azienda</a>
+          <a className="mt-6 inline-block rounded-[7px] bg-gold px-6 py-3 font-extrabold text-deep" href={`/gestionale/registrazione`}>Registra la tua azienda</a>
         </div>
       </section>
 

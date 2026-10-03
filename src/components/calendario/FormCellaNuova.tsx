@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { istante } from "@/lib/calendario";
 import { uuidSicuro } from "@/lib/browser";
 import type { PlanningBoat, PlanningOfferta } from "@/lib/planning";
@@ -19,7 +19,7 @@ export default function FormCellaNuova({
   busy: boolean;
   oggi: string;
   onCrea: (payload: Record<string, unknown>) => Promise<boolean>;
-  onBlocca: (motivo: string, manutenzione: boolean) => Promise<boolean>;
+  onBlocca: (motivo: string, manutenzione: boolean, orario?: { dalle: string; alle: string }) => Promise<boolean>;
 }) {
   const [dalle, setDalle] = useState("09:00");
   const [alle, setAlle] = useState("17:00");
@@ -38,7 +38,44 @@ export default function FormCellaNuova({
   const [errore, setErrore] = useState("");
   const [bloccoMotivo, setBloccoMotivo] = useState("");
   const [bloccoManutenzione, setBloccoManutenzione] = useState(false);
+  const [bloccoDalle, setBloccoDalle] = useState("09:00");
+  const [bloccoAlle, setBloccoAlle] = useState("17:00");
+  const [clienteNoto, setClienteNoto] = useState<{ nome: string; telefono: string | null; email: string | null } | null>(null);
   const idem = useRef(uuidSicuro());
+
+  // Cliente già in anagrafica: digitando il nome si completano telefono/email.
+  useEffect(() => {
+    const nomeCercato = nome.trim();
+    if (nomeCercato.length < 3) { setClienteNoto(null); return; }
+    let attivo = true;
+    const t = window.setTimeout(() => {
+      fetch(`/api/v1/customers?q=${encodeURIComponent(nomeCercato)}`)
+        .then((r) => (r.ok ? r.json() : []))
+        .then((j) => {
+          if (!attivo) return;
+          const lista: Array<{ nome?: string; telefono?: string | null; email?: string | null }> = Array.isArray(j) ? j : j?.items ?? [];
+          const match = lista.find((c) => (c.nome ?? "").trim().toLowerCase() === nomeCercato.toLowerCase());
+          if (!match) { setClienteNoto(null); return; }
+          setClienteNoto({ nome: match.nome ?? nomeCercato, telefono: match.telefono ?? null, email: match.email ?? null });
+          if (match.telefono) setTelefono((prev) => (prev ? prev : match.telefono!));
+          if (match.email) setEmail((prev) => (prev ? prev : match.email!));
+        })
+        .catch(() => {});
+    }, 400);
+    return () => { attivo = false; window.clearTimeout(t); };
+  }, [nome]);
+
+  // Prezzo proposto dal listino della barca (dati anagrafici), modificabile.
+  useEffect(() => {
+    let attivo = true;
+    fetch(`/api/v1/tariffe?boatId=${encodeURIComponent(boat.id)}&data=${encodeURIComponent(giorno)}&tipo=giornata`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (attivo && j?.prezzoCent != null) setPrezzo((p) => (p ? p : (j.prezzoCent / 100).toFixed(2).replace(".", ",")));
+      })
+      .catch(() => {});
+    return () => { attivo = false; };
+  }, [boat.id, giorno]);
 
   const skipperMandatory = boat.patenteRichiesta && patente === "NO";
   const navigationIncomplete = boat.patenteRichiesta && !patente;
@@ -96,7 +133,7 @@ export default function FormCellaNuova({
 
   return (
     <div className="space-y-4">
-      <details open className="rounded-2xl border border-[#f3c6ae] bg-white p-4">
+      <details open className="rounded-2xl border border-[#a9d8d5] bg-white p-4">
         <summary className="cursor-pointer rounded-lg px-1 py-2 text-base font-semibold text-ocean hover:bg-foam">+ Crea prenotazione</summary>
         <div className="mt-4 grid gap-4 border-t border-line pt-4">
           {errore && <p role="alert" className="rounded-xl border border-danger-line bg-danger-soft p-3 text-sm font-medium text-danger">{errore}</p>}
@@ -122,6 +159,11 @@ export default function FormCellaNuova({
               <label className="grid gap-2 text-sm font-semibold">Email <span className="font-normal text-muted">(facoltativa)</span><input type="email" maxLength={320} autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} className={campo} /></label>
             </div>
             <p className="mt-3 text-xs leading-5 text-muted">Scrivi sempre il nome. Se aggiungi un contatto già noto, NaBoat riconosce automaticamente la persona.</p>
+            {clienteNoto && (
+              <p className="mt-2 rounded-xl border border-ok-line bg-ok-soft p-3 text-xs leading-5 text-ok">
+                Cliente riconosciuto in anagrafica{clienteNoto.telefono ? "" : " (nessun telefono salvato)"}: telefono ed email vengono allineati ai dati già registrati.
+              </p>
+            )}
           </div>
 
           {boat.patenteRichiesta ? (
@@ -185,7 +227,7 @@ export default function FormCellaNuova({
           </details>
 
           <div className="flex justify-end">
-            <button type="button" disabled={!puoSalvare} onClick={invia} className="min-h-12 rounded-xl bg-ocean px-5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45">
+            <button type="button" disabled={!puoSalvare} onClick={invia} className="min-h-12 rounded-xl bg-signature px-5 text-sm font-semibold text-deep disabled:cursor-not-allowed disabled:opacity-45">
               {busy ? "Controllo disponibilità…" : "Crea prenotazione"}
             </button>
           </div>
@@ -195,12 +237,26 @@ export default function FormCellaNuova({
       <details className="rounded-2xl border border-line bg-white p-4">
         <summary className="cursor-pointer rounded-lg px-1 py-2 text-base font-semibold text-ink hover:bg-foam">Rendi non disponibile</summary>
         <div className="mt-4 space-y-3 border-t border-line pt-4">
+          <p className="text-xs leading-5 text-muted">Di default il blocco copre l&apos;intera giornata: non sarà possibile aggiungere prenotazioni su questa barca quel giorno.</p>
           <label className="flex items-center gap-2 rounded-xl border border-warn-line bg-warn-soft p-3 text-sm font-semibold">
             <input type="checkbox" checked={bloccoManutenzione} onChange={(e) => setBloccoManutenzione(e.target.checked)} />
-            Manutenzione (crea anche un intervento in Manutenzione)
+            Manutenzione programmata (crea anche un intervento in Manutenzione)
           </label>
+          {bloccoManutenzione && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="grid gap-2 text-sm font-semibold">Dalle<input type="time" value={bloccoDalle} onChange={(e) => setBloccoDalle(e.target.value)} className={campo} /></label>
+              <label className="grid gap-2 text-sm font-semibold">Alle<input type="time" value={bloccoAlle} onChange={(e) => setBloccoAlle(e.target.value)} className={campo} /></label>
+            </div>
+          )}
           <label className="grid gap-2 text-sm font-semibold">Altro<textarea rows={3} maxLength={1000} value={bloccoMotivo} onChange={(e) => setBloccoMotivo(e.target.value)} className={campo + " py-3"} placeholder="Note sull'indisponibilità…" /></label>
-          <button type="button" disabled={busy} onClick={() => onBlocca(bloccoMotivo, bloccoManutenzione)} className="min-h-12 w-full rounded-xl border border-[#f3c6ae] bg-foam px-4 text-sm font-semibold text-ocean">Rendi non disponibile</button>
+          <button
+            type="button"
+            disabled={busy || (bloccoManutenzione && !(bloccoDalle < bloccoAlle))}
+            onClick={() => onBlocca(bloccoMotivo, bloccoManutenzione, bloccoManutenzione ? { dalle: bloccoDalle, alle: bloccoAlle } : undefined)}
+            className="min-h-12 w-full rounded-xl border border-[#a9d8d5] bg-foam px-4 text-sm font-semibold text-ocean disabled:opacity-50"
+          >
+            {bloccoManutenzione ? "Blocca per la manutenzione indicata" : "Rendi non disponibile per l'intera giornata"}
+          </button>
         </div>
       </details>
     </div>

@@ -67,7 +67,7 @@ export default function AdminRecensioniPage() {
               </span>
             </div>
             {r.commento && <p className="mt-2 whitespace-pre-line">{r.commento}</p>}
-            {r.risposta && <p className="mt-2 rounded-2xl bg-[#faf6f2] p-2 text-xs"><b>Risposta:</b> {r.risposta}</p>}
+            {r.risposta && <p className="mt-2 rounded-2xl bg-[#f7faf9] p-2 text-xs"><b>Risposta:</b> {r.risposta}</p>}
             {r.moderazioneMotivo && <p className="mt-1 text-xs text-coral">Motivo moderazione: {r.moderazioneMotivo}</p>}
             <div className="mt-3 flex flex-wrap gap-2">
               {r.stato === "pubblicata" ? (

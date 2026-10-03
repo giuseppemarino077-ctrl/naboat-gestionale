@@ -4,6 +4,7 @@ import { IntestazioneSito } from "@/components/sito/IntestazioneSito";
 import { PiedeSito } from "@/components/sito/PiedeSito";
 import { RichiestaForm } from "@/components/sito/RichiestaForm";
 import { barcaPerSlug, sceglieTariffa, stagioneDi, TIPI_TARIFFA } from "@/lib/marketplace";
+import { etichetteEsperienze } from "@/lib/esperienze";
 import { ambienteSeo, metadataEntita, paginaSeoEntita, slugCanonico, trovaPaginaSeo } from "@/lib/seo";
 import { contestoSito } from "@/lib/sito-server";
 
@@ -56,8 +57,10 @@ export default async function BarcaPage({ params }: { params: Promise<{ slug: st
   const aziendaSlug = (await slugCanonico("azienda", b.tenantId)) ?? b.tenant.slug ?? b.tenant.id;
 
   const patenteBox = b.patenteRichiesta
-    ? { testo: "Serve la patente nautica", classe: "border-[#fdba74] bg-[#ffe8d5] text-deep" }
+    ? { testo: "Serve la patente nautica", classe: "border-warn-line bg-warn-soft text-warn" }
     : { testo: "Si noleggia senza patente", classe: "border-[#a9e0d0] bg-[#d8f3ea] text-[#177469]" };
+
+  const esperienze = etichetteEsperienze(b.esperienze ?? [], b.esperienzePersonalizzate ?? []);
 
   return (
     <div className="bg-white text-ink">
@@ -125,6 +128,15 @@ export default async function BarcaPage({ params }: { params: Promise<{ slug: st
             )}
 
             {b.descrizione && <p className="whitespace-pre-line text-sm text-muted">{b.descrizione}</p>}
+
+            {esperienze.length > 0 && (
+              <div>
+                <h2 className="font-display text-lg font-bold text-deep">Esperienze</h2>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {esperienze.map((e) => <span key={e} className="rounded-full bg-foam px-3 py-1 text-xs font-semibold text-deep">{e}</span>)}
+                </div>
+              </div>
+            )}
 
             {b.dotazioni.length > 0 && (
               <div>

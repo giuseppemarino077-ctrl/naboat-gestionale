@@ -106,6 +106,7 @@ export default function CruscottoOggi({
   onApriCella: (boatId: string) => void;
 }) {
   const [pannello, setPannello] = useState<{ tipo: "metric"; key: string } | { tipo: "group"; id: string } | null>(null);
+  const [espansoMobile, setEspansoMobile] = useState(false);
   const boatById = useMemo(() => new Map(boats.map((b) => [b.id, b])), [boats]);
   const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const vista = useMemo(() => costruisci(items, oggi, timezone), [items, oggi, timezone]);
@@ -124,27 +125,41 @@ export default function CruscottoOggi({
   ];
 
   return (
-    <section className="overflow-hidden rounded-3xl border border-deep bg-gradient-to-br from-deep via-[#7c2d12] to-ink text-white">
-      <div className="px-4 py-4 lg:px-6">
+    <section className="overflow-hidden rounded-3xl border border-deep bg-gradient-to-br from-deep via-[#063b4a] to-ink text-white">
+      <button
+        type="button"
+        onClick={() => setEspansoMobile((v) => !v)}
+        aria-expanded={espansoMobile}
+        className="flex w-full items-center gap-3 px-4 py-3 text-left md:hidden"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block text-[10px] font-bold uppercase tracking-widest text-[#bfe0e1]">Cruscotto operativo · Oggi</span>
+          <span className="block truncate text-sm font-semibold capitalize">{aData(oggi).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })}</span>
+          <span className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px] font-semibold">
+            <span className="rounded-full bg-white/10 px-2 py-0.5">{vista.pren.length} pren.</span>
+            <span className="rounded-full bg-white/10 px-2 py-0.5">{vista.barcheBloccate} bloccate</span>
+            {vista.avvisi.length
+              ? <span className="rounded-full bg-[#b0301c]/60 px-2 py-0.5">{vista.avvisi.length} da controllare</span>
+              : <span className="rounded-full bg-emerald-400/15 px-2 py-0.5 text-emerald-200">✓ tutto ok</span>}
+          </span>
+        </span>
+        <span aria-hidden="true" className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-white/25 bg-white/10 text-sm">
+          {espansoMobile ? "▲" : "▼"}
+        </span>
+      </button>
+
+      <div className={"px-4 py-4 lg:px-6 " + (espansoMobile ? "block" : "hidden") + " md:block"}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-[#ffd9c2]">Cruscotto operativo · Oggi</p>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-[#bfe0e1]">Cruscotto operativo · Oggi</p>
             <h2 className="truncate text-base font-semibold capitalize">{aData(oggi).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</h2>
           </div>
-          <button
-            type="button"
-            disabled={!prossimo}
-            onClick={() => prossimo && setPannello({ tipo: "group", id: prossimo.id })}
-            className={"min-h-10 rounded-xl border border-white/25 bg-white/10 px-4 text-xs font-semibold hover:bg-white/20 " + (prossimo ? "" : "cursor-default opacity-45")}
-          >
-            {prossimo ? `Prossimo · ${oraLocale(prossimo.at, timezone)}` : "Nessuna operazione da confermare"}
-          </button>
         </div>
 
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {metriche.map((m) => (
             <button key={m.key} type="button" onClick={() => setPannello({ tipo: "metric", key: m.key })} className="rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-left hover:bg-white/20">
-              <span className="block truncate text-[9px] font-bold uppercase tracking-wide text-[#e7cfc2]">{m.label}</span>
+              <span className="block truncate text-[9px] font-bold uppercase tracking-wide text-[#a8cfd1]">{m.label}</span>
               <span className="mt-0.5 block text-xl font-semibold leading-none">{m.value}</span>
             </button>
           ))}
@@ -152,29 +167,34 @@ export default function CruscottoOggi({
 
         <div className="mt-3 grid gap-2 lg:grid-cols-2">
           <div className="rounded-xl border border-white/15 bg-white/5 p-2">
-            <p className="px-1 pb-1 text-[10px] font-bold uppercase tracking-wide text-[#e7cfc2]">Agenda</p>
-            {vista.groups.length ? (
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                {vista.groups.map((g) => (
-                  <button key={g.id} type="button" onClick={() => setPannello({ tipo: "group", id: g.id })} className="min-w-[220px] rounded-xl border border-white/15 bg-white/10 p-2.5 text-left hover:bg-white/20">
-                    <span className="flex items-center justify-between gap-2">
-                      <span className="truncate text-[10px] font-bold uppercase tracking-wide text-[#ffd9c2]">{g.events.map((e) => ETICHETTE[e.kind]).filter((v, i, a) => a.indexOf(v) === i).join(" · ")}</span>
-                      <span className="text-xs font-semibold">{oraLocale(g.at, timezone)}</span>
-                    </span>
-                    <span className="mt-1 block truncate text-xs text-white/80">
-                      {g.events.map((e) => {
-                        const it = itemById.get(e.itemId);
-                        const b = boatById.get(e.boatId);
-                        return `${b?.nome ?? "Imbarcazione"}${it?.kind === "BOOKING" ? ` · ${it.clienteNome ?? "Cliente"}` : ""}`;
-                      }).join("  •  ")}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            ) : <p className="px-1 py-2 text-xs text-white/75">Nessun movimento programmato: la giornata è libera.</p>}
+            <p className="px-1 pb-1 text-[10px] font-bold uppercase tracking-wide text-[#a8cfd1]">Prossima operazione</p>
+            <button
+              type="button"
+              disabled={!prossimo}
+              onClick={() => prossimo && setPannello({ tipo: "group", id: prossimo.id })}
+              className={"flex w-full items-center justify-between gap-2 rounded-xl border border-white/15 bg-white/10 p-2.5 text-left " + (prossimo ? "hover:bg-white/20" : "cursor-default opacity-60")}
+            >
+              <span className="min-w-0">
+                <span className="block truncate text-xs font-semibold">
+                  {prossimo ? "Prossimo impegno da gestire" : "Nessuna operazione da confermare"}
+                </span>
+                <span className="mt-0.5 block truncate text-[10px] text-white/75">
+                  {prossimo
+                    ? prossimo.events
+                        .map((e) => {
+                          const it = itemById.get(e.itemId);
+                          const b = boatById.get(e.boatId);
+                          return `${ETICHETTE[e.kind]} · ${b?.nome ?? "Imbarcazione"}${it?.kind === "BOOKING" ? ` · ${it.clienteNome ?? "Cliente"}` : ""}`;
+                        })
+                        .join("  •  ")
+                    : "La giornata è libera"}
+                </span>
+              </span>
+              {prossimo && <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-xs font-bold text-deep">{oraLocale(prossimo.at, timezone)}</span>}
+            </button>
           </div>
           <div className="rounded-xl border border-white/15 bg-white/5 p-2">
-            <p className="px-1 pb-1 text-[10px] font-bold uppercase tracking-wide text-[#e7cfc2]">Da controllare</p>
+            <p className="px-1 pb-1 text-[10px] font-bold uppercase tracking-wide text-[#a8cfd1]">Da controllare</p>
             {vista.avvisi.length ? (
               <div className="flex gap-2 overflow-x-auto pb-1">
                 {vista.avvisi.map((a) => (

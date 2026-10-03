@@ -83,10 +83,13 @@ const PatchSchema = z.object({
   endAt: z.string().datetime().optional(),
   clienteNome: z.string().min(1).max(120).optional(),
   telefono: z.string().min(4).max(40).optional(),
+  email: z.string().email().max(320).optional().nullable(),
   passeggeri: z.number().int().min(1).max(60).optional(),
   destinazione: z.string().max(120).optional().nullable(),
   formula: z.string().max(120).optional().nullable(),
   note: z.string().max(5000).optional().nullable(),
+  // Testo delle condizioni del contratto personalizzato per questa prenotazione.
+  contrattoTesto: z.string().max(20000).optional().nullable(),
   patenteOk: z.boolean().optional(),
   // Dichiarazione patente esplicita: "YES" | "NO" | null (non raccolta).
   patenteRisposta: z.enum(["YES", "NO"]).nullable().optional(),
@@ -240,7 +243,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (p.data.stato === "cancellata") {
     const altriCampi = [
       p.data.prezzoEuro, p.data.boatId, p.data.startAt, p.data.endAt, p.data.clienteNome, p.data.telefono,
-      p.data.passeggeri, p.data.destinazione, p.data.formula, p.data.note, p.data.patenteOk, p.data.patenteRisposta,
+      p.data.passeggeri, p.data.destinazione, p.data.formula, p.data.note, p.data.contrattoTesto, p.data.patenteOk, p.data.patenteRisposta,
       p.data.skipperId, p.data.skipperStato, p.data.skipperNote, p.data.nuovoSkipper, p.data.offertaId, p.data.portoId, p.data.clienteAccountId,
     ].some((v) => v !== undefined);
     if (altriCampi) return fail("L'annullamento non si combina con altre modifiche", 422);
@@ -270,9 +273,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   if (p.data.clienteNome !== undefined) data.clienteNome = p.data.clienteNome;
   if (p.data.telefono !== undefined) data.telefono = p.data.telefono;
+  if (p.data.email !== undefined) data.email = p.data.email;
   if (p.data.destinazione !== undefined) data.destinazione = p.data.destinazione;
   if (p.data.formula !== undefined) data.formula = p.data.formula;
   if (p.data.note !== undefined) data.note = p.data.note;
+  if (p.data.contrattoTesto !== undefined) data.contrattoTesto = p.data.contrattoTesto;
   // Dichiarazione patente: mantiene coerente il vecchio booleano per i lettori storici.
   if (p.data.patenteRisposta !== undefined) {
     data.patenteRisposta = p.data.patenteRisposta;
