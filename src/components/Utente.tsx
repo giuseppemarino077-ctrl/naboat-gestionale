@@ -48,7 +48,7 @@ async function carica(forza = false): Promise<Utente | null> {
 // Il contesto si riaggiorna al ritorno sulla scheda e periodicamente, così approvazioni,
 // sospensioni e cambi di permesso diventano visibili senza ricaricare a mano (B07).
 export function useUtente(opts: { redirect?: boolean } = {}) {
-  const [utente, setUtente] = useState<Utente | null>(cache);
+  const [utente, setUtente] = useState<Utente | null>(null);
   useEffect(() => {
     let vivo = true;
     const aggiorna = async (forza: boolean) => {

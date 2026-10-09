@@ -66,7 +66,7 @@ export default function ContrattoOrmeggioPage() {
         <h1 className="text-xl">{titolo}</h1>
         <p className="text-muted">Tra <b>{c.azienda}</b> (ormeggiatore) e <b>{c.proprietario?.nome ?? "—"}</b> (proprietario della barca).</p>
         <dl className="grid gap-1 rounded-md bg-foam p-3">
-          <div>Barca: <b>{c.barca.nome}</b>{c.barca.tipo ? ` (${c.barca.tipo})` : ""}</div>
+          <div>Barca: <b>{c.barca.nome}</b>{c.barca.tipo ? ` (${c.barca.tipo})` : ""}{c.barca.modello ? ` · ${c.barca.modello}` : ""}</div>
           <div>Posto: <b>{c.posto}</b> · {c.area}</div>
           <div>Periodo: <b>{dataIt(c.inizioAt)}</b> → <b>{c.finePrevistaAt ? dataIt(c.finePrevistaAt) : "indeterminato"}</b></div>
           <div>Corrispettivo: <b>{c.corrispettivoCent != null ? euro(c.corrispettivoCent) : "da definire"}</b></div>

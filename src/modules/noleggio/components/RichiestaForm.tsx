@@ -1,0 +1,129 @@
+"use client";
+import { useState } from "react";
+import Turnstile from "@/components/Turnstile";
+
+const euro = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
+
+// Offerta congelata restituita dalla richiesta (M03): prezzo determinato o da definire.
+type Prev = {
+  stato: "determinato" | "da_definire";
+  motivo: string | null;
+  tipo: string;
+  stagione: string;
+  prezzoNoleggioCent: number | null;
+  extraTotaleCent: number;
+  commissioniCent: number;
+  totaleClienteCent: number | null;
+};
+
+// Richiesta di prenotazione dalla scheda barca: non è una conferma automatica,
+// l'azienda risponde. Se il cliente ha già un account, la richiesta resta collegata.
+export function RichiestaForm({ boatId, capienza }: { boatId: string; capienza: number | null }) {
+  const [dati, setDati] = useState({ nome: "", telefono: "", email: "", inizio: "", fine: "", passeggeri: 2, note: "" });
+  const [privacy, setPrivacy] = useState(false);
+  const [esca, setEsca] = useState("");
+  const [token, setToken] = useState("");
+  const [istante] = useState(() => Date.now());
+  const [invio, setInvio] = useState(false);
+  const [fatto, setFatto] = useState(false);
+  const [preventivo, setPreventivo] = useState<Prev | null>(null);
+  const [errore, setErrore] = useState("");
+  const campo = "rounded-2xl border border-line p-3 text-sm";
+
+  const invia = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrore("");
+    if (!privacy) { setErrore("Serve il consenso al trattamento dei dati."); return; }
+    if (!dati.inizio || !dati.fine) { setErrore("Indica data e orari di inizio e fine."); return; }
+    setInvio(true);
+    const r = await fetch("/api/v1/richieste", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        boatId,
+        startAt: new Date(dati.inizio).toISOString(),
+        endAt: new Date(dati.fine).toISOString(),
+        passeggeri: Number(dati.passeggeri),
+        clienteNome: dati.nome,
+        telefono: dati.telefono,
+        email: dati.email || undefined,
+        note: dati.note || undefined,
+        privacy: true,
+        azienda: esca,
+        istante,
+        turnstileToken: token,
+      }),
+    });
+    const j = await r.json().catch(() => ({}));
+    setInvio(false);
+    if (!r.ok) { setErrore(j.error ?? "Invio non riuscito, riprova."); return; }
+    setPreventivo(j.preventivo ?? null);
+    setFatto(true);
+  };
+
+  if (fatto) {
+    const prezzo = preventivo?.prezzoNoleggioCent ?? null;
+    return (
+      <div className="rounded-[14px] bg-foam p-5 text-center">
+        <p className="font-display text-lg font-extrabold text-deep">Richiesta inviata.</p>
+        <p className="mt-2 text-sm text-muted">L'azienda verifica la disponibilità e ti risponde con le condizioni. Non è una conferma automatica.</p>
+        {preventivo && (
+          <div className="mt-3 rounded-[10px] border border-line bg-white p-3 text-left text-xs text-muted">
+            <p className="font-bold text-deep">Offerta congelata per la tua richiesta</p>
+            {preventivo.stato === "determinato" && prezzo != null ? (
+              <>
+                <p className="mt-1">Noleggio ({preventivo.tipo}, stagione {preventivo.stagione}): <b className="text-ink">{euro(prezzo)}</b></p>
+                {preventivo.extraTotaleCent > 0 && <p>Extra: {euro(preventivo.extraTotaleCent)}</p>}
+                {preventivo.commissioniCent > 0 && <p>Commissioni di servizio: {euro(preventivo.commissioniCent)}</p>}
+                <p className="mt-1">Totale indicativo: <b className="text-ink">{euro(preventivo.totaleClienteCent ?? prezzo)}</b></p>
+                <p className="mt-1 italic">Il prezzo è quello dell'offerta inviata: l'azienda conferma disponibilità e regole prima del pagamento.</p>
+              </>
+            ) : (
+              <p className="mt-1">Per queste date il prezzo non è ancora determinato: l'azienda ti risponde con un preventivo. Non è un acquisto concluso.</p>
+            )}
+          </div>
+        )}
+        {dati.email.trim() ? (
+          <p className="mt-2 text-sm text-muted">Ti abbiamo inviato un'email a <b>{dati.email.trim()}</b> con un link per collegare la richiesta alla tua area personale.</p>
+        ) : (
+          <p className="mt-2 text-sm text-muted">Indica un'email nella richiesta per ritrovarla poi nella tua area personale.</p>
+        )}
+        <a className="mt-3 inline-block text-sm font-bold text-ocean" href="/area">Vai all'area personale →</a>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={invia} className="grid gap-2">
+      <div className="grid gap-2 sm:grid-cols-2">
+        <label className="grid gap-1 text-xs font-semibold text-deep">Inizio
+          <input type="datetime-local" className={campo} value={dati.inizio} onChange={(e) => setDati({ ...dati, inizio: e.target.value })} required />
+        </label>
+        <label className="grid gap-1 text-xs font-semibold text-deep">Fine
+          <input type="datetime-local" className={campo} value={dati.fine} onChange={(e) => setDati({ ...dati, fine: e.target.value })} required />
+        </label>
+      </div>
+      <label className="grid gap-1 text-xs font-semibold text-deep">Persone
+        <input type="number" min={1} max={capienza ?? undefined} className={campo} value={dati.passeggeri} onChange={(e) => setDati({ ...dati, passeggeri: Number(e.target.value) })} />
+      </label>
+      <input className={campo} placeholder="Nome e cognome *" value={dati.nome} onChange={(e) => setDati({ ...dati, nome: e.target.value })} required />
+      <input className={campo} type="tel" placeholder="Telefono *" value={dati.telefono} onChange={(e) => setDati({ ...dati, telefono: e.target.value })} required />
+      <input className={campo} type="email" placeholder="Email (facoltativa)" value={dati.email} onChange={(e) => setDati({ ...dati, email: e.target.value })} />
+      <textarea className={campo} rows={2} maxLength={1000} placeholder="Note (facoltative)" value={dati.note} onChange={(e) => setDati({ ...dati, note: e.target.value })} />
+
+      <div className="hidden" aria-hidden>
+        <label>Azienda<input tabIndex={-1} autoComplete="off" value={esca} onChange={(e) => setEsca(e.target.value)} /></label>
+      </div>
+
+      <Turnstile onToken={setToken} />
+
+      <label className="flex items-start gap-2 text-xs text-muted">
+        <input className="mt-0.5" type="checkbox" checked={privacy} onChange={(e) => setPrivacy(e.target.checked)} />
+        <span>Ho letto l'informativa e acconsento a essere ricontattato.</span>
+      </label>
+      {errore && <p className="text-sm font-semibold text-coral">{errore}</p>}
+      <button className="btn-primary" type="submit" disabled={invio}>{invio ? "Invio…" : "Invia richiesta"}</button>
+      <p className="text-xs text-muted">Prezzo, punto d'incontro e regole te li conferma l'azienda prima del pagamento.</p>
+    </form>
+  );
+}

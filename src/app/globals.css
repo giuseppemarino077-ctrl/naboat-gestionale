@@ -36,3 +36,21 @@ h1,h2,h3,h4 { @apply font-display; }
 .badge-pending { @apply rounded-full bg-warn-soft px-2.5 py-1 text-xs font-semibold text-warn; }
 .badge-block { @apply rounded-full bg-[#e8ecec] px-2.5 py-1 text-xs font-semibold text-[#5d696b]; }
 .badge-info { @apply rounded-full bg-info-soft px-2.5 py-1 text-xs font-semibold text-info; }
+
+.ormeggio-workspace table th { @apply px-3 py-2 text-xs font-semibold; }
+.ormeggio-workspace table td { @apply px-3 py-3 align-top; }
+.ormeggio-workspace table thead { @apply bg-[#f7faf9]; }
+.ormeggio-workspace table tbody tr:hover { @apply bg-[#f7faf9]/60; }
+.ormeggio-workspace button:disabled { @apply cursor-wait opacity-50; }
+.ormeggio-workspace :is(button, a, input, select, textarea):focus-visible { @apply outline-none ring-2 ring-ocean ring-offset-2; }
+.ormeggio-workspace details > summary { @apply cursor-pointer text-sm font-semibold text-ocean; }
+
+@keyframes posto-arrivo {
+  0% { box-shadow: 0 0 0 3px #087f8c; filter: brightness(1.15); }
+  100% { box-shadow: 0 0 0 0 transparent; filter: brightness(1); }
+}
+.posto-arrivo { animation: posto-arrivo 800ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .posto-arrivo { animation: none; }
+  [data-drag-anteprima] { transition: none !important; }
+}

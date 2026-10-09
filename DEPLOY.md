@@ -60,7 +60,7 @@ mkdir -p /opt/naboat && cd /opt/naboat
 # Generare segreti: AUTH_SECRET=$(openssl rand -hex 32), POSTGRES_PASSWORD forte.
 docker compose up -d --build
 docker compose run --rm migrate            # applica le migrazioni (stage con CLI Prisma)
-docker compose exec app node prisma/seed.mjs   # superadmin iniziale (poi cambiare password)
+docker compose run --rm -T -e DEMO_CONFERMA_PRODUZIONE=true tools node prisma/seed.mjs   # solo bootstrap superadmin
 ```
 
 ## 2. Aggiornamenti
@@ -167,7 +167,7 @@ L'isolamento multi-tenant è oggi **applicativo** (ogni query filtra per `tenant
 - Letture pubbliche del marketplace (barca pubblicata, porto, listino, extra attivi, recensione pubblicata, prenotazioni recensite): policy di sola lettura senza contesto tenant.
 
 ### 8.2 Copertura
-Lo scoping applicativo è la prima barriera ed è verificato dai test end-to-end (`node scripts/smoke-test.mjs`, `node scripts/smoke-ormeggio.mjs` contengono i controlli di isolamento fra aziende).
+Lo scoping applicativo è la prima barriera ed è verificato dai test end-to-end eseguiti con `npm run test:isolated`. Questo collaudo mantiene RLS disattivata e non certifica l'attivazione delle policy.
 29 tabelle hanno `tenantId`; `prisma/rls.sql` è **idempotente** e crea per ognuna la policy `tenant_isolation`. Lo verifica `node scripts/verifica-rls.mjs` (in locale riporta «RLS non attiva», atteso). Con `--strict` segnala anche i buchi a RLS spenta.
 
 ### 8.3 Attivazione (solo su una COPIA, con backup verificato)
@@ -184,7 +184,7 @@ Lo scoping applicativo è la prima barriera ed è verificato dai test end-to-end
    RLS_ENABLED=true
    ```
 4. Far girare le query di tenant dentro `conTenant(tenantId, …)` e le rotte `/admin` + cron + backup con `prismaPiattaforma()`.
-5. Collaudo: `node scripts/verifica-rls.mjs --strict`, `node scripts/smoke-test.mjs`, `node scripts/smoke-ormeggio.mjs`, verifica manuale di login, pagine pubbliche e richieste dal sito.
+5. Collaudo sulla copia: `node scripts/verifica-rls.mjs --strict` e verifica dei flussi di login, isolamento fra aziende, pagine pubbliche e richieste dal sito con i ruoli runtime. Gli smoke ordinari ora rifiutano database non temporanei; il runner isolato forza RLS spenta. Prima di attivarla occorre quindi predisporre un collaudo dedicato con RLS accesa, senza aggirare queste protezioni.
 6. Non attivare in produzione senza aver provato il passo 5 su copia: l'autenticazione (utente cercato per email prima di conoscere l'azienda) e la scadenza richieste richiedono attenzione.
 
 ### 8.4 Rollback immediato
@@ -202,3 +202,14 @@ END $$;
 ```
 Poi nel `.env`: `RLS_ENABLED=false` e `DATABASE_URL` di nuovo con l'utente owner, quindi `docker compose up -d app`. Il codice applicativo non va toccato: con RLS spenta `conTenant()` e `prismaPiattaforma()` si comportano come prima.
 
+
+## Collaudo prima del rilascio
+
+Eseguire `npm run test:isolated` sul PC o in CI, con PostgreSQL/Redis locali.
+Gli smoke diretti rifiutano database ordinari e indirizzi remoti. Il comando crea
+un database vuoto e una copia temporanea del codice, applica migrazioni, compila
+e collauda; non modifica impostazioni o dati del gestionale di sviluppo.
+L’override locale pubblica DB/Redis solo su `127.0.0.1` e resta escluso dal VPS.
+Non riutilizzare file `.env.local` o archivi dati nel contesto di build: le
+esclusioni sono in `.dockerignore`. Verificare Stripe/SMTP/S3 nel rispettivo
+ambiente di test prima del rilascio; le simulazioni non dimostrano la consegna reale.

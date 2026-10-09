@@ -4,53 +4,14 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useUtente, dimenticaUtente } from "@/components/Utente";
 import { aziendaNonAttiva, percorsoConsentitoInAttesa } from "@/lib/accesso";
-import { Icona, type NomeIcona } from "@/components/ui/Icona";
+import { Icona } from "@/components/ui/Icona";
+import { VOCI_NOLEGGIO } from "@/modules/noleggio/navigazione";
+import { VOCI_ORMEGGIO } from "@/modules/ormeggio/navigazione";
+import { VOCI_COMUNI, type Gruppo, type Voce } from "@/modules/piattaforma/navigazione";
+import { prodottiAbilitati } from "@/modules/piattaforma/prodotti";
+import { useProdottoAttivo } from "@/modules/piattaforma/use-prodotto";
 
-type Modulo = "noleggio" | "ormeggio" | "comune";
-type Gruppo = "noleggio" | "ormeggio" | "marketplace" | "gestione";
-type Voce = {
-  href: string;
-  icona: NomeIcona;
-  nome: string;
-  ruoli: string[];
-  modulo: Modulo;
-  gruppo: Gruppo;
-  primaria: boolean;
-};
-
-const AZIENDA = ["owner", "operatore"];
-const AZIENDA_E_SKIPPER = ["owner", "operatore", "skipper"];
-
-const VOCI: Voce[] = [
-  { href: "/gestionale/oggi", icona: "casa", nome: "Oggi", ruoli: AZIENDA_E_SKIPPER, modulo: "noleggio", gruppo: "noleggio", primaria: true },
-  { href: "/gestionale/calendario", icona: "calendario", nome: "Calendario", ruoli: AZIENDA_E_SKIPPER, modulo: "noleggio", gruppo: "noleggio", primaria: true },
-  { href: "/gestionale/prenotazioni", icona: "lista", nome: "Prenotazioni", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio", primaria: true },
-  { href: "/gestionale/flotta", icona: "barca", nome: "Flotta", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio", primaria: true },
-  { href: "/gestionale/esperienze", icona: "etichetta", nome: "Esperienze", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio", primaria: true },
-  { href: "/gestionale/clienti", icona: "clienti", nome: "Clienti", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio", primaria: true },
-  { href: "/gestionale/economia", icona: "euro", nome: "Economia", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio", primaria: true },
-  { href: "/gestionale/skipper", icona: "orologio", nome: "Skipper", ruoli: AZIENDA_E_SKIPPER, modulo: "noleggio", gruppo: "noleggio", primaria: true },
-  { href: "/gestionale/meteo", icona: "meteo", nome: "Meteo", ruoli: AZIENDA_E_SKIPPER, modulo: "noleggio", gruppo: "noleggio", primaria: false },
-  { href: "/gestionale/manutenzione", icona: "manutenzione", nome: "Manutenzione", ruoli: AZIENDA, modulo: "noleggio", gruppo: "noleggio", primaria: false },
-
-  { href: "/gestionale/ormeggio", icona: "moduli", nome: "Quadro posti", ruoli: AZIENDA, modulo: "ormeggio", gruppo: "ormeggio", primaria: true },
-  { href: "/gestionale/ormeggio/da-fare", icona: "checklist", nome: "Attività", ruoli: AZIENDA, modulo: "ormeggio", gruppo: "ormeggio", primaria: true },
-  { href: "/gestionale/ormeggio/movimenti", icona: "movimenti", nome: "Movimenti", ruoli: AZIENDA, modulo: "ormeggio", gruppo: "ormeggio", primaria: true },
-  { href: "/gestionale/ormeggio/proprietari", icona: "utente", nome: "Proprietari", ruoli: AZIENDA, modulo: "ormeggio", gruppo: "ormeggio", primaria: true },
-  { href: "/gestionale/ormeggio/conti", icona: "portafoglio", nome: "Economia", ruoli: AZIENDA, modulo: "ormeggio", gruppo: "ormeggio", primaria: true },
-  { href: "/gestionale/ormeggio/configurazione", icona: "ingranaggio", nome: "Configurazione", ruoli: AZIENDA, modulo: "ormeggio", gruppo: "ormeggio", primaria: false },
-
-  { href: "/gestionale/marketplace", icona: "occhio", nome: "Presenza e richieste", ruoli: AZIENDA, modulo: "noleggio", gruppo: "marketplace", primaria: true },
-  { href: "/gestionale/recensioni", icona: "stella", nome: "Recensioni", ruoli: AZIENDA, modulo: "noleggio", gruppo: "marketplace", primaria: true },
-  { href: "/gestionale/impostazioni/porti", icona: "pin", nome: "Porti", ruoli: AZIENDA, modulo: "noleggio", gruppo: "marketplace", primaria: false },
-  { href: "/gestionale/impostazioni/listino", icona: "etichetta", nome: "Listino", ruoli: AZIENDA, modulo: "noleggio", gruppo: "marketplace", primaria: false },
-
-  { href: "/gestionale/registro", icona: "registro", nome: "Registro", ruoli: AZIENDA, modulo: "comune", gruppo: "gestione", primaria: false },
-  { href: "/gestionale/impostazioni/piano", icona: "pacchetto", nome: "Servizi NaBoat", ruoli: ["owner"], modulo: "comune", gruppo: "gestione", primaria: false },
-  { href: "/gestionale/impostazioni/team", icona: "utente", nome: "Team", ruoli: ["owner"], modulo: "comune", gruppo: "gestione", primaria: false },
-  { href: "/gestionale/impostazioni", icona: "ingranaggio", nome: "Impostazioni", ruoli: AZIENDA, modulo: "comune", gruppo: "gestione", primaria: false },
-  { href: "/gestionale/impostazioni/sicurezza", icona: "scudo", nome: "Sicurezza", ruoli: AZIENDA_E_SKIPPER, modulo: "comune", gruppo: "gestione", primaria: false },
-];
+const VOCI: Voce[] = [...VOCI_NOLEGGIO, ...VOCI_ORMEGGIO, ...VOCI_COMUNI];
 
 const NOMI_GRUPPO: Record<Gruppo, string> = {
   noleggio: "Noleggio",
@@ -71,22 +32,37 @@ const EQUIVALENZE: { chiave: string; noleggio: string; ormeggio: string }[] = [
 function vociVisibili(role: string | undefined, ormeggio: boolean, modulo: string | null, statoAzienda?: string | null) {
   if (!role) return [];
   if (aziendaNonAttiva(statoAzienda)) return VOCI.filter((v) => v.href === "/gestionale/impostazioni/sicurezza");
-  const noleggioAttivo = !ormeggio || modulo === "entrambi";
+  const prodotti = prodottiAbilitati({ tipoModulo: modulo, moduloOrmeggio: ormeggio });
   return VOCI.filter((v) => {
     if (!v.ruoli.includes(role)) return false;
-    if (v.modulo === "noleggio") return noleggioAttivo;
-    if (v.modulo === "ormeggio") return ormeggio;
+    if (v.modulo === "noleggio") return prodotti.noleggio;
+    if (v.modulo === "ormeggio") return prodotti.ormeggio;
     return true;
   });
 }
 
-function moduloAttivo(path: string): "noleggio" | "ormeggio" {
-  return path.startsWith("/gestionale/ormeggio") ? "ormeggio" : "noleggio";
+function voceAttiva(path: string, href: string) {
+  if (href === "/gestionale/impostazioni" || href === "/gestionale/ormeggio") return path === href || (href === "/gestionale/ormeggio" && path.startsWith(`${href}/permanenza/`));
+  return path === href || path.startsWith(`${href}/`);
 }
 
-function voceAttiva(path: string, href: string) {
-  if (href === "/gestionale/impostazioni") return path === href;
-  return path === href || path.startsWith(`${href}/`);
+// Modulo dedotto dal percorso: "ormeggio" per le pagine di ormeggio, "noleggio"
+// per quelle specifiche del noleggio, null per le pagine comuni (che non
+// appartengono a nessuno dei due e mantengono il modulo scelto).
+
+// Modulo attivo per un'azienda che usa entrambi i moduli: segue il percorso e,
+// sulle pagine comuni (team, sicurezza, registro…), ricorda l'ultimo modulo
+// scelto. Così dalla parte di ormeggio non si scivola nella parte di noleggio:
+// si cambia solo dal selettore in alto. Per le aziende di un solo modulo è fisso.
+
+// Gruppi della barra laterale pertinenti al modulo attivo: noleggio e marketplace
+// convivono, l'ormeggio è separato. "Gestione" è sempre presente.
+function gruppiDelModulo(attivo: "noleggio" | "ormeggio"): Gruppo[] {
+  return (["noleggio", "ormeggio", "marketplace", "gestione"] as Gruppo[]).filter((g) => {
+    if (g === "noleggio" || g === "marketplace") return attivo === "noleggio";
+    if (g === "ormeggio") return attivo === "ormeggio";
+    return true;
+  });
 }
 
 function VoceLink({
@@ -198,7 +174,7 @@ export function NavLaterale() {
   const utente = useUtente({ redirect: true });
   const voci = vociVisibili(utente?.role, utente?.tenantOrmeggio ?? false, utente?.tenantModulo ?? null, utente?.tenantStatus);
   const entrambi = !!utente?.tenantOrmeggio && utente?.tenantModulo === "entrambi";
-  const attivo = moduloAttivo(path);
+  const attivo = useProdottoAttivo(utente);
 
   const cambiaModulo = (dest: "noleggio" | "ormeggio") => {
     const eq = EQUIVALENZE.find((e) => path === e.chiave || path.startsWith(`${e.chiave}/`));
@@ -207,11 +183,7 @@ export function NavLaterale() {
     router.push(destinazione);
   };
 
-  const gruppiVisibili: Gruppo[] = ["noleggio", "ormeggio", "marketplace", "gestione"].filter((g) => {
-    if (g === "noleggio") return attivo === "noleggio";
-    if (g === "ormeggio") return attivo === "ormeggio";
-    return true;
-  }) as Gruppo[];
+  const gruppiVisibili = gruppiDelModulo(attivo);
 
   return (
     <nav className="grid gap-1 pb-2" aria-label="Sezioni del gestionale">
@@ -223,9 +195,9 @@ export function NavLaterale() {
       {gruppiVisibili.map((g) => (
         <GruppoVoci key={g} gruppo={g} lista={voci.filter((v) => v.gruppo === g)} path={path} />
       ))}
-      <div className="mt-1 border-t border-white/10 pt-1">
+      {utente && attivo === "noleggio" && <div className="mt-1 border-t border-white/10 pt-1">
         <LinkSitoPubblico />
-      </div>
+      </div>}
     </nav>
   );
 }
@@ -238,12 +210,8 @@ export function NavOrizzontale() {
   const utente = useUtente({ redirect: true });
   const voci = vociVisibili(utente?.role, utente?.tenantOrmeggio ?? false, utente?.tenantModulo ?? null, utente?.tenantStatus);
   const entrambi = !!utente?.tenantOrmeggio && utente?.tenantModulo === "entrambi";
-  const attivo = moduloAttivo(path);
-  const gruppiVisibili: Gruppo[] = ["noleggio", "ormeggio", "marketplace", "gestione"].filter((g) => {
-    if (g === "noleggio") return attivo === "noleggio";
-    if (g === "ormeggio") return attivo === "ormeggio";
-    return true;
-  }) as Gruppo[];
+  const attivo = useProdottoAttivo(utente);
+  const gruppiVisibili = gruppiDelModulo(attivo);
 
   const cambiaModulo = (dest: "noleggio" | "ormeggio") => {
     const eq = EQUIVALENZE.find((e) => path === e.chiave || path.startsWith(`${e.chiave}/`));
@@ -303,7 +271,7 @@ export function StrutturaGestionale({ children }: { children: React.ReactNode })
 
   return (
     <div className="flex min-h-screen">
-      <aside className="hidden w-[228px] shrink-0 flex-col bg-gradient-to-b from-[#052f3f] to-[#031f29] p-3 text-white md:flex">
+      <aside className="sticky top-0 hidden h-dvh w-[228px] shrink-0 flex-col bg-gradient-to-b from-[#052f3f] to-[#031f29] p-3 text-white md:flex">
         <div className="flex items-center px-2 pb-3 pt-2">
           <div className="flex items-center gap-2 font-display font-extrabold">
             <span className="grid h-8 w-8 place-items-center rounded-full bg-[#8fddd5]"><img src="/img/logo-naboat-scuro.png" alt="" className="h-5 w-auto" /></span>
@@ -341,7 +309,7 @@ export function StrutturaGestionale({ children }: { children: React.ReactNode })
 
       <div className="min-w-0 flex-1">
         <NavOrizzontale />
-        <header className="flex h-[67px] items-center justify-between gap-3 border-b border-line bg-white px-4 sm:px-5">
+        <header className={"flex items-center justify-between gap-3 border-b border-line bg-white px-4 sm:px-5 " + (path.startsWith("/gestionale/ormeggio") ? "h-12 sm:h-[67px]" : "h-[67px]")}>
           <div className="flex items-center gap-2">
             <strong className="font-display">Gestionale</strong>
             {utente?.tenantNome && <span className="hidden text-sm text-muted sm:inline">· {utente.tenantNome}</span>}

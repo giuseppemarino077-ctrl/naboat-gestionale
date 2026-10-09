@@ -59,11 +59,18 @@ npm run dev
 
 ## Verifica salute
 ```powershell
-node scripts/smoke-test.mjs http://localhost:3000         # noleggio
-node scripts/smoke-ormeggio.mjs http://localhost:3000     # ormeggio
+npm run test:isolated
 ```
 
 ## Nota sui segreti
 I file `.env` / `.env.local` contengono password del database e `AUTH_SECRET`.
 Non caricarli mai su Git, su servizi online pubblici o su chiavette condivise:
 passali con un canale sicuro.
+
+## Collaudo isolato
+
+`npm run test:isolated` richiede PostgreSQL e Redis locali attivi. Crea un database
+vuoto con nome casuale, applica tutte le migrazioni, prepara account temporanei e
+esegue build e smoke su una copia del codice. Database, server e upload temporanei
+vengono rimossi alla fine. Non usa credenziali Stripe/SMTP reali e non svuota Redis.
+Vedi `docs/STABILIZZAZIONE.md` per limiti e risultati.

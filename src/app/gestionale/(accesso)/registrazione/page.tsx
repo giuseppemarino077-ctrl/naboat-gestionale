@@ -73,7 +73,7 @@ export default function RegistrazionePage() {
           <div className="grid gap-2 sm:grid-cols-3">
             {[
               { id: "noleggio", titolo: "Noleggio barche", nota: "Flotta, prenotazioni, contratti" },
-              { id: "ormeggio", titolo: "Ormeggio e rimessaggio", nota: "Posti, permanenze, servizi" },
+              { id: "ormeggio", titolo: "Ormeggio", nota: "Posti, permanenze, servizi" },
               { id: "entrambi", titolo: "Entrambi", nota: "Puoi passare da un modulo all'altro" },
             ].map((scelta) => (
               <label

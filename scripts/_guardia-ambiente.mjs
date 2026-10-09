@@ -20,3 +20,12 @@ export function assicuraAmbienteDemo(nomeScript) {
     process.exit(1);
   }
 }
+
+export function assicuraAmbienteSmoke(nomeScript, base) {
+  const hosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
+  const api = new URL(base);
+  const db = new URL(process.env.DATABASE_URL);
+  if (!hosts.has(api.hostname) || !hosts.has(db.hostname) || !db.pathname.startsWith("/naboat_verifica_")) {
+    throw new Error(`${nomeScript}: usa npm run test:isolated; gli smoke modificano dati e impostazioni globali.`);
+  }
+}

@@ -42,6 +42,7 @@ function memLimit(key: string, limit: number, windowSec: number) {
 }
 
 export async function rateLimit(key: string, limit: number, windowSec: number) {
+  key = `${process.env.RATE_LIMIT_PREFIX ?? ""}${key}`;
   const r = client();
   if (r && r.status === "ready") {
     try {

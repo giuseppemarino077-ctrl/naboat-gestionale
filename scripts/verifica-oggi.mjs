@@ -5,6 +5,7 @@
 import { readFileSync } from "fs";
 import { PrismaClient } from "@prisma/client";
 import { SignJWT } from "jose";
+import { assicuraAmbienteSmoke } from "./_guardia-ambiente.mjs";
 
 for (const file of [".env.local", ".env"]) {
   try {
@@ -16,6 +17,7 @@ for (const file of [".env.local", ".env"]) {
 }
 
 const BASE = process.argv[2] || "http://localhost:3000";
+assicuraAmbienteSmoke("verifica-oggi.mjs", BASE);
 const prisma = new PrismaClient();
 let pass = 0, fail = 0;
 const issues = [];

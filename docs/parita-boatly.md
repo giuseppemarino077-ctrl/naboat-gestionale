@@ -1,5 +1,9 @@
 # Matrice di parità NaBoat ↔ BOATLY — Calendario e Flotta
 
+> Documento storico: lo stato corrente e i comandi di collaudo sono in
+> `docs/PROJECT_CONTEXT.md` e `docs/STABILIZZAZIONE.md` (percorsi dalla radice).
+> Gli smoke diretti ora richiedono un database temporaneo: usare `npm run test:isolated`.
+
 Riferimento BOATLY: `main` / `e7358e2dd6682cdcbfa3d5829f83c4d16f6bf74e` (estratto in
 `../BOATLY-rif`, esterno al progetto). Base NaBoat di partenza: `main` / `5c8f403`.
 Branch di lavoro: `lavoro-calendario-flotta-boatly`.

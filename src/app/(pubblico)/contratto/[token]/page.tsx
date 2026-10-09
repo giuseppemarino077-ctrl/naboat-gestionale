@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 type Contratto = {
   azienda: string; logo: string | null; puntoPartenza: string | null; telefono: string | null;
   cliente: string | null; passeggeri: number; inizioAt: string; fineAt: string; destinazione: string | null;
-  formula: string | null; barca: { nome: string; tipo: string | null; capienza: number; potenzaCv: number | null; patenteRichiesta: boolean };
+  formula: string | null; barca: { nome: string; tipo: string | null; modello?: string | null; capienza: number | null; potenzaCv: number | null; patenteRichiesta: boolean };
   skipper: string | null; patenteOk: boolean; prezzoCent: number | null; cauzioneCent: number | null;
   condizioni: string[];
   firmatoAt: string | null; firmaNome: string | null;
@@ -78,7 +78,7 @@ export default function ContrattoPage({ params }: { params: Promise<{ token: str
           </div>
 
           <div className="grid gap-1 border-t border-line pt-3">
-            <p><b>Imbarcazione:</b> {c.barca.nome}{c.barca.tipo ? ` (${c.barca.tipo})` : ""} · capienza {c.barca.capienza}{c.barca.potenzaCv ? ` · ${c.barca.potenzaCv} CV` : ""}</p>
+            <p><b>Imbarcazione:</b> {c.barca.nome}{c.barca.tipo ? ` (${c.barca.tipo})` : ""}{c.barca.modello ? ` · ${c.barca.modello}` : ""} · capienza {c.barca.capienza ?? "da definire"}{c.barca.potenzaCv ? ` · ${c.barca.potenzaCv} CV` : ""}</p>
             <p><b>Conduzione:</b> {c.skipper ? `con skipper ${c.skipper}` : c.patenteOk ? "con patente del cliente" : c.barca.patenteRichiesta ? "patente richiesta" : "senza patente"}</p>
             {c.prezzoCent ? <p><b>Prezzo del noleggio:</b> {euro(c.prezzoCent)}</p> : null}
             {c.cauzioneCent ? <p><b>Cauzione:</b> {euro(c.cauzioneCent)} (blocco sulla carta, non incassata salvo danni)</p> : null}

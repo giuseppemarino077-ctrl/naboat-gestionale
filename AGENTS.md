@@ -2,6 +2,8 @@
 
 Istruzioni per agenti AI (OpenCode) che lavorano su questo progetto.
 
+> **Prima di interventi importanti leggi [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md)**: architettura, stato attuale, funzionalità complete/incomplete, problemi noti, decisioni tecniche, servizi esterni, variabili d'ambiente, ultimi test, modifiche non committate e prossimi passi.
+
 ## Cos'è
 Gestionale multi-tenant per noleggio barche: pagine + API nello stesso progetto Next.js.
 Ogni azienda (tenant) vede solo i propri dati. Lingua dell'interfaccia: italiano.
@@ -22,9 +24,27 @@ npm run db:seed                    # crea il superadmin
 npm run db:seed:test               # dati demo (tenant "Golfo Charter Test")
 npm run dev                        # http://localhost:3000
 npm run build                      # build di produzione
-node scripts/smoke-test.mjs http://localhost:3000   # test end-to-end
+npm run test:isolated             # build + test su DB e codice temporanei
+npm run check:boundaries          # confini dei prodotti e guardie delle operazioni
 ```
 Nota: il DB locale è esposto sulla porta **5434** (la 5432 è spesso occupata). Vedi `.env.local.example`.
+
+## Controlli obbligatori dopo ogni modifica
+Da eseguire sempre, nell'ordine, prima di considerare finito un intervento:
+1. `npm run typecheck` → **0 errori**.
+2. `npm run lint` → **0 errori** (i warning storici sono ammessi), poi `npm run check:boundaries` → nessuna violazione.
+3. Se tocchi lo schema Prisma: `npx prisma migrate dev --name <nome>` + `npx prisma generate`, poi **riavvia `npm run dev`** (il client Prisma caricato in memoria resta quello vecchio finché il processo non riparte).
+4. Prova manuale/API del flusso toccato; per i moduli ampi `npm run test:isolated` (database vuoto temporaneo, build di produzione, smoke generale/Ormeggio/Oggi e regressioni). Gli script smoke diretti rifiutano database ordinari; non svuotare il Redis di sviluppo.
+5. `npm run build` (o la CI in `.github/workflows/ci.yml`) per modifiche strutturali.
+6. Non committare `.env`/`.env.local` né alcun valore segreto; **non inserire segreti nei documenti**.
+
+## Regole da rispettare durante le modifiche
+- Ogni endpoint `src/app/api/v1/...` usa `requireTenant(req)` (o `requireSuperadmin()` per `/admin`); ogni query filtra per `tenantId`.
+- Validazione input con **Zod** (`safeParse`); codici coerenti: 401 non autenticato, 403 permesso/tenant, 404 non trovato, 409 conflitto, 422 input non valido.
+- Importi **sempre in centesimi interi** (`*Cent`); formattazione solo in UI con `toLocaleString("it-IT")`.
+- Testo UI in italiano; niente commenti se non necessari; coerenza con le pagine vicine.
+- Non alterare le sezioni «Regole di sicurezza da non violare» e le regole di dominio più sotto senza decisione esplicita.
+- Non modificare il codice dell'applicazione quando il compito è solo documentale.
 
 ## Convenzioni di codice
 - Niente commenti nel codice se non strettamente necessari.
@@ -36,7 +56,8 @@ Nota: il DB locale è esposto sulla porta **5434** (la 5432 è spesso occupata).
 ## Dove mettere le cose
 - Nuova pagina: sotto il gruppo giusto (`src/app/(sito)/…`, `src/app/gestionale/(portale)/…`, `src/app/admin/…`, `src/app/area/…`); client component se interattiva. La mappa URL è in `MIGRAZIONE-URL.md`.
 - Nuova API: `src/app/api/v1/<risorsa>/route.ts`.
-- Logica condivisa: `src/lib/*` (db, session, tenant, guard, ratelimit, paginazione, totp, turnstile, mailer, storage).
+- Logica tecnica condivisa: `src/lib/*` (db, session, guard, ratelimit, paginazione, totp, turnstile, mailer, storage).
+- Logica, operazioni server, schermate e componenti dei prodotti: `src/modules/noleggio/*`, `src/modules/ormeggio/*`; accesso, documenti e pagamenti comuni in `src/modules/piattaforma/*`. Gli adattatori URL restano in `src/app`; vecchie librerie/componenti sono esportazioni di compatibilità. Il nuovo codice importa i servizi dal modulo proprietario. Vietate dipendenze dirette e transitive tra prodotti e dalla piattaforma verso i prodotti: `npm run check:boundaries`. Mappa in `docs/SEPARAZIONE-MODULI.md`.
 - Schema DB: `prisma/schema.prisma` → poi `npx prisma migrate dev --name <nome>`.
 
 ## Regole di sicurezza da non violare

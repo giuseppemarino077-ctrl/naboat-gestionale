@@ -8,6 +8,7 @@
     "start": "next start -p 3000",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "test:isolated": "node scripts/verifica-isolata.mjs",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
@@ -18,7 +19,8 @@
     "demo:proteggi": "node scripts/demo-proteggi.mjs",
     "backup:offsite": "node scripts/offsite-backup.mjs",
     "backup:ftp": "node scripts/backup-ftp.mjs",
-    "backup:verifica": "node scripts/backup-verifica.mjs"
+    "backup:verifica": "node scripts/backup-verifica.mjs",
+    "check:boundaries": "node scripts/verifica-confini.mjs"
   },
   "overrides": {
     "postcss": "$postcss"
@@ -30,11 +32,11 @@
     "bcryptjs": "^3.0.3",
     "ioredis": "^5.4.1",
     "jose": "^6.2.12",
-    "next": "^15.5.25",
+    "next": "^15.5.27",
     "nodemailer": "^10.0.10",
     "react": "^19.0.8",
     "react-dom": "^19.0.8",
-    "sharp": "^0.35.4",
+    "sharp": "^0.35.5",
     "stripe": "^22.6.2",
     "zod": "^3.23.8"
   },
@@ -45,7 +47,7 @@
     "@types/react-dom": "^19.3.0",
     "autoprefixer": "^10.4.19",
     "eslint": "^9.39.5",
-    "eslint-config-next": "^15.5.25",
+    "eslint-config-next": "^15.5.27",
     "postcss": "^8.5.28",
     "prisma": "^5.18.0",
     "tailwindcss": "^3.4.7",

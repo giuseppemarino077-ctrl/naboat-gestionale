@@ -1,0 +1,404 @@
+import crypto from "crypto";
+import Stripe from "stripe";
+import { prisma } from "@/lib/db";
+
+// --- Cifratura delle chiavi di pagamento (a riposo, nel database) ---
+// Le chiavi non vengono mai salvate in chiaro e non vengono mai restituite dalle API.
+const ALGO = "aes-256-gcm";
+
+function cryptoKey() {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret || secret.length < 32) throw new Error("AUTH_SECRET mancante o troppo corto (>=32 char)");
+  return crypto.createHash("sha256").update(`${secret}:pagamenti`).digest();
+}
+
+export function encryptSecret(plain: string): string {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv(ALGO, cryptoKey(), iv);
+  const enc = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
+  return [iv.toString("base64"), cipher.getAuthTag().toString("base64"), enc.toString("base64")].join(".");
+}
+
+export function decryptSecret(payload: string): string {
+  const [ivB64, tagB64, dataB64] = payload.split(".");
+  if (!ivB64 || !tagB64 || !dataB64) throw new Error("Chiave cifrata non valida");
+  const decipher = crypto.createDecipheriv(ALGO, cryptoKey(), Buffer.from(ivB64, "base64"));
+  decipher.setAuthTag(Buffer.from(tagB64, "base64"));
+  return Buffer.concat([decipher.update(Buffer.from(dataB64, "base64")), decipher.final()]).toString("utf8");
+}
+
+// --- Stato dei pagamenti per un'azienda ---
+export type PaymentConfig = {
+  tenantId: string;
+  attivi: boolean;
+  stripePronto: boolean;
+  paypalAttivo: boolean;
+  stripePublicKey: string | null;
+  stripeSecretKey: string | null;
+  stripeWebhookSecret: string | null;
+  feeNaboatPct: number;
+  feeProviderPct: number;
+  feeProviderFixedCent: number;
+  accontoPct: number;
+  rimborsoPct: number;
+  rimborsoOreMinime: number;
+  marketplaceAttivo: boolean;
+};
+
+// Ritorna la configurazione solo se i pagamenti sono effettivamente utilizzabili.
+export async function paymentConfig(tenantId: string): Promise<PaymentConfig | null> {
+  const t = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: {
+      id: true,
+      status: true,
+      pagamentiAttivi: true,
+      pagamentiBloccatiNaBoat: true,
+      stripeAttivo: true,
+      stripeSecretEnc: true,
+      stripeWebhookEnc: true,
+      stripePublicKey: true,
+      paypalAttivo: true,
+      feeNaboatPct: true,
+      feeProviderPct: true,
+      feeProviderFixedCent: true,
+      accontoPct: true,
+      rimborsoPct: true,
+      rimborsoOreMinime: true,
+      moduloMarketplace: true,
+    },
+  });
+  if (!t) return null;
+  const attivi = t.status === "active" && t.pagamentiAttivi && !t.pagamentiBloccatiNaBoat;
+  const stripePronto = attivi && t.stripeAttivo && !!t.stripeSecretEnc;
+  const marketplaceAttivo = t.moduloMarketplace !== false;
+  return {
+    tenantId: t.id,
+    attivi,
+    stripePronto,
+    paypalAttivo: attivi && t.paypalAttivo,
+    stripePublicKey: t.stripePublicKey,
+    stripeSecretKey: t.stripeSecretEnc ? decryptSecret(t.stripeSecretEnc) : null,
+    stripeWebhookSecret: t.stripeWebhookEnc ? decryptSecret(t.stripeWebhookEnc) : null,
+    // Con il modulo marketplace spento la fee NaBoat non si applica.
+    feeNaboatPct: marketplaceAttivo ? t.feeNaboatPct : 0,
+    feeProviderPct: t.feeProviderPct,
+    feeProviderFixedCent: t.feeProviderFixedCent,
+    accontoPct: t.accontoPct,
+    rimborsoPct: t.rimborsoPct,
+    rimborsoOreMinime: t.rimborsoOreMinime,
+    marketplaceAttivo,
+  };
+}
+
+export function stripeClient(secretKey: string) {
+  return new Stripe(secretKey, { typescript: true });
+}
+
+// --- Abilitazione effettiva per barca (unica regola server) ---
+// Il blocco generale dell'azienda è prevalente. "Attivi per questa barca" non può
+// aggirare un'azienda disattivata, un provider non configurato o un blocco NaBoat.
+export type ImpostazionePagamentiBarca = "eredita" | "attivi" | "disattivati";
+export type AbilitazioneBarca = {
+  aziendaAttiva: boolean;
+  impostazione: ImpostazionePagamentiBarca;
+  abilitati: boolean;
+  motivo: string | null;
+};
+
+export async function pagamentiPerBarca(tenantId: string, boatId: string | null | undefined): Promise<AbilitazioneBarca> {
+  const cfg = await paymentConfig(tenantId);
+  const boat = boatId
+    ? await prisma.boat.findFirst({ where: { id: boatId, tenantId }, select: { pagamentiOnline: true } })
+    : null;
+  const grezzo = boat?.pagamentiOnline ?? "eredita";
+  const impostazione: ImpostazionePagamentiBarca =
+    grezzo === "attivi" || grezzo === "disattivati" ? grezzo : "eredita";
+  const aziendaAttiva = !!cfg?.stripePronto;
+  let motivo: string | null = null;
+  if (!cfg) motivo = "Azienda non trovata";
+  else if (!cfg.attivi) motivo = "Pagamenti online disattivati per l'azienda";
+  else if (!cfg.stripePronto) motivo = "Provider di pagamento non configurato";
+  else if (impostazione === "disattivati") motivo = "Pagamenti online disattivati per questa barca";
+  const abilitati = aziendaAttiva && impostazione !== "disattivati";
+  return { aziendaAttiva, impostazione, abilitati, motivo };
+}
+
+// --- Calcolo importi (RFQ D7: la fee è una voce unica addebitata al cliente) ---
+export type Importi = {
+  importoCent: number;
+  feeNaboatCent: number;
+  feeProviderCent: number;
+  totaleCent: number;
+};
+
+export function calcolaImporti(
+  importoCent: number,
+  feeNaboatPct: number,
+  feeProviderPct: number,
+  feeProviderFixedCent: number,
+  feeApplicabile: boolean
+): Importi {
+  if (!Number.isInteger(importoCent) || importoCent <= 0) throw new Error("Importo non valido");
+  const feeNaboatCent = feeApplicabile ? Math.round((importoCent * feeNaboatPct) / 100) : 0;
+  const feeProviderCent = Math.round((importoCent * feeProviderPct) / 100) + feeProviderFixedCent;
+  return { importoCent, feeNaboatCent, feeProviderCent, totaleCent: importoCent + feeNaboatCent + feeProviderCent };
+}
+
+// --- Fee NaBoat: maturata ma NON trasferita automaticamente (nessun Connect) ---
+// La fee è calcolata al momento dell'incasso (calcolaImporti) e congelata nello
+// snapshot delle condizioni. Non esiste oggi nessun trasferimento automatico dei
+// soldi verso NaBoat: i pagamenti arrivano sull'account Stripe dell'azienda.
+// Il modello di incasso della fee va SCELTO DAL PROPRIETARIO, tra due alternative:
+//   A) FATTURAZIONE SUCCESSIVA: NaBoat fattura periodicamente alle aziende la fee
+//      maturata (si sommano i Payment con feeNaboatCent > 0 del periodo). Nessuna
+//      integrazione di pagamento in più, ma la fee è riscossa a parte.
+//   B) RIPARTIZIONE AUTOMATICA: al momento dell'incasso la quota NaBoat viene
+//      separata con un'integrazione dedicata (Stripe Connect o addebito separato),
+//      così arriva subito a NaBoat. Richiede però che ogni azienda colleghi il
+//      proprio account e va progettata prima di attivarla.
+// Fino a quella decisione non va implementato alcun trasferimento live.
+
+// RFQ D8: rimborso parziale, ammesso solo fino a N ore prima dell'uscita.
+// La fee NaBoat non viene mai rimborsata: si rimborsa una percentuale del solo prezzo del noleggio.
+export function calcolaRimborso(importoCent: number, rimborsoPct: number): number {
+  const percentuale = Math.min(100, Math.max(0, rimborsoPct));
+  return Math.min(importoCent, Math.round((importoCent * percentuale) / 100));
+}
+
+export function rimborsoAmmesso(startAt: Date, rimborsoOreMinime: number, adesso = new Date()): boolean {
+  const limite = new Date(startAt.getTime() - rimborsoOreMinime * 3600 * 1000);
+  return adesso < limite;
+}
+
+// --- Rimborsi tracciati del solo capitale ---
+// Stati: richiesto (riga creata, Stripe non ancora interpellato) → pendente
+// (Stripe ha accettato, ma l'esito non è definitivo) → riuscito/fallito (webhook).
+// Solo i riusciti riducono il residuo; i richiesti/pendenti "riservano" il tetto
+// così due richieste simultanee non lo superano.
+export type RefundStato = "richiesto" | "pendente" | "riuscito" | "fallito";
+
+export type RimborsoTracciato = {
+  importoCent: number;
+  stato: string;
+};
+
+export type Rimborsabile = {
+  rimborsatoCent: number; // rimborsi già definitivi (capitale)
+  riservatoCent: number; // richiesti/pendenti non ancora definitivi
+  disponibileCent: number; // quanto capitale si può ancora rimborsare
+};
+
+// Tetto rimborsabile = capitale del noleggio (importoCent, senza fee) − rimborsi
+// riusciti − rimborsi in corso. `rimborsoCent` resta valido anche per i pagamenti
+// storici, registrati prima dell'introduzione delle righe Refund.
+export function calcolaRimborsabile(
+  payment: { importoCent: number; rimborsoCent?: number | null },
+  rimborsi: RimborsoTracciato[] = []
+): Rimborsabile {
+  const importo = Math.max(0, payment.importoCent ?? 0);
+  const sommaRiusciti = rimborsi
+    .filter((r) => r.stato === "riuscito")
+    .reduce((s, r) => s + Math.max(0, r.importoCent), 0);
+  const rimborsato = Math.min(importo, Math.max(Math.max(0, payment.rimborsoCent ?? 0), sommaRiusciti));
+  const riservato = rimborsi
+    .filter((r) => r.stato === "richiesto" || r.stato === "pendente")
+    .reduce((s, r) => s + Math.max(0, r.importoCent), 0);
+  return { rimborsatoCent: rimborsato, riservatoCent: riservato, disponibileCent: Math.max(0, importo - rimborsato - riservato) };
+}
+
+// Il pagamento è "rimborsato" solo quando tutto il capitale del noleggio è stato
+// restituito: le fee restano incassate e non fanno parte del rimborso.
+export function statoDopoRimborso(importoCent: number, rimborsatoCent: number): "rimborsato" | "rimborsato_parziale" {
+  return Math.max(0, rimborsatoCent) >= Math.max(0, importoCent) ? "rimborsato" : "rimborsato_parziale";
+}
+
+// Traduce lo stato Stripe di un rimborso in uno dei nostri quattro stati.
+export function statoRimborsoDaStripe(status: string | null | undefined): RefundStato {
+  if (status === "succeeded") return "riuscito";
+  if (status === "failed" || status === "canceled") return "fallito";
+  if (status === "pending" || status === "requires_action") return "pendente";
+  return "richiesto";
+}
+
+// Riallinea Payment.rimborsoCent/stato alla somma dei rimborsi definitivi.
+// Idempotente: si può richiamare da un webhook anche più volte.
+export async function allineaRimborsi(paymentId: string): Promise<{ rimborsoCent: number; stato: string } | null> {
+  const p = await prisma.payment.findUnique({
+    where: { id: paymentId },
+    select: { id: true, importoCent: true, rimborsoCent: true, stato: true },
+  });
+  if (!p) return null;
+  const rimborsi = await prisma.refund.findMany({ where: { paymentId }, select: { importoCent: true, stato: true } });
+  const { rimborsatoCent } = calcolaRimborsabile(p, rimborsi);
+  if (rimborsatoCent <= 0) return { rimborsoCent: p.rimborsoCent, stato: p.stato };
+  const stato = statoDopoRimborso(p.importoCent, rimborsatoCent);
+  const upd = await prisma.payment.update({ where: { id: p.id }, data: { rimborsoCent: rimborsatoCent, stato } });
+  return { rimborsoCent: upd.rimborsoCent, stato: upd.stato };
+}
+
+// Limite massimo degli importi gestiti dal progetto: 1.000.000 € in centesimi.
+export const IMPORTO_MASSIMO_CENT = 100000000;
+const LIMITE_IMPORTO_EURO = IMPORTO_MASSIMO_CENT / 100;
+
+// Convenzione: locale italiano. Formati ammessi: `300`, `300,50`, `300.50`,
+// `1.234,56`, `1,234.56`. Con una sola occorrenza il separatore è decimale se ha
+// 1-2 cifre, altrimenti è delle migliaia (`1.234` = 1234); con entrambi i separatori
+// l'ultimo è decimale e l'altro è delle migliaia. Al massimo 2 decimali.
+// Segni, lettere, spazi e testo vengono rifiutati (null). Ritorna centesimi interi.
+export function parseImportoEuro(input: string | number): number | null {
+  if (typeof input === "number") {
+    if (!Number.isFinite(input) || input <= 0 || input > LIMITE_IMPORTO_EURO) return null;
+    const cent = Math.round(input * 100);
+    if (Math.abs(input * 100 - cent) > 1e-6) return null; // più di 2 decimali
+    return cent;
+  }
+  if (typeof input !== "string") return null;
+
+  const testo = input.trim();
+  // Solo cifre e separatori , . : niente segni, lettere, spazi o altro testo.
+  if (!/^\d+(?:[.,]\d+)*$/.test(testo)) return null;
+
+  let intera = "";
+  let decimale = "";
+  if (testo.includes(",") && testo.includes(".")) {
+    // Un separatore è decimale (l'ultimo), l'altro è delle migliaia.
+    const sepDec = testo.lastIndexOf(",") > testo.lastIndexOf(".") ? "," : ".";
+    const sepMig = sepDec === "," ? "." : ",";
+    const [prima, ...resto] = testo.split(sepDec);
+    if (resto.length !== 1) return null;
+    // Le migliaia devono essere raggruppate a tre cifre (es. 1.234,56).
+    if (!new RegExp(`^\\d{1,3}(?:\\${sepMig}\\d{3})*$`).test(prima)) return null;
+    intera = prima.split(sepMig).join("");
+    decimale = resto[0];
+  } else {
+    const sep = testo.includes(",") ? "," : testo.includes(".") ? "." : null;
+    if (!sep) {
+      intera = testo;
+    } else {
+      const parti = testo.split(sep);
+      if (parti.length > 2) {
+        // Più occorrenze dello stesso separatore: sono delle migliaia (es. 1.234.567).
+        if (!new RegExp(`^\\d{1,3}(?:\\${sep}\\d{3})+$`).test(testo)) return null;
+        intera = parti.join("");
+      } else if (parti[1].length === 3) {
+        // Una sola occorrenza con 3 cifre: separatore delle migliaia (1.234 = 1234).
+        intera = parti[0] + parti[1];
+      } else {
+        intera = parti[0];
+        decimale = parti[1];
+      }
+    }
+  }
+
+  if (decimale.length > 2) return null;
+  if (!intera || !/^\d+$/.test(intera)) return null;
+  const cent = Number(intera) * 100 + Number(decimale.padEnd(2, "0"));
+  if (!Number.isSafeInteger(cent) || cent <= 0 || cent > IMPORTO_MASSIMO_CENT) return null;
+  return cent;
+}
+
+export function formattaEuro(cent: number): string {
+  return (cent / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
+}
+
+// --- Residuo del prezzo e snapshot delle condizioni ---
+
+export type PagamentoPerResiduo = {
+  id?: string;
+  stato: string;
+  provider?: string | null;
+  tipo?: string | null;
+  importoCent: number;
+  feeNaboatCent?: number | null;
+  feeProviderCent?: number | null;
+  totaleCent?: number | null;
+  rimborsoCent?: number | null;
+  sessionId?: string | null;
+  paymentIntentId?: string | null;
+  createdAt?: Date | string | null;
+};
+
+export type ResiduoPrezzo = {
+  prezzoCent: number;
+  capitaleIncassatoCent: number;
+  rimborsatoCent: number;
+  commissioniIncassateCent: number;
+  cauzioneIncassataCent: number;
+  residuoCent: number;
+  inAttesaCent: number;
+  intentiPendenti: PagamentoPerResiduo[];
+};
+
+const STATI_INCASSATI = ["pagato", "rimborsato_parziale", "rimborsato"];
+
+// Residuo del prezzo: prezzo pattuito meno il capitale effettivamente incassato
+// (acconto/saldo/totale). I rimborsi riaprono il residuo per la parte rimborsata.
+// Gli incassi della cauzione non riducono il prezzo del noleggio: sono esposti a parte.
+// Gli intenti in attesa sono riportati separatamente per poterli riusare o annullare.
+export function calcolaResiduoPrezzo(
+  prezzoCent: number,
+  pagamenti: PagamentoPerResiduo[],
+  opts: { cauzioneIntentId?: string | null } = {}
+): ResiduoPrezzo {
+  let capitale = 0;
+  let rimborsato = 0;
+  let commissioni = 0;
+  let cauzione = 0;
+
+  for (const p of pagamenti) {
+    if (!STATI_INCASSATI.includes(p.stato)) continue;
+    const importo = Math.max(0, p.importoCent ?? 0);
+    const rim = Math.max(0, Math.min(p.rimborsoCent ?? 0, importo));
+    if (opts.cauzioneIntentId && p.paymentIntentId === opts.cauzioneIntentId) {
+      cauzione += importo;
+      continue;
+    }
+    capitale += importo - rim;
+    rimborsato += p.rimborsoCent ?? 0;
+    commissioni += Math.max(0, p.feeNaboatCent ?? 0) + Math.max(0, p.feeProviderCent ?? 0);
+  }
+
+  const intentiPendenti = pagamenti.filter((p) => p.stato === "in_attesa");
+  const inAttesa = intentiPendenti.reduce((s, p) => s + Math.max(0, p.totaleCent ?? p.importoCent ?? 0), 0);
+  const prezzo = Math.max(0, prezzoCent ?? 0);
+  return {
+    prezzoCent: prezzo,
+    capitaleIncassatoCent: Math.max(0, capitale),
+    rimborsatoCent: rimborsato,
+    commissioniIncassateCent: commissioni,
+    cauzioneIncassataCent: cauzione,
+    residuoCent: Math.max(0, prezzo - capitale),
+    inAttesaCent: inAttesa,
+    intentiPendenti,
+  };
+}
+
+// La fee NaBoat matura solo se l'opportunità arriva dal canale NaBoat e il modulo
+// Marketplace è attivo per l'azienda (RFQ D1/D3). Unica fonte della verità.
+export function feeNaBoatApplicabile(origineCanale: string | null | undefined, cfg: PaymentConfig | null): boolean {
+  return !!cfg?.marketplaceAttivo && origineCanale === "naboat";
+}
+
+export type CondizioniSnapshot = {
+  origineCanale: string;
+  feeNaboatPct: number;
+  feeProviderPct: number;
+  feeProviderFixedCent: number;
+  accontoPct: number;
+  marketplaceAttivo: boolean;
+  registratoAt: string;
+};
+
+// Congela le condizioni applicate all'incasso: cambi successivi non riscrivono lo storico.
+export function snapshotCondizioni(cfg: PaymentConfig | null, origineCanale: string): CondizioniSnapshot {
+  return {
+    origineCanale,
+    feeNaboatPct: cfg?.feeNaboatPct ?? 0,
+    feeProviderPct: cfg?.feeProviderPct ?? 0,
+    feeProviderFixedCent: cfg?.feeProviderFixedCent ?? 0,
+    accontoPct: cfg?.accontoPct ?? 0,
+    marketplaceAttivo: cfg?.marketplaceAttivo ?? false,
+    registratoAt: new Date().toISOString(),
+  };
+}

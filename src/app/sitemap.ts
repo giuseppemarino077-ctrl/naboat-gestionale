@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 import { headers } from "next/headers";
 import { prisma } from "@/lib/db";
-import { FILTRO_CATALOGO } from "@/lib/marketplace";
+import { FILTRO_CATALOGO, FILTRO_AZIENDA_CATALOGO } from "@/modules/noleggio/marketplace";
 import { DOMINIO_SITO, dominioPubblico } from "@/lib/sito";
 
 // Come robots.txt: si aggiorna a ogni richiesta, non alla compilazione.
@@ -24,7 +24,7 @@ async function pagineMarketplace(base: string): Promise<MetadataRoute.Sitemap> {
       take: 5000,
     }),
     prisma.boat.findMany({ where: FILTRO_CATALOGO, select: { id: true } }),
-    prisma.tenant.findMany({ where: { status: "active", moduloMarketplace: true }, select: { id: true } }),
+    prisma.tenant.findMany({ where: FILTRO_AZIENDA_CATALOGO, select: { id: true } }),
   ]);
   const idBarche = new Set(barcheOk.map((b) => b.id));
   const idAziende = new Set(aziendeOk.map((t) => t.id));

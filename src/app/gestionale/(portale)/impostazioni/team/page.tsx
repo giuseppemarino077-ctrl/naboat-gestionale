@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { Avviso } from "@/components/ui/Avviso";
 import { Icona } from "@/components/ui/Icona";
 import { useConferma } from "@/components/ui/Dialogo";
+import { useUtente } from "@/components/Utente";
+import { useProdottoAttivo } from "@/modules/piattaforma/use-prodotto";
 import { useModulo } from "@/components/ui/ModuloDialogo";
 
 export default function TeamPage() {
@@ -15,6 +17,8 @@ export default function TeamPage() {
   const [contatti, setContatti] = useState({ indirizzoPartenza: "", telefonoContatto: "" });
   const [skippers, setSkippers] = useState<any[]>([]);
   const [scelta, setScelta] = useState<Record<string, string>>({});
+  const utente = useUtente();
+  const prodotto = useProdottoAttivo(utente);
   const conferma = useConferma();
   const modulo = useModulo();
 
@@ -86,9 +90,9 @@ export default function TeamPage() {
         <div className="card grid gap-3 p-5 text-sm">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-lg">Dati dell'azienda</h2>
-            <a className="font-bold text-ocean" href="/gestionale/impostazioni">Modifica il profilo pubblico →</a>
+            <a className="font-bold text-ocean" href="/gestionale/impostazioni">{prodotto === "ormeggio" ? "Impostazioni azienda →" : "Modifica il profilo pubblico →"}</a>
           </div>
-          <p className="text-muted">Nome e logo compaiono nel menu del portale. Descrizione, contatti pubblici e visibilità si gestiscono dal profilo pubblico.</p>
+          <p className="text-muted">{prodotto === "ormeggio" ? "Nome, logo e contatti identificano l’azienda nel portale e nei documenti." : "Nome e logo compaiono nel menu del portale. Descrizione, contatti pubblici e visibilità si gestiscono dal profilo pubblico."}</p>
           <div className="flex flex-wrap items-end gap-3">
             <label className="grid gap-1">Nome azienda
               <input className="rounded-md border border-line p-2" value={nomeAzienda} onChange={(e) => setNomeAzienda(e.target.value)} />

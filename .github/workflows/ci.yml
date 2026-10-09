@@ -10,6 +10,10 @@ jobs:
     name: Lint, typecheck, build
     runs-on: ubuntu-latest
     services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
       postgres:
         image: postgres:15
         env:
@@ -26,6 +30,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://naboat:naboat@localhost:5432/naboat?schema=public
       AUTH_SECRET: ci-auth-secret-0123456789ABCDEFGHIJKLMNOP
+      REDIS_URL: redis://127.0.0.1:6379
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -40,7 +45,11 @@ jobs:
         run: npx prisma migrate deploy
       - run: npm run lint
       - run: npm run typecheck
+      - name: Verifica confini dei prodotti
+        run: npm run check:boundaries
       - name: Build di produzione
         run: npm run build
         env:
           NODE_ENV: production
+      - name: Collaudo completo in ambiente isolato
+        run: npm run test:isolated

@@ -1,5 +1,9 @@
 # Consegna — stabilizzazione NaBoat
 
+> Documento storico: lo stato corrente e i comandi di collaudo sono in
+> `docs/PROJECT_CONTEXT.md` e `docs/STABILIZZAZIONE.md` (percorsi dalla radice).
+> Gli smoke diretti ora richiedono un database temporaneo: usare `npm run test:isolated`.
+
 Baseline `c8c41fc`, ramo `main`. Questo documento raccoglie le prove
 richieste dal §15 del prompt: esito dei 50 rilievi (vedi `AUDIT-LAVORO.md`), matrice
 delle verifiche V01–V48, mappa URL, ruoli, prodotto/diritti, istruzioni e rischi residui.

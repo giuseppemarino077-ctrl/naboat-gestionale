@@ -41,6 +41,7 @@ enum BookingStatus {
 }
 
 model Tenant {
+  catalogoOrmeggioInizializzato Boolean @default(false)
   id        String       @id @default(uuid())
   nome      String
   logoUrl   String?
@@ -310,6 +311,10 @@ model Boat {
   tenant           Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   nome             String
   tipo             String?
+  // Tipo codificato (vedi src/lib/barche.ts) e modello come testo libero
+  // ("Marca Modello"): servono a scegliere la sagoma e a descrivere la barca.
+  tipoCodice       String?
+  modelloTesto     String?
   // Capacità: null = ancora non configurata (nessun numero fittizio). I lettori
   // devono gestire il valore ignoto senza inventare un massimo.
   capienza         Int?
@@ -380,6 +385,7 @@ model Boat {
 
 // Proprietario della barca in custodia (anagrafica dell'ormeggio, distinta dai clienti del noleggio).
 model Proprietario {
+  archiviato Boolean @default(false)
   id        String   @id @default(uuid())
   tenantId  String
   tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -1083,6 +1089,7 @@ model Area {
   righe     Int       @default(1)
   colonne   Int       @default(1)
   ordine    Int       @default(0)
+  archiviata Boolean  @default(false)
   posti     Posto[]
   createdAt DateTime  @default(now())
 

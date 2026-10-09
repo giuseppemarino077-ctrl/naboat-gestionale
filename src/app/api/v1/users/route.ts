@@ -3,7 +3,7 @@ import { saltHex } from "@/lib/crypto";
 import { prisma } from "@/lib/db";
 import { invitoBody, sendMail } from "@/lib/mailer";
 import { hashPassword } from "@/lib/password";
-import { ePro, pianoDelTenant } from "@/lib/piani";
+import { ePro, pianoDelTenant } from "@/modules/piattaforma/piani-commerciali";
 import { isOwnerOrSuperadmin, requireTenant } from "@/lib/tenant";
 import { z } from "zod";
 

@@ -3,8 +3,10 @@
 // Usa un account ormeggiatore (per default quello demo locale) e pulisce da solo
 // i dati di prova che crea. Non tocca le permanenze reali dell'azienda.
 import { PrismaClient } from "@prisma/client";
+import { assicuraAmbienteSmoke } from "./_guardia-ambiente.mjs";
 
 const BASE = process.argv[2] || process.env.SMOKE_BASE || "http://localhost:3000";
+assicuraAmbienteSmoke("smoke-ormeggio.mjs", BASE);
 const EMAIL = process.env.SMOKE_ORM_EMAIL || "ormeggiatore@demo.naboat.it";
 const PASSWORD = process.env.SMOKE_ORM_PASSWORD || "Demo-Ormeggio-2026!";
 const marker = `SMOKE-${Date.now()}`;
@@ -91,6 +93,15 @@ const run = async () => {
   const permId = p1.data?.id;
   T("addebito custodia creato", p1.status === 201);
 
+  const senzaAttivita = (await json("/api/v1/ormeggio/griglia")).data.aree.find(a => a.id === areaId).posti.find(p => p.id === posto0);
+  T("stato al posto automatico senza attività o uscita", senzaAttivita.permanenza.statoGriglia === "in_sosta");
+  const barcaStato = await prisma.boat.findFirst({ where: { id: p1.data.boatId, tenantId } });
+  await prisma.boat.update({ where: { id: barcaStato.id, tenantId }, data: { stato: "manutenzione" } });
+  T("non disponibile segnala realmente la manutenzione della barca", (await json("/api/v1/ormeggio/griglia")).data.aree.find(a => a.id === areaId).posti.find(p => p.id === posto0).permanenza.statoGriglia === "bloccata");
+  await prisma.boat.update({ where: { id: barcaStato.id, tenantId }, data: { stato: barcaStato.stato } });
+  const rimessaggio = await json("/api/v1/ormeggio/permanenze", "POST", { postoId: posto1, proprietarioId: prop.data.id, nuovaBarca: { nome: `${marker}-RimessaggioDisattivato` }, tipo: "rimessaggio_custodia", inizioAt: oggi });
+  T("rimessaggio non disponibile per nuove soste", rimessaggio.status === 422 && await prisma.boat.count({ where: { tenantId, nome: `${marker}-RimessaggioDisattivato` } }) === 0);
+
   const att = await json("/api/v1/ormeggio/attivita", "POST", { permanenzaId: permId, tipo: "Lavaggio", prezzoCent: 2500 });
   await json(`/api/v1/ormeggio/attivita/${att.data.id}`, "PATCH", { stato: "completato" });
   const scheda = await json(`/api/v1/ormeggio/permanenze/${permId}`);
@@ -174,6 +185,25 @@ const run = async () => {
 
   const conti = await json("/api/v1/ormeggio/conti");
   T("conti per proprietario", Array.isArray(conti.data) && conti.data.some((c) => c.nome === `${marker} Prop` && c.residuoCent > 0), `${conti.status}`);
+
+  const riduci = await json(`/api/v1/ormeggio/aree/${areaId}`, "PATCH", { colonne: 1 });
+  const grigliaRidotta = await json("/api/v1/ormeggio/griglia");
+  const concId = (r1.status === 201 ? r1 : r2).data.id;
+  T("riduzione con assegnazioni consentita e griglia coerente", riduci.status === 200 && grigliaRidotta.data.aree.find(a => a.id === areaId)?.posti.length === 1);
+  T("barca nel posto rimosso resta accessibile fuori griglia", grigliaRidotta.data.fuoriGriglia.some(p => p.id === concId) && (await json(`/api/v1/ormeggio/permanenze/${concId}`)).data?.postoFuoriGriglia === true);
+  const suRimosso = await json("/api/v1/ormeggio/permanenze", "POST", { postoId: posto1, proprietarioId: prop.data.id, nuovaBarca: { nome: `${marker}-NonCreare` }, inizioAt: oggi });
+  T("assegnazione a posto rimosso rifiutata", suRimosso.status === 409);
+  await json(`/api/v1/ormeggio/aree/${areaId}`, "PATCH", { colonne: 2 });
+  T("espansione recupera assegnazioni nelle coordinate originali", (await json("/api/v1/ormeggio/griglia")).data.aree.find(a => a.id === areaId)?.posti.find(p => p.id === posto1)?.permanenza?.id === concId);
+  const primaElimina = await json(`/api/v1/ormeggio/permanenze/${permId}`);
+  T("elimina area con assegnazioni e contratto firmato", (await json(`/api/v1/ormeggio/aree/${areaId}`, "DELETE")).status === 200);
+  const dopoElimina = await json(`/api/v1/ormeggio/permanenze/${permId}`);
+  T("rimozione conserva contratto firmato, conto e incassi", dopoElimina.data?.postoFuoriGriglia && dopoElimina.data.contratto.firmatoAt === primaElimina.data.contratto.firmatoAt && JSON.stringify(dopoElimina.data.conto) === JSON.stringify(primaElimina.data.conto) && dopoElimina.data.payments.length === primaElimina.data.payments.length);
+  const rimossa = await json("/api/v1/ormeggio/griglia");
+  T("area rimossa assente dalla griglia, barche ancora accessibili", !rimossa.data.aree.some(a => a.id === areaId) && rimossa.data.fuoriGriglia.some(p => p.id === permId));
+  T("PDF disponibile anche dopo rimozione area", (await req(`/api/v1/ormeggio/permanenze/${permId}/riepilogo`)).status === 200);
+  const trasferita = await json(`/api/v1/ormeggio/permanenze/${permId}`, "PATCH", { azione: "sposta", postoId: hB });
+  T("barca trasferibile da area rimossa ad area attiva", trasferita.status === 200 && !(await json(`/api/v1/ormeggio/permanenze/${permId}`)).data?.postoFuoriGriglia);
 
   // isolamento: un'azienda noleggio non deve accedere al modulo
   const jar2 = { cookies: jar.cookies };

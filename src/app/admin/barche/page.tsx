@@ -1,10 +1,13 @@
 "use client";
 import { useEffect, useState } from "react";
+import { etichettaTipo } from "@/modules/piattaforma/barche";
 
 type Barca = {
   id: string;
   nome: string;
   tipo: string | null;
+  tipoCodice: string | null;
+  modelloTesto: string | null;
   pubblicata: boolean;
   inPausa: boolean;
   bloccataAdmin: boolean;
@@ -63,7 +66,7 @@ export default function AdminBarchePage() {
               const inCatalogo = b.pubblicata && !b.inPausa && !b.bloccataAdmin;
               return (
                 <tr key={b.id} className="border-t border-line align-top">
-                  <td className="p-3 font-semibold">{b.nome} <span className="text-muted">{b.tipo ?? ""}</span></td>
+                  <td className="p-3 font-semibold">{b.nome} <span className="text-muted">{[etichettaTipo(b.tipoCodice, b.tipo), b.modelloTesto].filter(Boolean).join(" · ")}</span></td>
                   <td className="p-3 text-muted">{b.tenant?.nome ?? "—"}</td>
                   <td className="p-3">
                     {b.bloccataAdmin ? (

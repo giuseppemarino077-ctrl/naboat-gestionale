@@ -1,10 +1,10 @@
 import { fail, ok } from "@/lib/api";
 import { registraAzione } from "@/lib/audit";
 import { prisma } from "@/lib/db";
-import { marcaPromemoriaOpzione, opzioniInScadenza, rilasciaOpzioniScadute, type RichiestaOpzione } from "@/lib/disponibilita";
+import { marcaPromemoriaOpzione, opzioniInScadenza, rilasciaOpzioniScadute, type RichiestaOpzione } from "@/modules/noleggio/disponibilita";
 import { requireSuperadmin } from "@/lib/guard";
 import { escapeHtml, sendMail, subjectSicuro } from "@/lib/mailer";
-import { applicaLimitiTutti } from "@/lib/piani";
+import { applicaLimitiTutti } from "@/modules/piattaforma/piani-commerciali";
 import { marcaScaduti } from "@/lib/subscriptions";
 import { z } from "zod";
 

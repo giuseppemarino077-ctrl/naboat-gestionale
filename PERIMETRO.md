@@ -1,19 +1,37 @@
-# NaBoat Gestionale — D1 Perimetro, architettura e roadmap (MVP Fase 1)
+# NaBoat Gestionale — perimetro attuale
 
-## 1. Perimetro MVP (da RFQ_NaBoat.pdf)
-Account/governance (registrazione owner, approvazione/rifiuto/sospensione/eliminazione NaBoat, operatori del proprietario), cruscotto Oggi, flotta+skipper+extra, calendario centrale con stati libera/prenotata/bloccata/in_mare/rientrata, prenotazioni con anti-overlap e logica patente/skipper, clienti con deduplica e WhatsApp precompilato, PWA mobile-first installabile. Stato: implementato in `naboat-gestionale/` (27 route, 3 migration).
+Aggiornamento: 9 ottobre 2026. Contesto operativo in `docs/PROJECT_CONTEXT.md`;
+regole in `AGENTS.md`, verifiche in `docs/STABILIZZAZIONE.md`.
 
-## 2. Stack e architettura (singolo VPS, ibrida)
-Next.js 14 monolite modulare (frontend + API `/api/v1`), Postgres 15 + Prisma, Redis, Caddy (TLS), Docker Compose. `app/api.naboat.it` su Aruba Cloud VPS O2A4 (2 vCPU, 4 GB, 40 GB, datacenter Italia); `www` + email su hosting IT; transazionale via SMTP Aruba del dominio. Multi-tenant per `tenantId` + RLS prod pronta (`prisma/rls.sql`) + trigger anti-overlap DB. stima Fase 2: marketplace riusa `/api/v1` + nuovo `public/availability`; app consumer nativa/PWA quotata a parte (range indicativo 4-8 settimane quando il gestionale è stabile).
+## Architettura
 
-## 3. MVP essenziale vs consigliata
-Implementato e verificato: perimetro punto 1 + hardening di sicurezza (2FA TOTP, verifica email, rate-limit Redis, Turnstile, CSP/header, dipendenze aggiornate con 0 vulnerabilità, backup offsite + restore drill, `/api/readyz`). Restano da attivare in ambiente reale (richiedono accesso a servizi/dominio): Cloudflare WAF/bot + Turnstile keys, DKIM/DMARC, Sentry/uptime con DSN, e l'attivazione RLS (richiede refactoring transazioni, vedi DEPLOY.md §8).
+Monolite Next.js 15, React 19 e TypeScript, PostgreSQL 15 con Prisma 5, Redis e
+Tailwind CSS. App e API nello stesso progetto. Deploy documentato: VPS Aruba con
+Docker Compose e Caddy. Sito e portale condividono `naboat.it`.
+L'isolamento è applicativo per tenant; RLS resta disattivata.
 
-## 4. Costi ricorrenti stimati
-VPS Aruba O2A4 6,29€ + IVA (~7,70€) + object storage/snapshot ~6€ + email SMTP Aruba (inclusa nella casella del dominio) + hosting/dominio/caselle ~10€ ≈ 25€/mese. Nessuna licenza lock-in.
+## Perimetro implementato
 
-## 5. Rischi e mitigazioni
-Calendario concorrenza → doppio livello app+trigger DB (verificato). Singolo VPS = SPOF → backup giornalieri + snapshot + restore drill; upgrade a DB managed + 2 VPS senza riscrittura (API stateless). Timezone → `timestamptz` ovunque.
+- Noleggio: flotta, calendario/planning, prenotazioni, skipper, anagrafica,
+  tariffe, extra, esperienze, blocchi, manutenzioni, check-in/out e contratti.
+- Marketplace: catalogo e profili pubblici, richieste con opzione, area cliente,
+  patenti private, recensioni moderate e SEO configurabile.
+- Economia: Stripe per azienda, incassi manuali, rimborsi, cauzioni, servizi NaBoat,
+  spese e report. La fee marketplace è registrata; la riscossione è da decidere.
+- Ormeggio interno: aree/posti, permanenze, assegnazioni storiche, movimenti,
+  attività, addebiti, conti, contratti e permesso importi.
+- Piattaforma: amministrazione, notifiche SMTP, backup e ripristino, health/readiness.
 
-## 6. Escluso (da quotare a parte)
-App/marketplace Fase 2, parsing automatico WhatsApp, pagamenti online, nativa, integrazioni terze non elencate.
+## Da completare e verificare
+
+Self-service Ormeggio e assegnazione automatica; automazione commerciale Pro;
+motore extra per unità e migrazione del prezzo legacy; collaudo esterno Stripe,
+SMTP e S3; verifica browser e produzione. Supabase e Brevo non sono integrati;
+Vercel non è il target di deploy documentato.
+
+## Vincoli operativi
+
+Un solo VPS è un punto di guasto comune: servono backup esterni e prove di
+ripristino. Gli smoke modificano impostazioni globali: usare esclusivamente
+`npm run test:isolated`, con database temporaneo. I costi e le stime del vecchio
+MVP non costituiscono un preventivo attuale.

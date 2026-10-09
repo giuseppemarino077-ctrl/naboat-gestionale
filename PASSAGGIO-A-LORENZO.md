@@ -1,5 +1,9 @@
 # Passaggio del progetto NaBoat — istruzioni per Lorenzo (e per il suo agente AI)
 
+> Documento storico: lo stato corrente e i comandi di collaudo sono in
+> `docs/PROJECT_CONTEXT.md` e `docs/STABILIZZAZIONE.md` (percorsi dalla radice).
+> Gli smoke diretti ora richiedono un database temporaneo: usare `npm run test:isolated`.
+
 Questo documento spiega **come prendere in mano il progetto** e portarlo avanti. È scritto per essere letto anche da un agente AI: le regole del progetto stanno in `AGENTS.md`, i piani in `../*.html` (cartella `NABOAT`).
 
 ---

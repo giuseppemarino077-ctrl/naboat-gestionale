@@ -1,7 +1,7 @@
 import { IntestazioneSito } from "@/components/sito/IntestazioneSito";
 import { PiedeSito } from "@/components/sito/PiedeSito";
 import type { ContenutiHome } from "@/lib/home";
-import type { NumeriPiattaforma, SchedaEvidenza } from "@/lib/marketplace";
+import type { NumeriPiattaforma, SchedaEvidenza } from "@/modules/noleggio/marketplace";
 
 const euro = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
 

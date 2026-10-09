@@ -1,7 +1,7 @@
 import { ok } from "@/lib/api";
 import { patenteValida, requireCliente } from "@/lib/clienti";
 import { prisma } from "@/lib/db";
-import { calcolaResiduoPrezzo } from "@/lib/payments";
+import { calcolaResiduoPrezzo } from "@/modules/piattaforma/pagamenti";
 
 // Dati dell'area personale: account, patente (senza numero) e prenotazioni.
 export async function GET() {

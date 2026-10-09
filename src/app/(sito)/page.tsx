@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { HomePubblica } from "@/components/sito/HomePubblica";
 import { Manutenzione } from "@/components/sito/Manutenzione";
 import { contenutiHome } from "@/lib/home";
-import { barcheInEvidenza, numeriPiattaforma } from "@/lib/marketplace";
+import { barcheInEvidenza, numeriPiattaforma } from "@/modules/noleggio/marketplace";
 import { statoManutenzione } from "@/lib/manutenzione";
 import { contestoSito } from "@/lib/sito-server";
 

@@ -3,6 +3,7 @@
 // Richiede un DB con dati demo (npm run db:seed). Non tocca i dati esistenti
 // se non per creare/eliminare tenant di test (li lascia, sono pending/active isolati).
 import { readFileSync } from "fs";
+import { assicuraAmbienteSmoke } from "./_guardia-ambiente.mjs";
 
 // Carica le variabili da .env.local / .env (come fa Next) senza dipendenze esterne.
 for (const file of [".env.local", ".env"]) {
@@ -15,6 +16,7 @@ for (const file of [".env.local", ".env"]) {
 }
 
 const BASE = process.argv[2] || process.env.SMOKE_BASE || "http://localhost:3000";
+assicuraAmbienteSmoke("smoke-test.mjs", BASE);
 import sharp from "sharp";
 // Usato solo per forzare la scadenza dell'opzione (non è pilotabile dall'API).
 import { PrismaClient } from "@prisma/client";
@@ -650,7 +652,8 @@ const run = async () => {
   T("FTP senza credenziali -> 422", (await adm.fetch("/api/v1/admin/backup", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ destinazioneFtp: true }) })).status === 422);
 
   // Il piano che lo script del server legge: protetto dal segreto di cron
-  const CRON = process.env.CRON_SECRET || "segreto-cron-solo-per-sviluppo-locale";
+  const CRON = process.env.CRON_SECRET;
+  if (!CRON) throw new Error("Imposta CRON_SECRET prima di eseguire lo smoke test.");
   T("piano di backup senza segreto -> 401", (await fetch(`${BASE}/api/v1/backup/piano`)).status === 401);
   T("piano di backup con segreto sbagliato -> 401", (await fetch(`${BASE}/api/v1/backup/piano`, { headers: { "x-cron-secret": "sbagliato" } })).status === 401);
   T("esito senza segreto -> 401", (await fetch(`${BASE}/api/v1/backup/esito`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })).status === 401);
@@ -794,7 +797,7 @@ const run = async () => {
   T("marketplace riattivato: torna nel catalogo", (await leggiCatalogo()).includes("Smoke Catalogo"));
 
   // ---- M03: preventivo congelato nella richiesta pubblica ----
-  const leggiNoleggia = async (q = "") => (await jar.fetch(`/noleggia${q}${q ? "&" : "?"}_=${Date.now()}`)).text();
+  const leggiNoleggia = async (q = "") => (await (await jar.fetch(`/noleggia${q}${q ? "&" : "?"}_=${Date.now()}`)).text()).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
   T("ricerca con date: barca libera presente", (await leggiNoleggia("?dal=2028-09-10&al=2028-09-10")).includes(nomeCatalogo));
 
   const richPrezzo = await json("", "/api/v1/richieste", "POST", {

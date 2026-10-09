@@ -19,7 +19,10 @@ export function Dialogo({
   larghezza?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const chiudiRef = useRef(onChiudi);
   const idTitolo = useId();
+
+  useEffect(() => { chiudiRef.current = onChiudi; }, [onChiudi]);
 
   useEffect(() => {
     if (!aperto) return;
@@ -29,11 +32,11 @@ export function Dialogo({
     const contenitore = ref.current;
     const elenco = () =>
       Array.from(contenitore?.querySelectorAll<HTMLElement>(FOCUSABILI) ?? []).filter((el) => el.offsetParent !== null);
-    elenco()[0]?.focus();
+    if (!contenitore?.contains(document.activeElement)) elenco()[0]?.focus();
     const tasto = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
-        onChiudi();
+        chiudiRef.current();
         return;
       }
       if (e.key !== "Tab") return;
@@ -53,9 +56,9 @@ export function Dialogo({
     return () => {
       document.removeEventListener("keydown", tasto);
       document.body.style.overflow = overflow;
-      precedente?.focus?.();
+      if (precedente?.isConnected) precedente.focus();
     };
-  }, [aperto, onChiudi]);
+  }, [aperto]);
 
   if (!aperto) return null;
 

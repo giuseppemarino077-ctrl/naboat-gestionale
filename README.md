@@ -11,9 +11,7 @@ Monolite Next.js 15 + Postgres + Redis + Caddy su singolo VPS. Vedi `PERIMETRO.m
 ```bash
 npm run typecheck   # TypeScript, 0 errori
 npm run lint        # ESLint, 0 errori (restano warning storici)
-docker compose exec -T redis redis-cli FLUSHDB
-node scripts/smoke-test.mjs http://localhost:3000      # API end-to-end
-node scripts/smoke-ormeggio.mjs http://localhost:3000  # modulo Ormeggio
+npm run test:isolated
 ```
 
 ## Dati di test
@@ -31,12 +29,12 @@ Fonti foto: Unsplash (licenza libera) + asset del sito NaBoat.
 - Sessioni JWT httpOnly (jose), 2FA TOTP (`/gestionale/impostazioni/sicurezza`), verifica email proprietario.
 - Rate-limit su Redis (login 20/10min per IP + 10/10min per email; register 5/ora).
 - Turnstile su login/registrazione (attivo se `TURNSTILE_SECRET` configurato).
-- Header CSP/HSTS/Permissions-Policy; `npm audit` = 0 vulnerabilità.
+- Header CSP/HSTS/Permissions-Policy; lo stato delle vulnerabilità va ricontrollato al rilascio.
 - Flag: `REQUIRE_2FA`, `REQUIRE_EMAIL_VERIFY` (true in produzione).
 
 ## Script operativi
-- `node scripts/smoke-test.mjs [baseUrl]` — test end-to-end delle API (richiede DB demo; oltre 370 controlli). Prima di rilanciarlo: `docker compose exec -T redis redis-cli FLUSHDB`.
-- `node scripts/smoke-ormeggio.mjs [baseUrl]` — test end-to-end del modulo Ormeggio (richiede l'account demo ormeggiatore).
+- `npm run check:boundaries` — verifica import diretti/transitivi e guardie dei prodotti.
+- `npm run test:isolated` — build e test end-to-end generale, Ormeggio, Oggi e regressioni su database temporaneo.
 - `node scripts/offsite-backup.mjs` — copia i dump su S3/Aruba Object Storage.
 - `bash scripts/restore-drill.sh` — ripristina l'ultimo dump su DB separato e verifica.
 
@@ -48,8 +46,16 @@ Un solo progetto Next.js con aree distinte da segmenti di percorso (mappa comple
 - **Sito pubblico**: `src/app/(sito)/*` (home, Chi siamo, Contatti, Noleggia, `/barca/[slug]`, `/azienda/[slug]`, pagine legali).
 - **Gestionale**: `src/app/gestionale/(portale)/*` (`/gestionale/oggi`, `/gestionale/calendario`, `/gestionale/prenotazioni`, `/gestionale/flotta`, `/gestionale/clienti`, `/gestionale/economia/…`, `/gestionale/ormeggio/…`, `/gestionale/impostazioni/…`).
 - **Pannello NaBoat**: `src/app/admin/*`. **Area cliente**: `src/app/area/*`. **Azioni per token**: `/paga/[token]`, `/contratto/[token]`.
-- API `src/app/api/v1/*`; logica condivisa in `src/lib/*` (db, session, tenant, guard, ratelimit, paginazione, payments, reports, storage…); `prisma/` schema + migration + seed.
+- API `src/app/api/v1/*` come adattatori; servizi, schermate e componenti dei prodotti in `src/modules/noleggio` e `src/modules/ormeggio`, servizi comuni in `src/modules/piattaforma`. Infrastruttura tecnica e compatibilità in `src/lib/*`; `prisma/` contiene schema, migrazioni e seed. Mappa e regole: [Separazione dei moduli](docs/SEPARAZIONE-MODULI.md).
 
 ## Liste e paginazione
 Le liste di prenotazioni, clienti, spese e incassi sono paginabili dal database: con `?page=` (e `?limit=`) rispondono `{ items, totale, pagina, dimensione, pagine }`; senza `page` restano un array (forma storica) con l'header `X-Total-Count` e un tetto di righe documentato. Il calendario accetta una finestra massima di 180 giorni.
 
+
+## Collaudo isolato
+
+`npm run test:isolated` richiede PostgreSQL e Redis locali attivi. Crea un database
+vuoto con nome casuale, applica tutte le migrazioni, prepara account temporanei e
+esegue build e smoke su una copia del codice. Database, server e upload temporanei
+vengono rimossi alla fine. Non usa credenziali Stripe/SMTP reali e non svuota Redis.
+Vedi `docs/STABILIZZAZIONE.md` per limiti e risultati.
