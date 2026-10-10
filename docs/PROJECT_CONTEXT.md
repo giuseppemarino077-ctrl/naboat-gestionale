@@ -752,3 +752,26 @@ scheda, formati diversi, prefissi espliciti, numero locale che inizia con 39,
 fissi, telefono e gestione dei recapiti mancanti/non validi. Typecheck e lint
 senza errori (244 warning storici), confini e build riusciti. Ambiente
 temporaneo rimosso; localhost HTTP 200. Nessun recapito operativo modificato.
+
+### CI GitHub: file upload escluso dalle regole Git (10 ottobre 2026)
+
+La CI del commit `1a626f8` si è fermata al typecheck con TS2307: mancava
+`src/modules/piattaforma/server/uploads/operazioni.ts`, importato dall’adattatore
+`src/app/api/v1/uploads/route.ts`. Il file esisteva in locale ma la regola
+generica `uploads` di `.gitignore` escludeva anche la directory del codice.
+Installazione, migrazioni e lint erano riusciti; build e collaudo remoto
+non erano stati eseguiti perché successivi al typecheck.
+
+Regole degli archivi immagini limitate ai percorsi effettivi `/public/uploads/`,
+`/uploads/` e `/uploads-privati/`; il modulo server upload viene incluso nel
+repository. Nessuna modifica della logica di caricamento o delle API.
+Il collaudo isolato ora copia solo file tracciati o nuovi non ignorati da Git,
+così un modulo disponibile solo in locale perché ignorato non può mascherare
+un errore di compilazione del checkout remoto. Restano esclusi gli upload
+operativi e rimangono temporanei codice, database e dipendenze del collaudo.
+
+Verifiche locali della correzione: typecheck e lint senza errori (244 warning
+storici), confini rispettati, regole Git verificate sul modulo e sui tre
+archivi di immagini. Build e collaudo completo riusciti: **862 PASS, 0 FAIL**,
+inclusi 229 Chrome, con copia del codice filtrata secondo Git. Ambiente
+temporaneo rimosso. Nessun altro file sorgente risulta ignorato in `src`.

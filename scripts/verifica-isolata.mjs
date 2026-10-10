@@ -1,9 +1,9 @@
 import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import { constants } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { randomBytes } from "node:crypto";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
@@ -76,8 +76,13 @@ async function run(command, args) {
 }
 
 try {
+  const inclusi = new Set();
+  const candidati = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], { cwd: root, encoding: "utf8" }).split("\0").filter(Boolean);
+  for (const file of candidati) {
+    for (let path = join(root, file); path !== root; path = dirname(path)) inclusi.add(path);
+  }
   for (const file of ["src", "prisma", "scripts", "public", "package.json", "package-lock.json", "next.config.js", "next-env.d.ts", "tsconfig.json", "tailwind.config.js", "postcss.config.js", "eslint.config.mjs"]) {
-    await cp(join(root, file), join(work, file), { recursive: true, filter: (path) => path !== join(root, "public", "uploads") });
+    await cp(join(root, file), join(work, file), { recursive: true, filter: (path) => inclusi.has(path) && path !== join(root, "public", "uploads") });
   }
   await cp(join(root, "node_modules"), join(work, "node_modules"), { recursive: true, verbatimSymlinks: true, mode: constants.COPYFILE_FICLONE });
   await admin.$executeRawUnsafe(`CREATE DATABASE "${name}"`);
