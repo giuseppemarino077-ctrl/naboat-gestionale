@@ -775,3 +775,16 @@ storici), confini rispettati, regole Git verificate sul modulo e sui tre
 archivi di immagini. Build e collaudo completo riusciti: **862 PASS, 0 FAIL**,
 inclusi 229 Chrome, con copia del codice filtrata secondo Git. Ambiente
 temporaneo rimosso. Nessun altro file sorgente risulta ignorato in `src`.
+
+La prima nuova esecuzione GitHub (`00058b0`) supera typecheck, lint, confini e
+build, ma rileva una differenza nel test storico dei trasferimenti: lo smoke
+costruiva la mezzanotte nel fuso del processo. Su GitHub (UTC) equivaleva alle
+02:00 italiane e la vista storica giornaliera mostrava correttamente entrambi i
+posti occupati in momenti diversi. `smoke-ormeggio.mjs` usa ora le funzioni
+condivise `giornoDi`, `aggiungiGiorni` e `inizioGiorno` per le date di prova,
+senza dipendere dal fuso della macchina e senza modificare la logica applicativa.
+Verifica successiva con `TZ=UTC npm run test:isolated`: build riuscita, 633 PASS
+e 0 FAIL, incluso lo spostamento storico; database e codice temporanei rimossi.
+Typecheck, lint (0 errori, 244 warning storici) e confini superati. Conversioni
+di prova controllate anche con `Europe/Rome` e `America/New_York`, inclusi i
+giorni di cambio dell'ora legale e solare.

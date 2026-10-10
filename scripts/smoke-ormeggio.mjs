@@ -3,10 +3,15 @@
 // Usa un account ormeggiatore (per default quello demo locale) e pulisce da solo
 // i dati di prova che crea. Non tocca le permanenze reali dell'azienda.
 import { PrismaClient } from "@prisma/client";
+import { readFile } from "node:fs/promises";
+import ts from "typescript";
 import { assicuraAmbienteSmoke } from "./_guardia-ambiente.mjs";
 
 const BASE = process.argv[2] || process.env.SMOKE_BASE || "http://localhost:3000";
 assicuraAmbienteSmoke("smoke-ormeggio.mjs", BASE);
+const dateSource = await readFile(new URL("../src/modules/piattaforma/date.ts", import.meta.url), "utf8");
+const dateModule = ts.transpileModule(dateSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 } }).outputText;
+const { aggiungiGiorni, giornoDi, inizioGiorno } = await import("data:text/javascript;base64," + Buffer.from(dateModule).toString("base64"));
 const EMAIL = process.env.SMOKE_ORM_EMAIL || "ormeggiatore@demo.naboat.it";
 const PASSWORD = process.env.SMOKE_ORM_PASSWORD || "Demo-Ormeggio-2026!";
 const marker = `SMOKE-${Date.now()}`;
@@ -40,8 +45,8 @@ async function req(path, method = "GET", body, extraHeaders = {}) {
 }
 const json = async (path, method = "GET", body) => { const r = await req(path, method, body); let d = null; try { d = await r.json(); } catch {} return { status: r.status, data: d }; };
 
-const oggi = new Date().toISOString().slice(0, 10);
-const fine = new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10);
+const oggi = giornoDi(new Date());
+const fine = aggiungiGiorni(oggi, 90);
 let tenantId = null;
 let areaId = null;
 
@@ -145,9 +150,9 @@ const run = async () => {
   const areaH = await json("/api/v1/ormeggio/aree", "POST", { nome: `${marker}-H`, righe: 1, colonne: 3 });
   const miaH = (await json("/api/v1/ormeggio/aree")).data.find((a) => a.id === areaH.data.id);
   const hA = miaH.posti[0].id, hB = miaH.posti[1].id, hC = miaH.posti[2].id;
-  const inizioStoria = new Date(Date.now() - 20 * 86400000).toISOString().slice(0, 10);
-  const metaStoria = new Date(Date.now() - 10 * 86400000).toISOString().slice(0, 10);
-  const decorrenza = new Date(`${metaStoria}T00:00:00`).toISOString();
+  const inizioStoria = aggiungiGiorni(oggi, -20);
+  const metaStoria = aggiungiGiorni(oggi, -10);
+  const decorrenza = inizioGiorno(metaStoria).toISOString();
   const pH = await json("/api/v1/ormeggio/permanenze", "POST", { postoId: hA, proprietarioId: prop.data.id, nuovaBarca: { nome: `${marker}-H Boat` }, inizioAt: inizioStoria, finePrevistaAt: fine, corrispettivoCent: 10000 });
   T("permanenza per la storia creata", pH.status === 201, `${pH.status} ${JSON.stringify(pH.data)}`);
   const cella = async (data, codice) => (await json(`/api/v1/ormeggio/griglia?data=${data}`)).data.aree.find((a) => a.id === areaH.data.id).posti.find((p) => p.codice === codice);
