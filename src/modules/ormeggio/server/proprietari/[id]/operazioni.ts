@@ -13,6 +13,34 @@ const Schema = z.object({
 }).strict();
 type Context = { params: Promise<{ id: string }> };
 
+export async function GET(req: Request, { params }: Context) {
+  const t = await requireOrmeggio(req);
+  if ("error" in t) return t.error;
+  const { id } = await params;
+  const proprietario = await prisma.proprietario.findFirst({
+    where: { id, tenantId: t.tenantId, archiviato: false },
+    select: {
+      id: true, nome: true, telefono: true, email: true,
+      boats: {
+        where: { tenantId: t.tenantId, uso: "custodia", archiviato: false },
+        orderBy: { nome: "asc" },
+        select: {
+          id: true, nome: true,
+          permanenze: {
+            where: { tenantId: t.tenantId },
+            orderBy: { inizioAt: "desc" },
+            select: {
+              id: true, stato: true, inizioAt: true, finePrevistaAt: true, fineAt: true,
+              posto: { select: { codice: true, area: { select: { nome: true, archiviata: true } } } },
+            },
+          },
+        },
+      },
+    },
+  });
+  return proprietario ? ok(proprietario) : fail("Proprietario non trovato", 404);
+}
+
 export async function PATCH(req: Request, { params }: Context) {
   const t = await requireOrmeggio(req);
   if ("error" in t) return t.error;

@@ -123,6 +123,8 @@ try {
   await run(process.execPath, ["scripts/verifica-oggi.mjs", base]);
   await run(process.execPath, ["scripts/verifica-stabilizzazione.mjs", base]);
   await run(process.execPath, ["scripts/verifica-separazione.mjs", base]);
+  await run(process.execPath, ["scripts/verifica-disponibilita-ormeggio.mjs", base]);
+  await run(process.execPath, ["scripts/verifica-accesso-attivita.mjs", base]);
   if (env.ORMEGGIO_BROWSER === "1") await run(process.execPath, ["scripts/verifica-ormeggio-browser.mjs", base]);
 } catch (e) {
   if (serverOutput) console.error(`Ultimi eventi del server temporaneo:\n${serverOutput}`);

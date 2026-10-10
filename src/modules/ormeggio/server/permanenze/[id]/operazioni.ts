@@ -1,7 +1,8 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { requireImportiOrmeggio, requireOrmeggio } from "@/modules/ormeggio/accesso";
-import { FINE_APERTA, postoNelQuadro, conflittoPermanenza } from "@/modules/ormeggio/regole";
+import { postoNelQuadro, conflittoPermanenza } from "@/modules/ormeggio/regole";
+import { dataSosta, periodoOccupato, sovrapposizioneAssegnazioni } from "@/modules/ormeggio/periodi";
 import { z } from "zod";
 
 function conflittoAssegnazione(e: unknown): boolean {
@@ -9,6 +10,7 @@ function conflittoAssegnazione(e: unknown): boolean {
   return /23P01/.test(msg) || /exclusion constraint/i.test(msg) || /assegnazione_(posto|barca)_senza_sovrapposizioni/.test(msg);
 }
 class Conflitto extends Error {}
+class PeriodoNonValido extends Error {}
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const t = await requireOrmeggio(req);
@@ -72,8 +74,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   if (p.data.azione === "chiudi") {
     if (cur.stato === "chiusa") return fail("Permanenza già chiusa", 409);
-    const fineAt = p.data.fineAt ? new Date(p.data.fineAt) : new Date();
-    if (Number.isNaN(fineAt.getTime())) return fail("Data di chiusura non valida", 422);
+    const fineAt = p.data.fineAt ? dataSosta(p.data.fineAt) : new Date();
+    if (!fineAt) return fail("Data di chiusura non valida", 422);
     if (fineAt <= cur.inizioAt) return fail("La chiusura deve essere successiva all'inizio", 422);
     // L'assegnazione "corrente" è l'ultima della catena (anche se ha già una fine prevista).
     const aperta = await prisma.assegnazionePosto.findFirst({ where: { tenantId: t.tenantId, permanenzaId: cur.id }, orderBy: { dal: "desc" } });
@@ -113,16 +115,21 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
     if (cur.stato === "chiusa" && p.data.finePrevistaAt !== undefined) return fail("Permanenza chiusa: la data di fine non si modifica", 409);
     const finePrev = p.data.finePrevistaAt !== undefined
-      ? (p.data.finePrevistaAt ? new Date(p.data.finePrevistaAt) : null)
+      ? (p.data.finePrevistaAt ? dataSosta(p.data.finePrevistaAt) : null)
       : cur.finePrevistaAt;
-    if (finePrev && Number.isNaN(finePrev.getTime())) return fail("Data di fine non valida", 422);
+    if (p.data.finePrevistaAt && !finePrev) return fail("Data di fine non valida", 422);
     if (finePrev && finePrev <= cur.inizioAt) return fail("La fine deve essere successiva all'inizio", 422);
 
     let aggiornata;
     try {
       aggiornata = await prisma.$transaction(async (tx) => {
+        const corrente = cur.stato === "attiva" && p.data.finePrevistaAt !== undefined
+          ? await tx.assegnazionePosto.findFirst({ where: { tenantId: t.tenantId, permanenzaId: cur.id }, orderBy: { dal: "desc" } })
+          : null;
+        if (corrente && finePrev && finePrev <= corrente.dal) throw new PeriodoNonValido("La fine prevista deve essere successiva all'ultimo spostamento");
         // Rettifica del corrispettivo: una voce di conguaglio, non una modifica silenziosa.
         if (p.data.corrispettivoCent !== undefined) {
+          await tx.$queryRaw`SELECT id FROM "Permanenza" WHERE id = ${cur.id} AND "tenantId" = ${t.tenantId} FOR UPDATE`;
           const somma = await tx.addebito.aggregate({
             where: { tenantId: t.tenantId, permanenzaId: cur.id, origine: "custodia" },
             _sum: { importoCent: true },
@@ -138,7 +145,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         const upd = await tx.permanenza.update({
           where: { id: cur.id },
           data: {
-            finePrevistaAt: finePrev,
+            ...(p.data.finePrevistaAt !== undefined ? { finePrevistaAt: finePrev } : {}),
             ...(p.data.corrispettivoCent !== undefined ? { corrispettivoCent: p.data.corrispettivoCent } : {}),
             ...(p.data.note !== undefined ? { note: p.data.note?.trim() || null } : {}),
             ...(p.data.pronta !== undefined ? { pronta: p.data.pronta } : {}),
@@ -146,13 +153,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         });
         if (cur.stato === "attiva" && p.data.finePrevistaAt !== undefined) {
           // La fine prevista aggiorna l'intervallo dell'assegnazione corrente.
-          const corrente = await tx.assegnazionePosto.findFirst({ where: { tenantId: t.tenantId, permanenzaId: cur.id }, orderBy: { dal: "desc" } });
           if (corrente) await tx.assegnazionePosto.update({ where: { id: corrente.id }, data: { al: finePrev } });
         }
         await tx.auditLog.create({ data: { tenantId: t.tenantId, actorId: t.userId, azione: "ormeggio.permanenza.aggiorna", entita: "Permanenza", entitaId: cur.id } });
         return upd;
       });
     } catch (e) {
+      if (e instanceof PeriodoNonValido) return fail(e.message, 422);
       if (e instanceof Conflitto) return fail(e.message, 409);
       if (conflittoPermanenza(e) || conflittoAssegnazione(e)) return fail("Conflitto sull'assegnazione del posto", 409);
       throw e;
@@ -169,8 +176,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (nuovo.bloccato) return fail("Posto non utilizzabile", 409);
   if (nuovo.id === cur.postoId) return fail("La barca è già in questo posto", 409);
 
-  const decorrenza = p.data.decorrenza ? new Date(p.data.decorrenza) : new Date();
-  if (Number.isNaN(decorrenza.getTime())) return fail("Data di decorrenza non valida", 422);
+  const decorrenza = p.data.decorrenza ? dataSosta(p.data.decorrenza) : new Date();
+  if (!decorrenza) return fail("Data di decorrenza non valida", 422);
   if (decorrenza < cur.inizioAt) return fail("La decorrenza non può precedere l'inizio della permanenza", 422);
   const fineAssegnazione = cur.fineAt ?? cur.finePrevistaAt;
   if (fineAssegnazione && decorrenza >= fineAssegnazione) return fail("La decorrenza è oltre la fine prevista", 422);
@@ -188,16 +195,17 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       await tx.$queryRaw`SELECT id FROM "Area" WHERE id = ${nuovo.areaId} AND "tenantId" = ${t.tenantId} FOR SHARE`;
       const attuale = await tx.posto.findFirst({ where: { id: nuovo.id, tenantId: t.tenantId }, include: { area: true } });
       if (!attuale || !postoNelQuadro(attuale) || attuale.bloccato) throw new Conflitto("Posto rimosso o non utilizzabile: aggiorna il quadro");
-      const conflitto = await tx.assegnazionePosto.count({
+      const conflitto = await tx.assegnazionePosto.findFirst({
         where: {
           tenantId: t.tenantId,
           postoId: nuovo.id,
           permanenzaId: { not: cur.id },
-          dal: { lte: fineAssegnazione ?? FINE_APERTA },
-          OR: [{ al: null }, { al: { gt: decorrenza } }],
+          ...sovrapposizioneAssegnazioni(decorrenza, fineAssegnazione),
         },
+        orderBy: { dal: "asc" },
+        select: { dal: true, al: true },
       });
-      if (conflitto > 0) throw new Conflitto("Il nuovo posto è occupato in questo periodo");
+      if (conflitto) throw new Conflitto(`Il nuovo posto è occupato in questo periodo: ${nuovo.codice} è assegnato ${periodoOccupato(conflitto)}. Modifica la decorrenza o la fine prevista, oppure scegli un altro posto.`);
 
       await tx.assegnazionePosto.update({ where: { id: aperta.id }, data: { al: decorrenza } });
       await tx.assegnazionePosto.create({

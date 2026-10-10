@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Dialogo } from "@/components/ui/Dialogo";
 import { useUtente } from "@/components/Utente";
 import { IntestazioneOrmeggio, RiepilogoOrmeggio } from "@/modules/ormeggio/components/IntestazioneOrmeggio";
+import { TariffeSosta } from "@/modules/ormeggio/components/TariffeSosta";
 import { useAggiornamenti } from "@/lib/aggiorna";
 
 type DettaglioConto = { permanenzaId: string; boat: string; tipo: string; stato: string; inizioAt: string; addebitiCent: number; incassatoCent: number; residuoCent: number };
@@ -104,6 +105,7 @@ export default function ContiPage() {
       {err && <p className="card p-3 text-sm font-semibold text-coral">{err}</p>}
 
       <RiepilogoOrmeggio voci={[{ nome: "Addebitato", valore: euro(totale("addebitiCent")) }, { nome: "Incassato", valore: euro(totale("incassatoCent")) }, { nome: "Residuo", valore: euro(totale("residuoCent")) }]} />
+      <TariffeSosta />
       <div className="flex flex-wrap items-center gap-3">
         <input aria-label="Cerca nei conti" className="campo min-w-[180px] flex-1" placeholder="Proprietario, contatto o barca…" value={q} onChange={(e) => setQ(e.target.value)} />
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={soloResidui} onChange={(e) => setSoloResidui(e.target.checked)} /> Solo conti da saldare</label>

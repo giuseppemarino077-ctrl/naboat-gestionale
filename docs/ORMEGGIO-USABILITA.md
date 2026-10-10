@@ -299,3 +299,281 @@ inizializzazione idempotente e prezzi riservati, isolamento tra tenant,
 eliminazione con barca futura, conservazione di contratto e incasso reali,
 sospensione delle attività e conto storico ancora gestibile. Schermate desktop
 e telefono controllate. Test esclusivamente su database temporanei.
+
+### Disponibilità e riutilizzo dei posti (9 ottobre 2026)
+
+Corretto il falso conflitto dopo una chiusura, uno spostamento o l’eliminazione
+di un proprietario nella giornata corrente. Il quadro mostrava il posto libero
+all’istante attuale, mentre il nuovo inserimento con la sola data di oggi partiva
+da mezzanotte, sovrapponendosi allo storico. Ora una nuova sosta con inizio oggi
+parte dal salvataggio; il modulo lo indica. Gli orari ISO espliciti conservano
+la possibilità di registrare lo storico, rispettando i conflitti reali.
+
+I controlli di posto e barca, anche nei trasferimenti, usano intervalli con fine
+esclusa, coerenti con i vincoli del database: la fine di una sosta può coincidere
+con l’inizio della successiva. Nessuna fine equivale a un’assegnazione illimitata,
+che deve essere compatibile anche con gli impegni futuri. Gli errori indicano
+coordinate e periodo occupato; dopo un conflitto il quadro viene aggiornato
+senza cancellare i dati del modulo.
+
+Quadro ed elenco usano lo stesso giorno in Europe/Rome, compresi i cambi d’ora.
+Date inesistenti, orari senza fuso e periodi invertiti vengono rifiutati. Una fine
+precedente all’ultimo spostamento restituisce 422 e non altera né la sosta né
+il conto. Le date senza orario diverse da oggi mantengono la convenzione UTC
+esistente; nessuna riscrittura dello storico o migrazione.
+
+Regressioni dedicate in `scripts/verifica-disponibilita-ormeggio.mjs`, integrate
+nel collaudo isolato, e prove browser del riuso dopo chiusura e trasferimento.
+Verificati anche concorrenza, periodi adiacenti, sovrapposizione di un millisecondo,
+impegni futuri, eliminazione proprietario e rollback senza dati parziali.
+
+Collaudo di questa correzione: **693 PASS, 0 FAIL** (386 generale, 50 API Ormeggio,
+19 Oggi, 22 stabilizzazione, 79 separazione, 29 disponibilità, 108 Chrome).
+Typecheck, lint e confini riusciti; build di produzione riuscita. Restano i 248
+warning preesistenti. Database temporaneo eliminato e localhost raggiungibile.
+
+### Accesso alle attività dal menu (9 ottobre 2026)
+
+La voce «Attività» della navigazione Ormeggio apre `/gestionale/ormeggio/da-fare`.
+In cima alla pagina si sceglie il cliente, cercandolo anche per telefono o email,
+poi una delle sue barche in custodia. Se la barca ha più soste, viene proposta
+quella corrente; in sua assenza la prossima futura o l’ultima registrata. Il
+periodo resta selezionabile esplicitamente, con date, stato e posto visibili.
+
+«Apri attività» porta alla scheda esistente, già sul tab Attività.
+«Nuova attività» apre anche il modulo di inserimento. Catalogo, addetti, stato
+del lavoro, addebiti, storni e permessi usano gli stessi flussi del quadro posti.
+Dalla scheda si torna all’elenco con «Tutte le attività». Il nome del cliente è
+visibile e ricercabile anche nell’elenco dei lavori in sospeso.
+
+Cambiare cliente azzera barca e periodo. Una barca senza sosta non permette
+l’apertura di un’attività e rimanda al quadro posti. Clienti eliminati e barche
+archiviate o a noleggio sono esclusi. La lettura dedicata del cliente è protetta
+dal modulo e dal tenant, restituisce soltanto dati operativi senza importi.
+Ricerche ritardate e richieste annullate evitano risultati di un cliente precedente;
+gli aggiornamenti in background rispettano la compilazione dei campi.
+
+Suite dedicata `scripts/verifica-accesso-attivita.mjs` nel collaudo isolato e
+regressioni browser su selezione, cambio cliente, periodi multipli, inserimento,
+addebito, ricerca, permessi e telefono. Nessuna migrazione.
+
+Collaudo finale di questo intervento: **724 PASS, 0 FAIL** (386 generale,
+50 API Ormeggio, 19 Oggi, 22 stabilizzazione, 79 separazione, 29 disponibilità,
+17 accesso attività, 122 Chrome). Typecheck, lint e confini riusciti; build
+di produzione riuscita. Restano 248 warning preesistenti. Schermate desktop e
+telefono controllate; otto verifiche browser di localhost in sola lettura riuscite.
+Database temporaneo eliminato; nessuna scrittura sui dati operativi.
+
+### Catalogo a tendina nella pagina Attività (9 ottobre 2026)
+
+In Attività è disponibile il menu «Catalogo attività», con tutte le voci offerte
+e, per il personale autorizzato, prezzo e unità. «Nuovo servizio» aggiunge una
+voce; «Modifica servizio» permette di cambiare nome, prezzo e unità di quella
+selezionata. Prezzo vuoto significa da definire; zero è un prezzo valido. Sono
+rifiutati importi negativi, ambigui o con più di due decimali.
+
+`CatalogoServizi` è il componente unico di modifica anche per Configurazione,
+dove restano elenco, ricerca ed eliminazione. `useCatalogoServizi` condivide
+inizializzazione, lettura, aggiornamento e gestione degli errori tra Attività,
+Configurazione e scheda della sosta. Le API e il catalogo nel database sono gli
+stessi. Le modifiche si propagano nelle pagine aperte senza ricaricare o alterare
+le bozze; la nuova selezione di un servizio propone nome, prezzo e unità attuali.
+
+Attività e addebiti già salvati conservano i propri valori. Le modifiche del
+catalogo non generano addebiti né ricalcoli dello storico. Chi non può vedere
+gli importi può modificare nome e unità senza leggere o sovrascrivere il prezzo;
+le protezioni server esistenti restano applicate. Nessuna migrazione.
+
+Collaudo finale: **739 PASS, 0 FAIL** (386 generale, 50 API Ormeggio, 19 Oggi,
+22 stabilizzazione, 79 separazione, 29 disponibilità, 17 accesso attività,
+137 Chrome). Typecheck e lint senza errori (248 warning preesistenti), confini
+e build riusciti. Verificati creazione e modifica da Attività, sincronizzazione
+bidirezionale con Configurazione, valori nella scheda già aperta, conservazione
+di bozze e attività salvate, prezzi non validi, permessi e telefono. Otto prove
+browser di localhost in sola lettura riuscite; database temporaneo eliminato.
+
+### Gestione rapida ed eliminazione servizi (9 ottobre 2026)
+
+In Attività il catalogo ha ricerca immediata per nome o unità, tendina filtrata
+con conteggio e «Elimina servizio» sulla voce selezionata. «Mostra elenco» apre
+le righe con Modifica ed Elimina, senza cambiare pagina; la ricerca filtra anche
+queste righe. Cambiare ricerca azzera la selezione, evitando eliminazioni su una
+voce non più visibile. Dopo un salvataggio il filtro si azzera per mostrare la
+voce aggiornata. Modificare un servizio non cancella la bozza Nuovo servizio.
+
+La conferma indica il nome esatto; annullare conserva catalogo e selezione.
+Durante il salvataggio i comandi sono disabilitati. L’esito aggiorna tendina,
+elenco e contatore; una voce già eliminata da un altro operatore viene rimossa
+anche dalla vista corrente. La DELETE è un’unica operazione filtrata per tenant:
+due eliminazioni simultanee non producono errori interni.
+
+Eliminazione condivisa con Configurazione e suggerimenti della scheda barca;
+attività, addebiti e storico già registrati restano intatti. Nessuna migrazione,
+eliminazione automatica o scrittura di collaudo sui dati operativi.
+
+Collaudo finale: **753 PASS, 0 FAIL** (386 generale, 50 API Ormeggio, 19 Oggi,
+22 stabilizzazione, 79 separazione, 29 disponibilità, 19 accesso attività,
+149 Chrome). Typecheck, lint, confini e build riusciti; 248 warning preesistenti.
+Verificati annullamento, rimozione da tendina e riga, ricerca e contatori,
+conservazione esatta di attività/addebito contabilizzati, doppia eliminazione,
+isolamento tenant e disposizione sul telefono. Otto prove browser di localhost
+in sola lettura riuscite; database temporaneo eliminato.
+
+### Campo unico per i servizi offerti (9 ottobre 2026)
+
+In Attività, «Servizi e attività offerte» usa un solo campo per ricerca e
+selezione, al posto di ricerca e menu separati. Cliccando nel campo vuoto si
+vedono tutte le voci; digitando compaiono sotto i servizi il cui nome inizia
+con quelle lettere, senza distinzione tra maiuscole, minuscole e accenti.
+Ogni suggerimento mostra nome, unità e prezzo quando consentito, con Modifica
+ed Elimina direttamente sulla riga. Restano Nuovo servizio e i comandi della
+voce selezionata. Azzera ricerca mostra nuovamente tutto il catalogo.
+
+Freccia giù porta al primo suggerimento, Invio sceglie la voce ed Esc chiude
+l’elenco tornando al campo. Le azioni sono raggiungibili anche con Tab.
+I suggerimenti si chiudono uscendo dal campo e dai suoi comandi; sul telefono
+le righe adattano testo e pulsanti alla larghezza disponibile.
+Catalogo condiviso, conferme, permessi e conservazione dello storico invariati.
+La ricerca della pagina Configurazione continua a cercare anche nell’unità.
+
+Collaudo finale: **760 PASS, 0 FAIL**, inclusi 156 Chrome. Typecheck e lint
+senza errori (248 warning preesistenti), confini e build riusciti. Verificati
+campo unico, ricerca per iniziali, tastiera, gestione dalle righe, creazione,
+modifica, eliminazione e propagazione alle altre pagine; storico preservato.
+Schermate desktop e telefono controllate. Undici verifiche browser di localhost
+riuscite in sola lettura; database temporaneo rimosso, dati operativi invariati.
+
+### Scheda del posto e motivo del giallo (10 ottobre 2026)
+
+Selezionando una barca nel quadro, la scheda mostra subito un riquadro giallo
+in rilievo con tutte le attività da fare o in corso, comprese quelle future.
+Ogni lavoro riporta nome, stato, data prevista (Oggi/Domani/In ritardo quando
+applicabile), eventuale addetto e accesso alla relativa riga nella scheda completa.
+Le attività concluse restano nello storico e non compaiono nell’avviso.
+
+Il riquadro usa le stesse attività aperte che determinano il colore della barca:
+la risposta della griglia ora include id, nome, stato, data e nome dell’addetto,
+senza importi. È visibile anche prima del caricamento dei dettagli della sosta,
+rimane presente cambiando scheda e si aggiorna al completamento dei lavori.
+
+Nuovo componente `SchedaPosto`, condiviso tra pannello desktop e finestra sul
+telefono: intestazione NaBoat con nomi completi e coordinate; permanenza, contratto,
+conto e contatti separati; note espandibili, chiamata/WhatsApp, accesso diretto a
+Nuova attività e scheda completa. Trasferimento conservato. Permessi economici
+invariati. Errori della scheda con Riprova locale, richieste obsolete annullate;
+selezionare un’altra barca non riutilizza i dettagli della precedente.
+Nessuna migrazione, modifica delle regole contabili o dei dati operativi.
+
+Collaudo finale: **777 PASS, 0 FAIL**, inclusi 173 Chrome. Typecheck e lint
+senza errori (244 warning storici), confini e build riusciti. Verificati avviso
+immediato, date, navigazione al lavoro, aggiornamento dopo completamento,
+permessi, errori/Riprova, cambio barca e telefono. Schermate desktop e telefono
+controllate; quattro verifiche browser di localhost in sola lettura riuscite.
+Database temporaneo rimosso, dati operativi invariati.
+
+### Costo mensile della sosta in Economia (10 ottobre 2026)
+
+Sotto il riepilogo di Economia un riquadro compatto chiede quanto costa un mese
+di sosta per una barca. Campo in euro, pulsante Salva costo, conferma e validazione
+di due decimali; zero indica una tariffa gratuita. Il valore aggiorna il prezzo
+del servizio mensile nel catalogo condiviso ed è proposto scegliendo quel servizio
+nelle nuove attività delle barche. Non genera addebiti ricorrenti automaticamente
+e non modifica gli importi già concordati nelle soste.
+
+Il servizio è riconosciuto anche dopo una rinomina, tramite l’unità «mese»;
+se sono presenti più servizi mensili si può scegliere quale tariffa modificare.
+Se nessuno è presente, Salva costo crea «Ormeggio mensile». Modifiche del catalogo
+si riflettono nel riquadro; le bozze in compilazione resistono agli aggiornamenti
+periodici. I profili senza permesso importi non vedono il riquadro, quelli di
+sola consultazione non possono salvare. Stesse API e guardie del catalogo,
+nessuna migrazione.
+
+Collaudo finale: **788 PASS, 0 FAIL**, inclusi 184 Chrome e 11 nuove verifiche
+del costo mensile. Typecheck e lint senza errori (244 warning storici), confini
+e build riusciti. Schermate desktop e telefono controllate; persistenza,
+tariffa gratuita, decimali, bozze, rinomina, prezzo nelle nuove attività e
+permessi verificati. Database temporaneo rimosso, dati operativi invariati.
+
+### Tariffe essenziali e prezzo della sosta (10 ottobre 2026)
+
+Economia ora mostra due barre separate «TARIFFA GIORNALIERA» e «TARIFFA MENSILE»,
+con il solo campo importo. Salvano all’uscita dal campo o con Invio; icona di
+conferma, stato accessibile ed errori locali. Entrambe aggiornano le rispettive
+voci del catalogo; zero è gratuito, campo vuoto significa tariffa da definire.
+Rimosso il precedente riquadro descrittivo e il pulsante Salva costo.
+
+Il corrispettivo della nuova sosta è proposto dalla tariffa mensile. La proposta
+attende il catalogo e resta modificabile: digitazione, aggiornamenti periodici
+e cambi del listino non sovrascrivono la compilazione in corso. Ogni nuova
+compilazione riparte dal listino corrente; gli addetti senza importi non vedono
+il prezzo e non ricevono un addebito automatico.
+
+Nella scheda completa il corrispettivo è modificabile con Salva prezzo.
+Il conto registra la differenza come rettifica, preservando incassi, servizi
+e documenti già generati. Per aggiornare un contratto non firmato si usa il
+comando Contratto; quelli firmati conservano la versione acquisita. Le rettifiche
+simultanee vengono serializzate e non duplicano l’addebito. Una modifica del
+solo prezzo non riscrive la fine prevista. La tariffa mensile è la proposta
+iniziale del corrispettivo: non sono introdotti canoni ricorrenti automatici
+né calcoli proporzionali alla durata. Nessuna migrazione.
+
+Collaudo finale: **799 PASS, 0 FAIL**, inclusi 192 Chrome e 32 verifiche di
+disponibilità/concorrenza. Typecheck e lint senza errori (244 warning storici),
+confini e build riusciti. Verificati salvataggio su blur/Invio, tariffe separate,
+precompilazione, prezzo personalizzato, nuova compilazione pulita, rettifica
+dalla scheda, aggiornamento del conto e permessi. Schermate desktop e telefono
+controllate; localhost risponde HTTP 200. Database temporaneo rimosso, prezzi
+e dati operativi invariati durante il collaudo.
+
+### Suggerimento del prezzo in base al periodo (10 ottobre 2026)
+
+Nella nuova sosta il prezzo viene suggerito dopo la scelta di inizio e fine,
+contando entrambi i giorni. Dal giorno 1 al 10 sono dieci tariffe giornaliere;
+1–31 gennaio vale una tariffa mensile; 1 gennaio–1 febbraio vale una mensilità
+più una giornata. Per periodi più lunghi si sommano i mesi di calendario e i
+giorni rimanenti. Un mese iniziato il 15 termina il 14 del mese successivo;
+per partenze a fine mese si adatta l’anniversario all’ultimo giorno disponibile.
+Febbraio, anni bisestili e cambi di ora non alterano il conteggio.
+
+Il riepilogo sotto il campo distingue mesi, giorni e rispettive tariffe.
+Cambiando le date il suggerimento si aggiorna; un prezzo digitato a mano resta
+preservato. «Usa prezzo suggerito» permette di tornare al calcolo automatico.
+Il prezzo concordato resta modificabile anche dalla scheda completa, con
+rettifica del conto. Se manca una tariffa necessaria il modulo invita a
+configurarla in Economia o inserire un prezzo manuale. Nessuna proposta prima
+di scegliere entrambe le date; una sosta senza fine può mantenere un prezzo
+manuale o ancora da definire.
+
+Il posto resta assegnato anche nell’ultimo giorno selezionato, incluso nel
+prezzo; ammessa una sosta con inizio e fine nella stessa data. Il modulo si
+adatta alla finestra anche con nomi lunghi, su desktop e telefono. Nessuna
+modifica automatica dei corrispettivi già registrati e nessuna migrazione.
+
+Collaudo finale: **837 PASS, 0 FAIL**, inclusi 204 Chrome e 58 verifiche di
+disponibilità/preventivi. Typecheck e lint senza errori (244 warning storici),
+confini e build riusciti. Verificati esempi richiesti, mesi di diversa durata,
+bisestili, tariffe mancanti/gratuite, modifiche manuali e ripristino del prezzo
+suggerito, conto aggiornato e occupazione del posto fino all’ultimo giorno.
+Schermate desktop/telefono controllate dopo la correzione della larghezza del
+modulo. Database temporaneo rimosso; localhost disponibile sulla porta 3000.
+
+### Prefisso corretto nei contatti WhatsApp (10 ottobre 2026)
+
+Corretto il destinatario WhatsApp sia dal pannello Quadro posti sia dalla
+scheda completa: i numeri italiani senza prefisso ricevono automaticamente
+39, quelli già preceduti da +39/0039 non lo duplicano e i prefissi esteri
+espliciti vengono conservati. Gestiti spazi e separatori e mantenuto lo zero
+iniziale dei fissi italiani. La correzione funziona anche sui proprietari
+già registrati; non richiede la modifica dei numeri in anagrafica.
+
+Un numero assente o non valido non apre collegamenti incompleti: il pannello
+invita alla verifica e la scheda completa mostra un messaggio chiaro.
+Conservati messaggio personalizzabile, destinatario della barca selezionata
+e permessi esistenti. Nessuna modifica del database o migrazione.
+
+Collaudo finale: **862 PASS, 0 FAIL**, inclusi 229 Chrome e 25 nuove verifiche
+WhatsApp. Verificati entrambi i comandi, formati italiani/esteri, separatori,
+fissi, telefono, numeri assenti/non validi e messaggio della barca selezionata.
+Typecheck e lint senza errori (244 warning storici), confini e build riusciti.
+Database temporaneo rimosso; localhost HTTP 200. Nessun destinatario reale
+contattato e nessun recapito operativo modificato durante il collaudo.

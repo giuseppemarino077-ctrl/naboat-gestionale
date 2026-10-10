@@ -26,8 +26,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   const t = await requireOrmeggio(req);
   if ("error" in t) return t.error;
   const { id } = await params;
-  const s = await prisma.servizioCatalogo.findFirst({ where: { id, tenantId: t.tenantId } });
-  if (!s) return fail("Servizio non trovato", 404);
-  await prisma.servizioCatalogo.delete({ where: { id: s.id } });
+  const eliminati = await prisma.servizioCatalogo.deleteMany({ where: { id, tenantId: t.tenantId } });
+  if (!eliminati.count) return fail("Servizio non trovato", 404);
   return ok({ ok: true });
 }

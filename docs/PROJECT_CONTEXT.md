@@ -5,7 +5,7 @@ comandi**: vedi [`AGENTS.md`](../AGENTS.md). Qui c'è lo stato del progetto:
 architettura, cosa è fatto, cosa manca, problemi noti, decisioni prese, servizi
 esterni, variabili d'ambiente (solo nomi), test e prossimi passi.
 
-Ultimo aggiornamento: 9 ottobre 2026.
+Ultimo aggiornamento: 10 ottobre 2026.
 
 ---
 
@@ -299,6 +299,12 @@ Vedi [STABILIZZAZIONE.md](STABILIZZAZIONE.md) per interventi, collaudo e decisio
 Analisi di marina/campo boe, transito, rimessaggio, cantiere e strutture miste,
 ruoli, miglioramenti delle schermate e limiti in
 [ORMEGGIO-USABILITA.md](ORMEGGIO-USABILITA.md).
+
+Collaudo finale: **693 PASS, 0 FAIL** (386 generale, 50 API Ormeggio, 19 Oggi,
+22 stabilizzazione, 79 separazione, 29 disponibilità, 108 Chrome). Typecheck e
+lint senza errori (248 warning preesistenti); confini e build riusciti.
+Database temporaneo rimosso. Localhost risponde HTTP 200; otto verifiche browser
+in sola lettura sullo sviluppo riuscite, senza errori di pagina o idratazione.
 Il collegamento al sito è rimosso nel modulo Ormeggio; i tenant di solo Ormeggio
 sono esclusi da profili pubblici, catalogo e sitemap mediante un filtro comune.
 Le aziende miste conservano il noleggio pubblico. I contratti con token restano
@@ -488,3 +494,261 @@ principali e la navigazione Quadro → Economia; richieste di scrittura intercet
 nessuna modifica ai dati. Regressione aggiunta al collaudo isolato: **660 PASS,
 0 FAIL**, inclusi 104 Chrome; build, typecheck, lint e confini riusciti
 (248 warning preesistenti). Database temporaneo rimosso, sviluppo lasciato attivo.
+
+### Correzione disponibilità del quadro posti (9 ottobre 2026)
+
+Individuato con letture del database locale il falso «posto occupato» su posti
+liberati durante la giornata: il quadro interrogava l’istante attuale, la nuova
+sosta con data odierna iniziava invece da mezzanotte. La sola data di oggi ora
+avvia la sosta al salvataggio; gli orari ISO espliciti restano utilizzabili per
+lo storico. Nessuna modifica ai dati operativi o allo schema.
+
+Regole temporali condivise in `src/modules/ormeggio/periodi.ts`: sovrapposizioni
+con fine esclusa come i vincoli EXCLUDE del database, periodo senza fine realmente
+illimitato, giorno Europe/Rome comune a quadro ed elenco, validazione rigorosa
+delle date. Creazione e trasferimento indicano il periodo del conflitto reale.
+Modificare la fine prima dell’ultimo trasferimento restituisce 422, con rollback
+anche dell’eventuale rettifica economica. Sul 409 il quadro si aggiorna lasciando
+aperto il modulo compilato. Aiuto contestuale su inizio oggi e soste senza fine.
+
+Nuova suite isolata `scripts/verifica-disponibilita-ormeggio.mjs` e regressioni
+browser per riutilizzo dopo chiusura e trasferimento. Dettagli funzionali in
+[ORMEGGIO-USABILITA.md](ORMEGGIO-USABILITA.md).
+
+### Accesso diretto alle attività Ormeggio (9 ottobre 2026)
+
+Completata la pagina già collegata alla voce «Attività» nel menu Ormeggio:
+selettore cliente (nome/telefono/email), barca del cliente e sosta. Propone la
+sosta corrente prima di quelle future; il periodo resta modificabile. I comandi
+aprono la stessa scheda Attività del quadro posti, oppure direttamente il suo
+modulo Nuova attività. Collegamento di ritorno e ricerca dei lavori per cliente.
+
+Nuovo GET `/api/v1/ormeggio/proprietari/[id]`, con guardia Ormeggio e tenant,
+barche operative in custodia e sole informazioni operative delle soste, senza
+importi. Clienti eliminati e barche archiviate esclusi. Cambiare cliente azzera
+barca e sosta; richieste obsolete annullate. Nessuna creazione implicita di soste,
+nessuna migrazione o modifica dei flussi economici. Documentazione funzionale in
+ORMEGGIO-USABILITA.md; suite `scripts/verifica-accesso-attivita.mjs` e regressioni
+Chrome integrate nel collaudo isolato.
+
+Collaudo finale: **724 PASS, 0 FAIL** (386 generale, 50 API Ormeggio, 19 Oggi,
+22 stabilizzazione, 79 separazione, 29 disponibilità, 17 accesso attività,
+122 Chrome). Typecheck e lint senza errori (248 warning preesistenti), build
+riuscita; confini: 167 file di modulo, 474 file del grafo e 114 operazioni private,
+quattro regressioni del verificatore superate. Schermate desktop e telefono
+controllate; otto verifiche browser di localhost in sola lettura riuscite.
+Database temporaneo eliminato, nessuna scrittura sui dati operativi.
+
+### Catalogo servizi condiviso nella pagina Attività (9 ottobre 2026)
+
+Aggiunto il menu a tendina dei servizi offerti con creazione e modifica di nome,
+prezzo e unità direttamente da Attività. Estratto `CatalogoServizi`, usato anche
+da Configurazione, preservando ricerca ed eliminazione. Nuovo hook condiviso
+`useCatalogoServizi` anche nella scheda sosta: inizializzazione idempotente,
+lettura, aggiornamenti nelle pagine aperte ed errori con Riprova.
+
+Stesse API e stesso catalogo persistente; nessuna migrazione o nuova regola
+economica. Prezzi con due decimali al massimo, memorizzati in centesimi interi;
+null e zero distinti. Aggiornamenti del catalogo senza cambiare le bozze già in
+compilazione; nuova selezione con valori attuali. Attività e addebiti precedenti
+mantengono gli snapshot. Permesso importi conservato, anche nelle modifiche dei
+nomi da parte di un addetto. Regressioni Chrome per creazione, modifica,
+sincronizzazione tra pagine, storico, focus, prezzi non validi e telefono.
+
+Collaudo finale: **739 PASS, 0 FAIL**, inclusi 137 Chrome (15 nuove verifiche del
+catalogo). Typecheck, lint e build riusciti; 248 warning preesistenti. Confini:
+169 file di modulo, 476 file del grafo e 114 operazioni private controllate,
+quattro regressioni del verificatore superate. Schermata telefono controllata;
+otto prove browser di localhost in sola lettura riuscite. Database temporaneo
+eliminato, nessuna scrittura di collaudo sui dati operativi.
+
+### Gestione rapida ed eliminazione del catalogo (9 ottobre 2026)
+
+Catalogo in Attività con ricerca immediata per nome/unità, tendina filtrata,
+eliminazione diretta e elenco apribile con Modifica/Elimina su ogni riga.
+Selezione azzerata quando cambia la ricerca; contatori e viste aggiornati dopo
+l’esito. Conferma con nome della voce, annullamento senza modifiche, comandi
+disabilitati durante l’operazione. Gestito anche il 404 se un collega ha già
+eliminato il servizio. Modificare una voce conserva la bozza di nuovo servizio.
+
+DELETE `/api/v1/ormeggio/servizi/[id]` ora usa `deleteMany` con id e tenant in
+un’unica operazione, evitando la corsa tra lettura ed eliminazione. Guardie e
+permessi invariati. Nessuna migrazione; lavori e addebiti già salvati preservati.
+Regressioni API per isolamento e doppia eliminazione simultanea, Chrome per
+ricerca, conferma/annullamento, rimozione da tendina/elenco/scheda, contatori,
+storico contabilizzato e telefono.
+
+Collaudo finale: **753 PASS, 0 FAIL**, inclusi 149 Chrome e 19 accesso attività.
+Typecheck, lint, confini e build riusciti; 248 warning preesistenti. Dodici nuove
+verifiche browser e due API per eliminazione e gestione rapida. Schermata telefono
+controllata, otto prove browser di localhost in sola lettura riuscite. Database
+temporaneo eliminato; nessuna cancellazione di servizi reali durante il collaudo.
+
+### Ricerca e selezione servizi in un unico campo (9 ottobre 2026)
+
+In Attività eliminata la doppia interfaccia ricerca/menu del catalogo:
+un solo campo mostra sotto i suggerimenti che iniziano con il testo digitato,
+ignorando maiuscole e accenti; campo vuoto con focus mostra tutte le voci.
+Modifica ed Elimina sono disponibili su ogni suggerimento, oltre ai comandi
+della voce selezionata e Nuovo servizio. Freccia giù, Invio, Esc e Tab supportati;
+focus mantenuto dopo la scelta, suggerimenti chiusi all’uscita, layout adattivo.
+
+Stesso componente `CatalogoServizi`, stesse API, catalogo condiviso e protezioni
+su storico/importi. Nessuna migrazione. Configurazione conserva la ricerca
+per nome e unità. Regressioni Chrome aggiornate per il campo unico, filtro per
+iniziali, azioni dirette, tastiera e telefono.
+
+Collaudo finale: **760 PASS, 0 FAIL** (386 generale, 50 API Ormeggio, 19 Oggi,
+22 stabilizzazione, 79 separazione, 29 disponibilità, 19 accesso attività,
+156 Chrome). Typecheck, lint, confini e build riusciti; 248 warning preesistenti.
+Schermate desktop e telefono controllate, undici verifiche browser di localhost
+riuscite con tutte le scritture intercettate. Database temporaneo rimosso,
+nessuna modifica di collaudo ai dati reali.
+
+### Pannello posto con attività in evidenza (10 ottobre 2026)
+
+Estratto `SchedaPosto` dal quadro: intestazione nei colori NaBoat, nomi completi,
+posto/area, informazioni separate e azioni per attività, conto, documenti e
+contatti; note espandibili e trasferimento preservato. Stesso componente sul
+telefono. Riquadro giallo prima delle sezioni con le attività aperte, date e
+stati; ogni lavoro apre la relativa riga evidenziata nella scheda completa.
+
+GET griglia ora restituisce `attivitaAperte` (id/tipo/stato/dataPrevista/addetto.nome),
+derivate dallo stesso insieme usato per `attivitaDaFare` e colore della barca.
+Nessun prezzo aggiunto. Avviso disponibile prima del GET dettagli; completamenti
+aggiornano avviso e griglia attraverso il flusso di aggiornamento esistente.
+GET dettagli annullato al cambio selezione; rendering vincolato all’id corrente,
+errori con Riprova nel pannello. La navigazione al lavoro scorre alla riga una
+sola volta, rispettando la preferenza di movimento ridotto. Nessuna migrazione.
+
+Alla selezione desktop il pannello viene portato in vista se fuori schermo,
+senza ripetere lo scorrimento agli aggiornamenti periodici. Regressioni browser
+aggiunte per avviso immediato, date, collegamento alla riga evidenziata,
+errori/Riprova, cambio barca, telefono, permessi e completamento dei lavori.
+
+Collaudo finale: **777 PASS, 0 FAIL** (386 generale, 50 API Ormeggio, 19 Oggi,
+22 stabilizzazione, 79 separazione, 29 disponibilità, 19 accesso attività,
+173 Chrome). Typecheck e lint senza errori (244 warning storici), confini
+riusciti (170 file di modulo, 477 nel grafo, 114 operazioni private), build
+di produzione riuscita. Schermate desktop e telefono controllate; quattro
+verifiche browser di localhost in sola lettura riuscite. Database temporaneo
+rimosso, nessuna modifica di collaudo ai dati reali.
+
+### Tariffa mensile della sosta in Economia (10 ottobre 2026)
+
+Nuovo componente `TariffaMensile` in Economia, sotto il riepilogo: campo costo
+per barca in euro/mese e salvataggio nella voce mensile del catalogo condiviso.
+Riusa `useCatalogoServizi` e le API servizi esistenti, con gli stessi permessi,
+aggiornamenti e isolamento per azienda. Riconosce anche il servizio rinominato
+con unità «mese»; selettore se ci sono più voci mensili, creazione esplicita di
+«Ormeggio mensile» al salvataggio se non esiste una voce mensile.
+
+Prezzi validati con due decimali e memorizzati in centesimi interi; zero distinto
+da non configurato. Bozze mantenute agli aggiornamenti periodici. La tariffa
+è proposta selezionando il servizio nelle nuove attività; non avvia addebiti
+ricorrenti e non cambia corrispettivi o addebiti esistenti. Nessuna migrazione
+né modifica delle regole economiche o delle API. Regressioni browser su
+salvataggio, persistenza, collegamento alle attività, prezzi, rinomina,
+aggiornamenti, telefono e permessi.
+
+Collaudo finale: **788 PASS, 0 FAIL** (386 generale, 50 API Ormeggio, 19 Oggi,
+22 stabilizzazione, 79 separazione, 29 disponibilità, 19 accesso attività,
+184 Chrome). Typecheck e lint senza errori (244 warning storici), confini
+riusciti (171 file di modulo, 478 nel grafo, 114 operazioni private), build
+di produzione riuscita. Schermate desktop e telefono controllate. Database
+temporaneo rimosso; nessuna tariffa reale impostata durante il collaudo.
+
+### Tariffe giornaliere/mensili e corrispettivo modificabile (10 ottobre 2026)
+
+Sostituito `TariffaMensile` con `TariffeSosta`: due barre con sola etichetta e
+importo, salvataggio su blur/Invio, stato accessibile e conferma tramite icona.
+Logica condivisa in `tariffe.ts` per scelta del servizio e conversione rigorosa
+euro/centesimi. Il catalogo rimane la fonte delle tariffe. La giornaliera non
+riutilizza servizi estranei con unità giorno (parcheggio, guardiania, ecc.).
+
+Nuova sosta: corrispettivo precompilato con la tariffa mensile, proposta congelata
+alla prima disponibilità e valore manuale sempre preservato. La registrazione
+attende il catalogo quando non c’è ancora una scelta manuale. Nuova compilazione
+pulita; nessuna proposta economica agli addetti senza permesso importi.
+
+Nuovo `CorrispettivoSosta` nella scheda completa: modifica prezzo tramite il PATCH
+esistente con `rettifica: true`, aggiorna conto e viste, non modifica il listino.
+Lock della permanenza in transazione prima del calcolo della rettifica per
+evitare doppie contabilizzazioni concorrenti. Il PATCH scrive la fine prevista
+solo quando richiesta, evitando che una modifica del prezzo riscriva date lette
+precedentemente. Documenti già generati conservati; revisione dei non firmati
+tramite il comando Contratto esistente. Nessuna migrazione, automatismo ricorrente
+o calcolo proporzionale alla durata introdotto. Regressioni su concorrenza,
+precompilazione, personalizzazione, nuova compilazione, scheda, conto e permessi.
+
+Collaudo finale: **799 PASS, 0 FAIL** (386 generale, 50 API Ormeggio, 19 Oggi,
+22 stabilizzazione, 79 separazione, 32 disponibilità, 19 accesso attività,
+192 Chrome). Typecheck e lint senza errori (244 warning storici), confini
+riusciti (173 file di modulo, 480 nel grafo, 114 operazioni private), build
+di produzione riuscita. Gestione esplicita di Invio verificata dopo aver rilevato
+che il submit implicito non partiva in modo affidabile. Schermate desktop e
+telefono controllate; localhost HTTP 200. Database temporaneo rimosso,
+nessuna tariffa o sosta reale modificata durante il collaudo.
+
+### Preventivo della sosta dalle date (10 ottobre 2026)
+
+Il corrispettivo iniziale non propone più una mensilità fissa: `preventivoSosta`
+in `src/modules/ormeggio/tariffe.ts` calcola mesi di calendario completi più
+giornate residue, con giorno iniziale e finale inclusi. Esempi: 1–10 gennaio =
+10 giornate; 1–31 gennaio = una mensilità; 1 gennaio–1 febbraio = una mensilità
+più una giornata; 15 gennaio–14 febbraio = una mensilità. Gli anniversari
+mensili restano ancorati al giorno iniziale, adattato all’ultimo giorno quando
+il mese è più corto. Aritmetica sulle date civili UTC, indipendente dai cambi
+di ora legale, importi sempre in centesimi interi.
+
+Il modulo mostra le date prima del prezzo e un riepilogo del calcolo. Finché
+non sono scelte entrambe le date non propone un importo. Il prezzo automatico
+segue le date; una modifica manuale resta preservata anche cambiando periodo
+o durante gli aggiornamenti. «Usa prezzo suggerito» ripristina l’automatismo.
+Tariffe mancanti, date non valide e importi oltre il limite hanno messaggi
+espliciti; è possibile inserire un prezzo concordato. Senza fine prevista
+resta possibile registrare una sosta indeterminata con prezzo manuale o nullo.
+
+La registrazione da Quadro posti converte le date in istanti di Roma: inizio
+a mezzanotte, salvo oggi che parte dal salvataggio; fine all’ultimo istante
+del giorno scelto. Ammesse soste di una sola giornata. Restano invariati i
+vincoli di sovrapposizione, le API con istanti espliciti, le soste esistenti e
+la rettifica del prezzo dalla scheda completa. Corretto anche l’adattamento
+del modulo alla larghezza disponibile per evitare campi tagliati. Nessuna
+migrazione o contabilizzazione ricorrente.
+
+Collaudo finale: **837 PASS, 0 FAIL** (386 generale, 50 API Ormeggio, 19 Oggi,
+22 stabilizzazione, 79 separazione, 58 disponibilità/preventivi, 19 accesso
+attività, 204 Chrome). Typecheck e lint senza errori (244 warning storici),
+confini riusciti (173 file di modulo, 480 nel grafo, 114 operazioni private),
+build di produzione riuscita. Verificati periodi inclusivi, mesi di calendario,
+bisestili, ora legale, tariffe mancanti/gratuite, prezzo manuale, ripristino del
+suggerimento, conto e occupazione dell’ultimo giorno. Controllate le schermate
+desktop/telefono e rafforzati i controlli sull’effettiva larghezza del modulo.
+Database temporaneo rimosso; localhost ripristinato sulla porta 3000.
+
+### Destinatario WhatsApp nell’Ormeggio (10 ottobre 2026)
+
+I contatti del pannello Quadro posti e della scheda completa ora usano
+`telefonoWhatsApp` da `src/lib/telefono.ts`. Prima i due comandi eliminavano
+semplicemente i caratteri non numerici: un cellulare italiano salvato senza
+prefisso poteva essere interpretato da WhatsApp come numero estero. La
+normalizzazione condivisa aggiunge 39 ai numeri locali, riconosce +39/0039
+e prefisso italiano già presente, mantiene prefissi esteri espliciti e zero
+iniziale dei fissi. Il dato salvato resta invariato; la correzione vale anche
+per i proprietari già inseriti, senza migrazioni.
+
+Numeri non validi non producono link WhatsApp: nel pannello il comando è
+disabilitato con indicazione di verifica, nella scheda compare un errore
+prima dell’apertura del messaggio. Regressioni browser su entrambi i comandi,
+formati italiani/esteri, telefono, numeri assenti/non validi e conservazione
+del messaggio per proprietario e barca. Le prove intercettano l’apertura
+della chat e non contattano servizi esterni né destinatari reali.
+
+Collaudo finale: **862 PASS, 0 FAIL** (386 generale, 50 API Ormeggio, 19 Oggi,
+22 stabilizzazione, 79 separazione, 58 disponibilità/preventivi, 19 accesso
+attività, 229 Chrome). Le 25 nuove verifiche coprono destinatari da quadro e
+scheda, formati diversi, prefissi espliciti, numero locale che inizia con 39,
+fissi, telefono e gestione dei recapiti mancanti/non validi. Typecheck e lint
+senza errori (244 warning storici), confini e build riusciti. Ambiente
+temporaneo rimosso; localhost HTTP 200. Nessun recapito operativo modificato.

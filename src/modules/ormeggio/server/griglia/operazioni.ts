@@ -2,6 +2,7 @@ import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { requireOrmeggio } from "@/modules/ormeggio/accesso";
 import { postoNelQuadro } from "@/modules/ormeggio/regole";
+import { vistaGiornoSoste } from "@/modules/ormeggio/periodi";
 
 // Griglia ormeggio per una data: posti + permanenza presente a quella data.
 // La posizione NON si legge da Permanenza.postoId (che è solo il posto corrente):
@@ -12,14 +13,9 @@ export async function GET(req: Request) {
   if ("error" in t) return t.error;
 
   const dataStr = new URL(req.url).searchParams.get("data");
-  const data = dataStr ? new Date(`${dataStr}T12:00:00`) : new Date();
-  if (Number.isNaN(data.getTime())) return fail("Data non valida", 422);
-  const inizio = new Date(data); inizio.setHours(0, 0, 0, 0);
-  const fine = new Date(data); fine.setHours(23, 59, 59, 999);
-  const adesso = new Date();
-  const oggi = data.toDateString() === adesso.toDateString();
-  const fino = oggi ? adesso : fine;
-  const da = oggi ? adesso : inizio;
+  const vista = vistaGiornoSoste(dataStr);
+  if (!vista) return fail("Data non valida", 422);
+  const { fino } = vista;
 
   const [aree, assegnazioni] = await Promise.all([
     prisma.area.findMany({
@@ -30,15 +26,14 @@ export async function GET(req: Request) {
     prisma.assegnazionePosto.findMany({
       where: {
         tenantId: t.tenantId,
-        dal: { lte: fino },
-        OR: [{ al: null }, { al: { gt: da } }],
+        ...vista.occupazione,
       },
       include: {
         posto: { include: { area: true } },
         permanenza: {
           include: {
             boat: { include: { proprietario: { select: { nome: true, telefono: true } } } },
-            attivita: { select: { stato: true, tipo: true } },
+            attivita: { select: { id: true, stato: true, tipo: true, dataPrevista: true, addetto: { select: { nome: true } } }, orderBy: [{ dataPrevista: "asc" }, { createdAt: "asc" }] },
             addebiti: { select: { importoCent: true, stato: true } },
             payments: { select: { stato: true, totaleCent: true } },
             contratto: { select: { firmatoAt: true } },
@@ -79,9 +74,10 @@ export async function GET(req: Request) {
     });
     const inMare = ultimo?.tipo === "uscita";
     const bloccata = p.boat.stato === "manutenzione" || p.boat.stato === "non_disponibile";
-    const attivitaDaFare = p.attivita.filter((a) => a.stato === "da_fare" || a.stato === "in_corso").length;
+    const attivitaAperte = p.attivita.filter((a) => a.stato === "da_fare" || a.stato === "in_corso");
+    const attivitaDaFare = attivitaAperte.length;
     const stato = bloccata ? "bloccata" : inMare ? "in_mare" : attivitaDaFare > 0 ? "da_fare" : "in_sosta";
-    return { statoGriglia: stato, inMare, attivitaDaFare };
+    return { statoGriglia: stato, inMare, attivitaDaFare, attivitaAperte };
   }
 
   const perPosto = new Map(assegnazioni.map((a) => [a.postoId, a.permanenza]));

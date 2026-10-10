@@ -22,7 +22,7 @@ export async function GET(req: Request) {
     include: {
       addetto: { select: { id: true, nome: true } },
       addebito: { select: { id: true } },
-      permanenza: { include: { boat: { select: { nome: true } }, posto: { select: { codice: true } } } },
+      permanenza: { include: { boat: { select: { nome: true, proprietario: { select: { nome: true } } } }, posto: { select: { codice: true } } } },
     },
     take: 200,
   });

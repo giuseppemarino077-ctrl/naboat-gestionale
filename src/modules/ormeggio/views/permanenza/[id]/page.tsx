@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { useUtente } from "@/components/Utente";
 import { IntestazioneOrmeggio, RiepilogoOrmeggio } from "@/modules/ormeggio/components/IntestazioneOrmeggio";
 import { useAggiornamenti, segnalaCambiamento } from "@/lib/aggiorna";
@@ -10,6 +11,9 @@ import { useConferma } from "@/components/ui/Dialogo";
 import { useModulo } from "@/components/ui/ModuloDialogo";
 import { OPZIONI_TIPI } from "@/modules/piattaforma/tipi-barche";
 import { codiceDaTesto } from "@/modules/piattaforma/barche";
+import { useCatalogoServizi } from "@/modules/ormeggio/use-catalogo-servizi";
+import { CorrispettivoSosta } from "@/modules/ormeggio/components/CorrispettivoSosta";
+import { telefonoWhatsApp } from "@/lib/telefono";
 
 const euro = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
 const dataIt = (d?: string | null) => (d ? new Date(d).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }) : "—");
@@ -18,10 +22,11 @@ export default function SchedaPermanenzaPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const [dati, setDati] = useState<any>(null);
-  const [servizi, setServizi] = useState<any[]>([]);
+  const { servizi, errore: erroreCatalogo, prepara: preparaCatalogo } = useCatalogoServizi();
   const [addetti, setAddetti] = useState<any[]>([]);
   const [posti, setPosti] = useState<any[]>([]);
   const [tab, setTab] = useState<"scheda" | "attivita" | "conto">("scheda");
+  const [nuovaAttivitaAperta, setNuovaAttivitaAperta] = useState(false);
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
   const [nuovaAtt, setNuovaAtt] = useState({ tipo: "", dataPrevista: "", quantita: "", unita: "", prezzoEuro: "", incluso: false, addettoId: "" });
@@ -35,6 +40,8 @@ export default function SchedaPermanenzaPage() {
   const [bnome, setBnome] = useState("");
   const [btipo, setBtipo] = useState("");
   const barcaIniz = useRef<string | null>(null);
+  const attivitaRaggiunta = useRef<string | null>(null);
+  const [attivitaEvidenziata, setAttivitaEvidenziata] = useState<string | null>(null);
   const conferma = useConferma();
   const modulo = useModulo();
 
@@ -53,21 +60,28 @@ export default function SchedaPermanenzaPage() {
     const richiesto = ricerca.get("tab");
     setDocumentiAperti(ricerca.get("documenti") === "1");
     setTab(richiesto === "attivita" || richiesto === "conto" ? richiesto : "scheda");
+    setNuovaAttivitaAperta(richiesto === "attivita" && ricerca.get("nuova") === "1");
     carica();
   }, [carica]);
+  useEffect(() => {
+    if (!dati || tab !== "attivita") return;
+    const bersaglio = window.location.hash.slice(1);
+    if (attivitaRaggiunta.current === bersaglio || !dati.attivita.some((a: { id: string }) => bersaglio === `attivita-${a.id}`)) return;
+    setAttivitaEvidenziata(bersaglio);
+    const frame = requestAnimationFrame(() => {
+      const riga = document.getElementById(bersaglio);
+      if (!riga) return;
+      attivitaRaggiunta.current = bersaglio;
+      riga.scrollIntoView({ block: "center", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [dati, tab]);
   useAggiornamenti(() => { if (!busy && !document.activeElement?.matches("input, select, textarea")) return carica(); }, ["ormeggio"]);
   useEffect(() => { if (utente && !vedeImporti && tab === "conto") setTab("scheda"); }, [utente, vedeImporti, tab]);
   useEffect(() => {
-    fetch("/api/v1/ormeggio/servizi").then((r) => r.json()).then((j) => Array.isArray(j) && setServizi(j)).catch(() => {});
-
     fetch("/api/v1/ormeggio/aree").then((r) => r.json()).then((j) => Array.isArray(j) && setPosti(j.flatMap((a: any) => a.posti.map((p: any) => ({ ...p, areaNome: a.nome }))))).catch(() => {});
 
   }, []);
-
-  useEffect(() => {
-    if (!utente?.role || utente.role === "skipper") return;
-    fetch("/api/v1/ormeggio/servizi/predefiniti", { method: "POST" }).then(async (r) => { if (!r.ok) return; const elenco = await fetch("/api/v1/ormeggio/servizi").then((res) => res.json()); if (Array.isArray(elenco)) setServizi(elenco); }).catch(() => {});
-  }, [utente?.role]);
 
   useEffect(() => {
     if (utente?.role === "owner") fetch("/api/v1/users").then((r) => r.json()).then((j) => Array.isArray(j) && setAddetti(j)).catch(() => {});
@@ -127,8 +141,9 @@ export default function SchedaPermanenzaPage() {
     if (j?.link) window.open(j.link, "_blank");
   };
   const apriWhatsapp = async () => {
-    const tel = dati?.boat?.proprietario?.telefono?.replace(/\D/g, "") ?? "";
-    if (!tel) { setErr("Il proprietario non ha un telefono in anagrafica"); return; }
+    const telefono = dati?.boat?.proprietario?.telefono;
+    const tel = telefonoWhatsApp(telefono);
+    if (!tel) { setErr(telefono ? "Il numero del proprietario non è valido. Verificalo in anagrafica prima di aprire WhatsApp." : "Il proprietario non ha un telefono in anagrafica"); return; }
     const v = await modulo.apri("Messaggio WhatsApp", [
       { nome: "testo", etichetta: "Messaggio", tipo: "textarea", valore: `Gentile ${dati.boat.proprietario.nome}, la sua barca ${dati.boat.nome} ${dati.pronta ? "è pronta" : "è in custodia"}. Posto ${dati.posto?.codice ?? "da assegnare"}.` },
     ], { confermaLabel: "Apri WhatsApp" });
@@ -177,6 +192,7 @@ export default function SchedaPermanenzaPage() {
 
   return (
     <div className="grid gap-4">
+      {tab === "attivita" && <Link className="justify-self-start text-sm font-semibold text-ocean hover:underline" href="/gestionale/ormeggio/da-fare">← Tutte le attività</Link>}
       {dati.boat?.archiviato && <Avviso tono="info">Barca rimossa dagli elenchi operativi. La sosta è chiusa; restano disponibili storico, documenti e gestione del conto.</Avviso>}
       {dati.postoFuoriGriglia && <Avviso tono="info" azione={dati.stato === "attiva" ? <button className="btn-soft shrink-0" disabled={busy} onClick={sposta}>Sposta barca</button> : undefined}>Il posto precedente è stato rimosso dalla griglia. Sosta, attività e conto sono conservati. Usa «Sposta barca» per assegnare un nuovo posto.</Avviso>}
       <IntestazioneOrmeggio titolo={`${dati.boat?.nome} · ${dati.posto?.codice ?? "Senza posto"}`} descrizione={`${dati.boat?.proprietario?.nome ?? "Proprietario non indicato"} · ${dati.posto?.area?.nome ?? "Area non assegnata"} · ${dati.stato === "attiva" ? "Sosta attiva" : "Sosta chiusa"}`} azioni={<>
@@ -218,7 +234,11 @@ export default function SchedaPermanenzaPage() {
             <p>Tipo: <b>{dati.tipo === "rimessaggio_custodia" ? "Rimessaggio (custodia)" : "Ormeggio (custodia)"}</b></p>
             <p>Inizio: <b>{dataIt(dati.inizioAt)}</b></p>
             <p>Fine prevista: <b>{dati.finePrevistaAt ? dataIt(dati.finePrevistaAt) : "indeterminata"}</b>{dati.fineAt ? ` · chiusa il ${dataIt(dati.fineAt)}` : ""}</p>
-            <p>Corrispettivo: <b>{vedeImporti ? (dati.corrispettivoCent != null ? euro(dati.corrispettivoCent) : "da definire") : "importi non visibili"}</b></p>
+            {vedeImporti ? <CorrispettivoSosta key={id} cent={dati.corrispettivoCent} puoModificare={utente?.role === "owner" || utente?.role === "operatore"} busy={busy} contrattoPresente={!!dati.contratto} onSalva={async (cent) => {
+              const j = await api(`/api/v1/ormeggio/permanenze/${id}`, "PATCH", { azione: "aggiorna", corrispettivoCent: cent, rettifica: true });
+              if (j) setMsg("Prezzo della sosta e conto aggiornati.");
+              return !!j;
+            }} /> : <p>Corrispettivo: <b>importi non visibili</b></p>}
             <p>Stato lavori: <b>{dati.pronta ? "pronta (confermata)" : "in lavorazione / da confermare"}</b></p>
             <p>Contratto: <b>{!vedeImporti ? "Riservato al personale autorizzato" : dati.contratto ? (dati.contratto.firmatoAt ? `firmato da ${dati.contratto.firmaNome} il ${dataIt(dati.contratto.firmatoAt)}` : "in attesa di firma") : "non ancora generato"}</b></p>
           </div>
@@ -253,7 +273,8 @@ export default function SchedaPermanenzaPage() {
 
       {tab === "attivita" && (
         <div className="grid gap-4">
-          {!dati.boat?.archiviato && <details className="card p-3"><summary>＋ Nuova attività</summary>
+          {erroreCatalogo && <Avviso tono="errore" azione={<button className="btn-soft" onClick={() => preparaCatalogo()}>Riprova</button>}>{erroreCatalogo}</Avviso>}
+          {!dati.boat?.archiviato && <details className="card p-3" open={nuovaAttivitaAperta} onToggle={(e) => setNuovaAttivitaAperta(e.currentTarget.open)}><summary>＋ Nuova attività</summary>
           <form className="mt-3 grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4 xl:items-end" onSubmit={aggiungiAttivita}>
             <label className="grid gap-1"><span className="text-xs font-semibold text-muted">Servizio / lavoro *</span>
               <input list="servizi" className="rounded-md border border-line p-2" placeholder="es. Lavaggio" value={nuovaAtt.tipo} onChange={(e) => { const s = servizi.find((s) => s.nome === e.target.value); setNuovaAtt({ ...nuovaAtt, tipo: e.target.value, ...(s ? { unita: s.unita ?? "", prezzoEuro: vedeImporti && s.prezzoCent != null ? (s.prezzoCent / 100).toFixed(2) : "" } : {}) }); }} required />
@@ -282,7 +303,7 @@ export default function SchedaPermanenzaPage() {
               <thead className="text-muted"><tr className="text-left"><th className="p-2">Servizio</th><th className="p-2">Data</th><th className="p-2">Qtà</th>{vedeImporti && <th className="p-2">Prezzo</th>}<th className="p-2">Incluso</th><th className="p-2">Stato</th><th className="p-2">Azioni</th></tr></thead>
               <tbody>
                 {dati.attivita.map((a: any) => (
-                  <tr key={a.id} className="border-t border-line">
+                  <tr key={a.id} id={`attivita-${a.id}`} className={`border-t border-line ${attivitaEvidenziata === `attivita-${a.id}` ? "!bg-[#fff0cc]" : ""}`}>
                     <td className="p-2 font-semibold">{a.tipo}</td>
                     <td className="p-2">{a.dataPrevista ? new Date(a.dataPrevista).toLocaleDateString("it-IT") : "—"}</td>
                     <td className="p-2">{a.quantita ?? "—"}{a.unita ? ` ${a.unita}` : ""}</td>

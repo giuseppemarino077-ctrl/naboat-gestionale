@@ -4,12 +4,15 @@ import Link from "next/link";
 import { useUtente } from "@/components/Utente";
 import { Avviso } from "@/components/ui/Avviso";
 import { IntestazioneOrmeggio, RiepilogoOrmeggio } from "@/modules/ormeggio/components/IntestazioneOrmeggio";
+import { AccessoAttivita } from "@/modules/ormeggio/components/AccessoAttivita";
+import { CatalogoServizi } from "@/modules/ormeggio/components/CatalogoServizi";
+import { useCatalogoServizi } from "@/modules/ormeggio/use-catalogo-servizi";
 import { useAggiornamenti, segnalaCambiamento } from "@/lib/aggiorna";
 
 type Attivita = {
   id: string; tipo: string; stato: string; dataPrevista: string | null; permanenzaId: string;
   addetto: { id: string; nome: string | null } | null;
-  daAddebitare: boolean; permanenza: { boat: { nome: string }; posto: { codice: string } | null };
+  daAddebitare: boolean; permanenza: { boat: { nome: string; proprietario: { nome: string } | null }; posto: { codice: string } | null };
 };
 
 export default function DaFarePage() {
@@ -21,6 +24,7 @@ export default function DaFarePage() {
   const [stato, setStato] = useState("");
   const [mie, setMie] = useState(false);
   const utente = useUtente();
+  const catalogo = useCatalogoServizi();
   const carica = async () => {
     try {
       const r = await fetch("/api/v1/ormeggio/attivita?daFare=1");
@@ -44,18 +48,20 @@ export default function DaFarePage() {
     finally { setBusy(null); }
   };
   const oggi = new Date().toLocaleDateString("sv-SE");
-  const visibili = attivita.filter((a) => (!stato || a.stato === stato) && (!mie || a.addetto?.id === utente?.id) && `${a.tipo} ${a.permanenza.boat.nome} ${a.permanenza.posto?.codice ?? ""} ${a.addetto?.nome ?? ""}`.toLowerCase().includes(q.trim().toLowerCase()));
+  const visibili = attivita.filter((a) => (!stato || a.stato === stato) && (!mie || a.addetto?.id === utente?.id) && `${a.tipo} ${a.permanenza.boat.nome} ${a.permanenza.boat.proprietario?.nome ?? ""} ${a.permanenza.posto?.codice ?? ""} ${a.addetto?.nome ?? ""}`.toLowerCase().includes(q.trim().toLowerCase()));
   return (
     <div className="grid gap-3">
-      <IntestazioneOrmeggio titolo="Attività" descrizione="Lavori da avviare e in corso, collegati alla scheda e al conto della barca." azioni={<button className="btn-soft" disabled={!!busy} onClick={() => { setErr(""); carica(); }}>Aggiorna</button>} />
+      <IntestazioneOrmeggio titolo="Attività" descrizione="Scegli cliente e barca per gestire i servizi, oppure consulta i lavori da avviare e in corso." azioni={<button className="btn-soft" disabled={!!busy} onClick={() => { setErr(""); carica(); }}>Aggiorna</button>} />
       {err && <Avviso tono="errore">{err}</Avviso>}
+      <CatalogoServizi catalogo={catalogo} tendina />
+      <AccessoAttivita />
       <RiepilogoOrmeggio voci={[
         { nome: "Da fare", valore: attivita.filter((a) => a.stato === "da_fare").length },
         { nome: "In corso", valore: attivita.filter((a) => a.stato === "in_corso").length },
         { nome: "In ritardo", valore: attivita.filter((a) => a.dataPrevista && a.dataPrevista.slice(0, 10) < oggi).length },
       ]} />
       <div className="flex flex-wrap items-center gap-2">
-        <input aria-label="Cerca attività" className="campo min-w-[180px] flex-1" placeholder="Barca, posto, lavoro o addetto…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input aria-label="Cerca attività" className="campo min-w-[180px] flex-1" placeholder="Cliente, barca, posto, lavoro o addetto…" value={q} onChange={(e) => setQ(e.target.value)} />
         <select aria-label="Stato attività" className="campo !w-auto" value={stato} onChange={(e) => setStato(e.target.value)}><option value="">Da fare e in corso</option><option value="da_fare">Da fare</option><option value="in_corso">In corso</option></select>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={mie} onChange={(e) => setMie(e.target.checked)} /> Assegnate a me</label>
       </div>
@@ -64,7 +70,7 @@ export default function DaFarePage() {
           <thead className="text-muted"><tr className="text-left"><th>Barca / posto</th><th>Lavoro</th><th>Data prevista</th><th>Addetto</th><th>Stato</th><th>Azioni</th></tr></thead>
           <tbody>
             {visibili.map((a) => <tr key={a.id} className="border-t border-line">
-              <td><Link className="font-semibold text-ocean" href={`/gestionale/ormeggio/permanenza/${a.permanenzaId}?tab=attivita`}>{a.permanenza.boat.nome}</Link><p className="text-xs text-muted">{a.permanenza.posto?.codice ?? "Senza posto"}</p></td>
+              <td><Link className="font-semibold text-ocean" href={`/gestionale/ormeggio/permanenza/${a.permanenzaId}?tab=attivita`}>{a.permanenza.boat.nome}</Link><p className="text-xs text-muted">{a.permanenza.boat.proprietario?.nome ?? "Cliente non indicato"} · {a.permanenza.posto?.codice ?? "Senza posto"}</p></td>
               <td>{a.tipo}</td><td className={a.dataPrevista && a.dataPrevista.slice(0, 10) < oggi ? "font-semibold text-coral" : ""}>{a.dataPrevista ? new Date(a.dataPrevista).toLocaleDateString("it-IT") : "Da programmare"}</td>
               <td>{a.addetto?.nome ?? "Non assegnata"}</td><td><span className={a.stato === "in_corso" ? "badge-pending" : "badge-block"}>{a.stato.replace("_", " ")}</span></td>
               <td><div className="flex flex-wrap gap-2">

@@ -1,7 +1,9 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { requireOrmeggio } from "@/modules/ormeggio/accesso";
-import { FINE_APERTA, postoNelQuadro, conflittoPermanenza, dedupProprietario } from "@/modules/ormeggio/regole";
+import { postoNelQuadro, conflittoPermanenza, dedupProprietario } from "@/modules/ormeggio/regole";
+import { dataSosta, inizioNuovaSosta, periodoOccupato, sovrapposizioneAssegnazioni, vistaGiornoSoste } from "@/modules/ormeggio/periodi";
+import { inizioGiorno, oggi } from "@/modules/piattaforma/date";
 import { nomeTipo } from "@/modules/piattaforma/barche";
 import { z } from "zod";
 
@@ -24,18 +26,14 @@ export async function GET(req: Request) {
   const dataStr = url.searchParams.get("data");
   const areaId = url.searchParams.get("areaId");
   const tutte = url.searchParams.get("tutte") === "1";
-  const data = dataStr ? new Date(`${dataStr}T12:00:00`) : new Date();
-  if (Number.isNaN(data.getTime())) return fail("Data non valida", 422);
-  const inizio = new Date(data);
-  inizio.setHours(0, 0, 0, 0);
-  const fine = new Date(data);
-  fine.setHours(23, 59, 59, 999);
+  const vista = vistaGiornoSoste(dataStr);
+  if (!vista) return fail("Data non valida", 422);
 
   const assegnazioni = await prisma.assegnazionePosto.findMany({
     where: {
       tenantId: t.tenantId,
-      ...(data >= new Date(new Date().setHours(0, 0, 0, 0)) ? { boat: { archiviato: false } } : {}),
-      ...(tutte ? {} : { dal: { lte: fine }, OR: [{ al: null }, { al: { gt: inizio } }] }),
+      ...(vista.inizio >= inizioGiorno(oggi()) ? { boat: { archiviato: false } } : {}),
+      ...(tutte ? {} : vista.occupazione),
       ...(areaId ? { posto: { areaId } } : {}),
     },
     include: {
@@ -94,12 +92,11 @@ export async function POST(req: Request) {
   if (!d.proprietarioId && !d.nuovoProprietario) return fail("Indicare il proprietario", 422);
   if (!d.boatId && !d.nuovaBarca) return fail("Indicare la barca", 422);
 
-  const inizio = new Date(d.inizioAt);
-  if (Number.isNaN(inizio.getTime())) return fail("Data di inizio non valida", 422);
-  const finePrev = d.finePrevistaAt ? new Date(d.finePrevistaAt) : null;
-  if (finePrev && Number.isNaN(finePrev.getTime())) return fail("Data di fine non valida", 422);
+  const inizio = inizioNuovaSosta(d.inizioAt);
+  if (!inizio) return fail("Data di inizio non valida", 422);
+  const finePrev = d.finePrevistaAt ? dataSosta(d.finePrevistaAt) : null;
+  if (d.finePrevistaAt && !finePrev) return fail("Data di fine non valida", 422);
   if (finePrev && finePrev <= inizio) return fail("La fine deve essere successiva all'inizio", 422);
-  const fineNuova = finePrev ?? FINE_APERTA;
 
   // --- Validazione completa prima di qualsiasi scrittura ---
   const posto = await prisma.posto.findFirst({ where: { id: d.postoId, tenantId: t.tenantId }, include: { area: true } });
@@ -177,13 +174,15 @@ export async function POST(req: Request) {
         if (Object.keys(patch).length) b = await tx.boat.update({ where: { id: b.id }, data: patch });
       }
 
-      const sovrapposto = await tx.assegnazionePosto.count({
-        where: { tenantId: t.tenantId, postoId: posto.id, dal: { lte: fineNuova }, OR: [{ al: null }, { al: { gt: inizio } }] },
+      const sovrapposto = await tx.assegnazionePosto.findFirst({
+        where: { tenantId: t.tenantId, postoId: posto.id, ...sovrapposizioneAssegnazioni(inizio, finePrev) },
+        orderBy: { dal: "asc" },
+        select: { dal: true, al: true },
       });
-      if (sovrapposto > 0) throw new Conflitto("Posto già occupato in questo periodo");
+      if (sovrapposto) throw new Conflitto(`Posto già occupato in questo periodo: ${posto.codice} è assegnato ${periodoOccupato(sovrapposto)}. Modifica le date della nuova sosta o scegli un altro posto.`);
 
       const barcaGia = await tx.assegnazionePosto.count({
-        where: { tenantId: t.tenantId, boatId: b!.id, dal: { lte: fineNuova }, OR: [{ al: null }, { al: { gt: inizio } }] },
+        where: { tenantId: t.tenantId, boatId: b!.id, ...sovrapposizioneAssegnazioni(inizio, finePrev) },
       });
       if (barcaGia > 0) throw new Conflitto("Barca già presente in struttura in questo periodo");
 

@@ -11,9 +11,13 @@ import { Icona } from "@/components/ui/Icona";
 import { Combo } from "@/components/ui/Combo";
 import { useConferma } from "@/components/ui/Dialogo";
 import { GrigliaPosti } from "@/modules/ormeggio/components/GrigliaPosti";
+import { SchedaPosto, type DettaglioPosto } from "@/modules/ormeggio/components/SchedaPosto";
 import type { Area, Perm, Posto, Stato } from "@/modules/ormeggio/components/tipi-griglia";
 import { codiceDaTesto } from "@/modules/piattaforma/barche";
 import { OPZIONI_TIPI } from "@/modules/piattaforma/tipi-barche";
+import { aggiungiGiorni, fineGiorno, inizioGiorno, oggi } from "@/modules/piattaforma/date";
+import { useCatalogoServizi } from "@/modules/ormeggio/use-catalogo-servizi";
+import { centDaEuro, euroCampo, preventivoSosta, tariffaSosta } from "@/modules/ormeggio/tariffe";
 
 type Griglia = {
   aree: Area[];
@@ -21,9 +25,7 @@ type Griglia = {
   riepilogo: { totale: number; liberi: number; occupati: number; nonUsabili: number; daSistemare: number; bloccate: number };
 };
 
-const oggi = () => new Date().toLocaleDateString("sv-SE");
 const euro = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
-const dataBreve = (v: string | null) => (v ? new Date(v).toLocaleDateString("it-IT", { day: "numeric", month: "short" }) : "—");
 
 // Form di assegnazione sempre pulito: senza azzerarlo, i dati del proprietario o
 // della barca precedente restano compilati e l'API riusa il vecchio proprietario.
@@ -31,7 +33,7 @@ function formAssegnazione() {
   return {
     propMode: "esistente", proprietarioId: "", propNome: "", propTelefono: "",
     barcaMode: "esistente", boatId: "", barcaNome: "", barcaTipo: "", barcaTipoCodice: "",
-    tipo: "ormeggio_custodia", corrispettivoEuro: "", inizioAt: oggi(), finePrevistaAt: "", note: "",
+    tipo: "ormeggio_custodia", corrispettivoEuro: null as string | null, inizioAt: oggi(), finePrevistaAt: "", note: "",
   };
 }
 
@@ -64,11 +66,14 @@ export default function OrmeggioPage() {
   const conferma = useConferma();
   const [postoScelto, setPostoScelto] = useState<Posto | null>(null);
   const [selId, setSelId] = useState<string | null>(null);
-  const [dettaglio, setDettaglio] = useState<any>(null);
+  const [dettaglio, setDettaglio] = useState<DettaglioPosto | null>(null);
+  const [erroreDettaglio, setErroreDettaglio] = useState("");
+  const [tentativoDettaglio, setTentativoDettaglio] = useState(0);
   const [tab, setTab] = useState<"scheda" | "attivita" | "conto">("scheda");
   const [move, setMove] = useState({ aperto: false, postoId: "", decorrenza: "" });
   const utente = useUtente();
   const vedeImporti = utente?.vedeImporti === true;
+  const catalogo = useCatalogoServizi();
   const [stato, setStato] = useState("tutti");
   const [busy, setBusy] = useState(false);
   const [trascinamento, setTrascinamento] = useState(false);
@@ -77,18 +82,33 @@ export default function OrmeggioPage() {
   const [legenda, setLegenda] = useState(false);
   const [pannelloLaterale, setPannelloLaterale] = useState(false);
   const chiudiSelezione = useCallback(() => setSelId(null), []);
+  const pannelloRef = useRef<HTMLElement>(null);
   useEffect(() => {
     const media = window.matchMedia("(min-width: 1280px)");
     const aggiorna = () => setPannelloLaterale(media.matches);
     aggiorna(); media.addEventListener("change", aggiorna);
     return () => media.removeEventListener("change", aggiorna);
   }, []);
+  useEffect(() => {
+    if (!selId || !pannelloLaterale) return;
+    const frame = requestAnimationFrame(() => {
+      const pannello = pannelloRef.current;
+      if (!pannello) return;
+      const posizione = pannello.getBoundingClientRect();
+      if (posizione.top > 16 && posizione.bottom > window.innerHeight) pannello.scrollIntoView({ block: "nearest", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [selId, pannelloLaterale]);
   const [caricamento, setCaricamento] = useState(true);
   const richiesta = useRef(0);
   const [proprietari, setProprietari] = useState<any[]>([]);
   const [barche, setBarche] = useState<any[]>([]);
   const [nuovaArea, setNuovaArea] = useState({ nome: "", righe: 4, colonne: 6 });
   const [form, setForm] = useState(formAssegnazione());
+  const tariffaMensileCent = vedeImporti ? tariffaSosta(catalogo.servizi, "mensile")?.prezzoCent ?? null : null;
+  const tariffaGiornalieraCent = vedeImporti ? tariffaSosta(catalogo.servizi, "giornaliera")?.prezzoCent ?? null : null;
+  const preventivo = preventivoSosta(form.inizioAt, form.finePrevistaAt, tariffaGiornalieraCent, tariffaMensileCent);
+  const corrispettivoEuro = form.corrispettivoEuro ?? euroCampo(preventivo.importoCent);
 
   const carica = useCallback(async () => {
     const seq = ++richiesta.current;
@@ -120,7 +140,7 @@ export default function OrmeggioPage() {
     try {
       const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) { setErr(j.error ?? "Operazione non riuscita."); return null; }
+      if (!r.ok) { setErr(j.error ?? "Operazione non riuscita."); if (r.status === 409) await carica(); return null; }
       await carica();
       segnalaCambiamento("ormeggio");
       return j;
@@ -155,20 +175,21 @@ export default function OrmeggioPage() {
   };
 
   const tuttiPosti = useMemo(() => aree.flatMap((a) => a.posti.map((p) => ({ ...p, areaNome: a.nome }))), [aree]);
-  const sel: Perm | null = useMemo(() => tuttiPosti.find((p) => p.permanenza?.id === selId)?.permanenza ?? null, [tuttiPosti, selId]);
+  const postoSelezionato = tuttiPosti.find((p) => p.permanenza?.id === selId) ?? null;
+  const sel: Perm | null = postoSelezionato?.permanenza ?? null;
 
   useEffect(() => {
+    setErroreDettaglio("");
     if (!selId) { setDettaglio(null); return; }
-    let vivo = true;
-    fetch(`/api/v1/ormeggio/permanenze/${selId}`).then(async (r) => {
+    const controller = new AbortController();
+    fetch(`/api/v1/ormeggio/permanenze/${selId}`, { signal: controller.signal }).then(async (r) => {
       const j = await r.json();
-      if (!vivo) return;
-      if (!r.ok) { setDettaglio(null); setErr(j.error ?? "Scheda non disponibile."); return; }
+      if (controller.signal.aborted) return;
+      if (!r.ok) { setDettaglio(null); setErroreDettaglio(j.error ?? "Scheda non disponibile."); return; }
       setDettaglio(j);
-    }).catch(() => { if (vivo) setErr("Non riesco ad aggiornare la scheda del posto."); });
-    return () => { vivo = false; };
-  }, [selId, griglia]);
-  useEffect(() => { if (selId && dettaglio?.id !== selId) setDettaglio(null); }, [selId, dettaglio?.id]);
+    }).catch(() => { if (!controller.signal.aborted) { setDettaglio(null); setErroreDettaglio("Non riesco ad aggiornare la scheda del posto."); } });
+    return () => controller.abort();
+  }, [selId, griglia, tentativoDettaglio]);
 
   const q = ricerca.trim().toLowerCase();
   const corrisponde = (posto: Posto) =>
@@ -186,9 +207,15 @@ export default function OrmeggioPage() {
   const assegna = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!postoScelto) return;
+    if (preventivo.stato === "date_non_valide") { setErr(preventivo.messaggio); return; }
+    let corrispettivoCent: number | null = null;
+    try { if (vedeImporti) corrispettivoCent = centDaEuro(corrispettivoEuro); }
+    catch (e) { setErr(e instanceof Error ? e.message : "Corrispettivo non valido."); return; }
     const body: any = {
-      postoId: postoScelto.id, tipo: form.tipo, inizioAt: form.inizioAt, finePrevistaAt: form.finePrevistaAt || null,
-      corrispettivoCent: form.corrispettivoEuro ? Math.round(Number(form.corrispettivoEuro.replace(",", ".")) * 100) : null,
+      postoId: postoScelto.id, tipo: form.tipo,
+      inizioAt: form.inizioAt === oggi() ? form.inizioAt : inizioGiorno(form.inizioAt).toISOString(),
+      finePrevistaAt: form.finePrevistaAt ? fineGiorno(form.finePrevistaAt).toISOString() : null,
+      corrispettivoCent,
       note: form.note || null,
     };
     if (form.propMode === "esistente") body.proprietarioId = form.proprietarioId;
@@ -217,89 +244,9 @@ export default function OrmeggioPage() {
   const r = griglia?.riepilogo;
 
   const corpoPannello = sel ? (
-    <>
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted">Posto selezionato</p>
-          <h2 className="truncate text-xl">{sel.boatNome}</h2>
-          <p className="truncate text-sm text-muted">{sel.proprietario ?? "Proprietario non indicato"}</p>
-          {(() => {
-            const dettagli = [sel.boatTipo].filter(Boolean);
-            return dettagli.length ? <p className="truncate text-xs text-muted">{dettagli.join(" · ")}</p> : null;
-          })()}
-          <p className="mt-1 text-xs text-muted">
-            {sel.inMare ? "In mare" : "Presente"}
-            {sel.attivitaDaFare > 0 ? ` · ${sel.attivitaDaFare} attività da fare` : ""}
-          </p>
-        </div>
-        <button onClick={() => setSelId(null)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#f7faf9] text-muted" title="Chiudi" aria-label="Chiudi"><Icona nome="chiudi" className="h-4 w-4" /></button>
-      </div>
-
-      <div className="mt-3 inline-flex w-fit rounded-full border border-line bg-white p-1">
-        {(["scheda", "attivita", "conto"] as const).filter((t) => t !== "conto" || vedeImporti).map((t) => (
-          <button key={t} onClick={() => setTab(t)} className={"rounded-full px-3 py-1.5 text-xs font-bold capitalize " + (tab === t ? "bg-signature text-deep" : "text-ocean")}>
-            {t === "attivita" ? "Attività" : t === "conto" ? "Conto" : "Scheda"}
-          </button>
-        ))}
-      </div>
-
-      <div className="mt-3 grid gap-2 text-sm">
-        {tab === "scheda" && (
-          <div className="grid gap-2">
-            <div className="card-soft p-3">
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-muted">Permanenza</p>
-              <p className="mt-1 font-semibold">{dettaglio ? `${dataBreve(dettaglio.inizioAt)} – ${dettaglio.finePrevistaAt ? dataBreve(dettaglio.finePrevistaAt) : "indeterminata"}` : "…"}</p>
-              <p className="text-xs text-muted">{sel.tipo === "rimessaggio_custodia" ? "Rimessaggio (a terra)" : "Ormeggio (in acqua)"}</p>
-            </div>
-            <div className="card-soft p-3">
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-muted">Contratto e pagamento</p>
-              <p className="mt-1">{!vedeImporti ? "Contratto riservato al personale autorizzato" : dettaglio?.contratto?.firmatoAt ? "Contratto firmato" : "Contratto da firmare"}</p>
-              <p className="text-xs text-muted">{vedeImporti && dettaglio ? `Residuo ${euro(dettaglio.conto?.residuoCent ?? 0)}` : "Importi riservati"}</p>
-            </div>
-            {sel.telefono && <a className="btn-soft" href={`https://wa.me/${sel.telefono.replace(/\D/g, "")}`} target="_blank" rel="noreferrer">WhatsApp al proprietario</a>}
-          </div>
-        )}
-
-        {tab === "attivita" && (
-          <div className="grid gap-1.5">
-            {(dettaglio?.attivita ?? []).length === 0 && <p className="text-muted">Nessuna attività registrata.</p>}
-            {(dettaglio?.attivita ?? []).map((a: any) => (
-              <div key={a.id} className="flex items-center justify-between gap-2 rounded-2xl border border-line px-3 py-2">
-                <span className="min-w-0 truncate">{a.tipo}{a.quantita ? ` · ${a.quantita}${a.unita ? " " + a.unita : ""}` : ""}</span>
-                <span className={"shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold " + (a.stato === "completato" ? "bg-[#d8f3ea] text-[#177469]" : a.stato === "in_corso" ? "bg-[#e1f5f2] text-deep" : "bg-[#fff0cc] text-[#9a6406]")}>
-                  {a.stato === "completato" ? "Completato" : a.stato === "in_corso" ? "In corso" : "Da fare"}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {tab === "conto" && (
-          <div className="grid gap-1.5">
-            {(dettaglio?.addebiti ?? []).map((a: any) => (
-              <div key={a.id} className="flex items-center justify-between gap-2 rounded-2xl border border-line px-3 py-2">
-                <span className="min-w-0 truncate">{a.descrizione}</span>
-                <span className="shrink-0 font-semibold">{euro(a.importoCent)}</span>
-              </div>
-            ))}
-            {(dettaglio?.payments ?? []).map((p: any) => (
-              <div key={p.id} className="flex items-center justify-between gap-2 rounded-2xl border border-dashed border-line px-3 py-2 text-muted">
-                <span className="min-w-0 truncate">Incasso {p.stato === "pagato" ? "" : "(in attesa)"}</span>
-                <span className="shrink-0 font-semibold">{euro(p.totaleCent)}</span>
-              </div>
-            ))}
-            {dettaglio && (
-              <div className="mt-1 grid grid-cols-3 gap-2 text-center text-xs">
-                <div className="rounded-2xl bg-[#f7faf9] p-2"><p className="text-muted">Addebitato</p><p className="font-bold">{euro(dettaglio.conto?.totaleAddebitiCent ?? 0)}</p></div>
-                <div className="rounded-2xl bg-[#f7faf9] p-2"><p className="text-muted">Pagato</p><p className="font-bold">{euro(dettaglio.conto?.incassatoCent ?? 0)}</p></div>
-                <div className="rounded-2xl bg-[#f7faf9] p-2"><p className="text-muted">Residuo</p><p className="font-bold">{euro(dettaglio.conto?.residuoCent ?? 0)}</p></div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="mt-3 grid gap-2">
+    <SchedaPosto permanenza={sel} posto={postoSelezionato} dettaglio={dettaglio?.id === sel.id ? dettaglio : null}
+      errore={erroreDettaglio} onRiprova={() => setTentativoDettaglio((v) => v + 1)} tab={tab} onTab={setTab}
+      vedeImporti={vedeImporti} onChiudi={chiudiSelezione}>
         {move.aperto ? (
           <form onSubmit={sposta} className="grid gap-2 rounded-2xl border border-line p-3">
             <p className="text-xs font-bold">Sposta barca</p>
@@ -320,9 +267,7 @@ export default function OrmeggioPage() {
         ) : (
           <button className="btn-soft" onClick={() => setMove({ aperto: true, postoId: "", decorrenza: "" })}>⇄ Sposta barca</button>
         )}
-        <Link className="btn-primary inline-flex items-center gap-1.5" href={`/gestionale/ormeggio/permanenza/${sel.id}`}><Icona nome="piu" className="h-4 w-4" /> Aggiungi servizio / apri scheda</Link>
-      </div>
-    </>
+    </SchedaPosto>
   ) : null;
 
   return (
@@ -362,9 +307,9 @@ export default function OrmeggioPage() {
 
       <div className="grid grid-cols-2 items-center gap-2 rounded-xl border border-line bg-white p-2 sm:flex sm:flex-wrap">
         <div className="flex min-w-0 items-center gap-0 sm:gap-1">
-          <button className="btn-ghost px-1 sm:px-2" aria-label="Giorno precedente" onClick={() => { const d = new Date(`${data}T12:00:00`); d.setDate(d.getDate() - 1); setData(d.toISOString().slice(0, 10)); }}>‹</button>
+          <button className="btn-ghost px-1 sm:px-2" aria-label="Giorno precedente" onClick={() => setData(aggiungiGiorni(data, -1))}>‹</button>
           <input aria-label="Data del quadro" type="date" className="min-w-0 flex-1 rounded-lg border border-line px-1 py-2 text-xs sm:text-sm" value={data} onChange={(e) => e.target.value && setData(e.target.value)} />
-          <button className="btn-ghost px-1 sm:px-2" aria-label="Giorno successivo" onClick={() => { const d = new Date(`${data}T12:00:00`); d.setDate(d.getDate() + 1); setData(d.toISOString().slice(0, 10)); }}>›</button>
+          <button className="btn-ghost px-1 sm:px-2" aria-label="Giorno successivo" onClick={() => setData(aggiungiGiorni(data, 1))}>›</button>
           {data !== oggi() && <button className="btn-ghost px-2" onClick={() => setData(oggi())}>Oggi</button>}
         </div>
         {aree.length > 0 && <select aria-label="Area" className="min-w-0 max-w-full rounded-lg border border-line p-2 text-sm" value={areaSelezionata?.id ?? ""} disabled={busy} onChange={(e) => { setAreaId(e.target.value); setSelId(null); const a = aree.find((a) => a.id === e.target.value); if (configura && a) configuraArea(a); }}>
@@ -482,7 +427,7 @@ export default function OrmeggioPage() {
 
         {/* SCHEDA LATERALE (desktop/tablet) */}
         {sel && pannelloLaterale && (
-          <aside className="sticky top-3 hidden max-h-[calc(100dvh-32px)] w-[300px] shrink-0 overflow-y-auto rounded-2xl border border-line bg-white p-4 shadow-sm xl:block">
+          <aside ref={pannelloRef} aria-label="Dettagli del posto" className="sticky top-3 hidden max-h-[calc(100dvh-32px)] w-[340px] shrink-0 overflow-y-auto rounded-3xl border border-line bg-white p-3 shadow-lg xl:block">
             {corpoPannello}
           </aside>
         )}
@@ -492,43 +437,43 @@ export default function OrmeggioPage() {
       {sel && !pannelloLaterale && <Dialogo aperto onChiudi={chiudiSelezione} titolo="Scheda del posto" larghezza="max-w-lg max-h-[90dvh] overflow-y-auto">{corpoPannello}</Dialogo>}
 
       {postoScelto && (
-        <Dialogo aperto onChiudi={() => { if (!busy) setPostoScelto(null); }} titolo={`Assegna il posto ${postoScelto.codice}`} larghezza="max-w-2xl">
-          <form className="grid max-h-[75dvh] gap-3 overflow-y-auto text-sm" onClick={(e) => e.stopPropagation()} onSubmit={assegna}>
+        <Dialogo aperto onChiudi={() => { if (!busy) setPostoScelto(null); }} titolo={`Assegna il posto ${postoScelto.codice}`} larghezza="min-w-0 max-w-2xl">
+          <form className="grid min-w-0 max-h-[75dvh] gap-3 overflow-y-auto text-sm" onClick={(e) => e.stopPropagation()} onSubmit={assegna}>
             {(err || erroreCaricamento) && <Avviso tono="errore">{err || erroreCaricamento}{erroreCaricamento && <button type="button" className="ml-3 font-bold underline" disabled={caricamento || busy} onClick={() => { setCaricamento(true); carica(); }}>Riprova</button>}</Avviso>}
-            <fieldset className="grid gap-2 rounded-2xl border border-line p-3">
+            <fieldset className="grid min-w-0 gap-2 rounded-2xl border border-line p-3">
               <legend className="px-1 text-xs font-bold text-muted">Proprietario</legend>
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3">
                 <label className="flex items-center gap-2"><input type="radio" checked={form.propMode === "esistente"} onChange={() => setForm({ ...form, propMode: "esistente" })} /> Già in anagrafica</label>
                 <label className="flex items-center gap-2"><input type="radio" checked={form.propMode === "nuovo"} onChange={() => setForm({ ...form, propMode: "nuovo" })} /> Nuovo</label>
               </div>
               {form.propMode === "esistente" ? (
-                <select className="rounded-2xl border border-line p-3" value={form.proprietarioId} onChange={(e) => setForm({ ...form, proprietarioId: e.target.value })} required>
+                <select className="min-w-0 w-full rounded-2xl border border-line p-3" value={form.proprietarioId} onChange={(e) => setForm({ ...form, proprietarioId: e.target.value })} required>
                   <option value="">Scegli il proprietario…</option>
                   {proprietari.map((p) => <option key={p.id} value={p.id}>{p.nome}{p.telefono ? ` · ${p.telefono}` : ""}</option>)}
                 </select>
               ) : (
-                <div className="grid gap-2 md:grid-cols-2">
-                  <input className="rounded-2xl border border-line p-3" placeholder="Nome o denominazione *" value={form.propNome} onChange={(e) => setForm({ ...form, propNome: e.target.value })} required />
-                  <input className="rounded-2xl border border-line p-3" placeholder="Telefono" value={form.propTelefono} onChange={(e) => setForm({ ...form, propTelefono: e.target.value })} />
+                <div className="grid min-w-0 gap-2 md:grid-cols-2">
+                  <input className="min-w-0 w-full rounded-2xl border border-line p-3" placeholder="Nome o denominazione *" value={form.propNome} onChange={(e) => setForm({ ...form, propNome: e.target.value })} required />
+                  <input className="min-w-0 w-full rounded-2xl border border-line p-3" placeholder="Telefono" value={form.propTelefono} onChange={(e) => setForm({ ...form, propTelefono: e.target.value })} />
                 </div>
               )}
             </fieldset>
-            <fieldset className="grid gap-2 rounded-2xl border border-line p-3">
+            <fieldset className="grid min-w-0 gap-2 rounded-2xl border border-line p-3">
               <legend className="px-1 text-xs font-bold text-muted">Barca</legend>
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3">
                 <label className="flex items-center gap-2"><input type="radio" checked={form.barcaMode === "esistente"} onChange={() => setForm({ ...form, barcaMode: "esistente" })} /> Già in elenco</label>
                 <label className="flex items-center gap-2"><input type="radio" checked={form.barcaMode === "nuovo"} onChange={() => setForm({ ...form, barcaMode: "nuovo" })} /> Nuova</label>
               </div>
               {form.barcaMode === "esistente" ? (
-                <select className="rounded-2xl border border-line p-3" value={form.boatId} onChange={(e) => setForm({ ...form, boatId: e.target.value })} required>
+                <select className="min-w-0 w-full rounded-2xl border border-line p-3" value={form.boatId} onChange={(e) => setForm({ ...form, boatId: e.target.value })} required>
                   <option value="">Scegli la barca…</option>
                   {barche.map((b) => <option key={b.id} value={b.id}>{b.nome}</option>)}
                 </select>
               ) : (
-                <div className="grid gap-2">
-                  <input className="rounded-2xl border border-line p-3" placeholder="Nome barca *" value={form.barcaNome} onChange={(e) => setForm({ ...form, barcaNome: e.target.value })} required />
-                  <div className="grid gap-2 md:grid-cols-2">
-                    <label className="grid gap-1">
+                <div className="grid min-w-0 gap-2">
+                  <input className="min-w-0 w-full rounded-2xl border border-line p-3" placeholder="Nome barca *" value={form.barcaNome} onChange={(e) => setForm({ ...form, barcaNome: e.target.value })} required />
+                  <div className="grid min-w-0 gap-2 md:grid-cols-2">
+                    <label className="grid min-w-0 gap-1">
                       <span className="text-xs font-semibold text-muted">Tipo di barca</span>
                       <Combo
                         testo={form.barcaTipo}
@@ -536,7 +481,7 @@ export default function OrmeggioPage() {
                         onSeleziona={(o) => setForm((f) => ({ ...f, barcaTipo: o.etichetta, barcaTipoCodice: o.valore }))}
                         opzioni={OPZIONI_TIPI}
                         placeholder="Es. gozzo, open, gommone…"
-                        className="rounded-2xl border border-line p-3"
+                        className="min-w-0 w-full rounded-2xl border border-line p-3"
                       />
                     </label>
 
@@ -545,21 +490,31 @@ export default function OrmeggioPage() {
                 </div>
               )}
             </fieldset>
-            <div className="grid gap-3 md:grid-cols-2">
-              {vedeImporti && <label className="grid gap-1"><span className="text-xs font-semibold text-muted">Corrispettivo concordato (€)</span>
-                <input className="rounded-2xl border border-line p-3" placeholder="es. 200,00" value={form.corrispettivoEuro} onChange={(e) => setForm({ ...form, corrispettivoEuro: e.target.value })} />
-              </label>}
-              <label className="grid gap-1"><span className="text-xs font-semibold text-muted">Inizio</span>
-                <input type="date" className="rounded-2xl border border-line p-3" value={form.inizioAt} onChange={(e) => setForm({ ...form, inizioAt: e.target.value })} required />
+            <div className="grid min-w-0 gap-3 md:grid-cols-2">
+              <label className="grid min-w-0 gap-1"><span className="text-xs font-semibold text-muted">Inizio</span>
+                <input id="inizio-sosta" type="date" className="min-w-0 w-full rounded-2xl border border-line p-3" value={form.inizioAt} onChange={(e) => setForm({ ...form, inizioAt: e.target.value })} required />
               </label>
-              <label className="grid gap-1"><span className="text-xs font-semibold text-muted">Fine prevista (facoltativa)</span>
-                <input type="date" className="rounded-2xl border border-line p-3" value={form.finePrevistaAt} onChange={(e) => setForm({ ...form, finePrevistaAt: e.target.value })} />
+              <label className="grid min-w-0 gap-1"><span className="text-xs font-semibold text-muted">Fine prevista (ultimo giorno incluso)</span>
+                <input id="fine-sosta" type="date" className="min-w-0 w-full rounded-2xl border border-line p-3" min={form.inizioAt || undefined} value={form.finePrevistaAt} onChange={(e) => setForm({ ...form, finePrevistaAt: e.target.value })} />
               </label>
+              {vedeImporti && <div className="grid min-w-0 gap-2 md:col-span-2">
+                <label className="grid min-w-0 gap-1"><span className="text-xs font-semibold text-muted">Corrispettivo concordato (€)</span>
+                  <input id="corrispettivo-sosta" inputMode="decimal" aria-describedby="suggerimento-prezzo-sosta" className="min-w-0 w-full rounded-2xl border border-line p-3" placeholder="Seleziona le date o inserisci il prezzo" value={corrispettivoEuro} onChange={(e) => setForm({ ...form, corrispettivoEuro: e.target.value })} />
+                </label>
+                <div id="suggerimento-prezzo-sosta" aria-live="polite" className="rounded-2xl bg-foam p-3 text-xs text-muted">
+                  {catalogo.caricamento ? "Carico le tariffe…" : catalogo.errore ? <span>Tariffe non disponibili. Inserisci un prezzo oppure <button type="button" className="font-bold text-ocean underline" onClick={() => catalogo.prepara()}>ricarica il catalogo</button>.</span> : preventivo.importoCent !== null ? <>
+                    <span className="block font-semibold text-deep">{form.corrispettivoEuro === null ? "Prezzo suggerito" : "Prezzo personalizzato · suggerimento"}: {euro(preventivo.importoCent)}</span>
+                    <span>{preventivo.mesi > 0 ? `${preventivo.mesi} ${preventivo.mesi === 1 ? "mese" : "mesi"} × ${euro(tariffaMensileCent ?? 0)}` : ""}{preventivo.mesi > 0 && preventivo.giorni > 0 ? " + " : ""}{preventivo.giorni > 0 ? `${preventivo.giorni} ${preventivo.giorni === 1 ? "giorno" : "giorni"} × ${euro(tariffaGiornalieraCent ?? 0)}` : ""}. Giorno iniziale e finale inclusi; mesi di calendario.</span>
+                    {form.corrispettivoEuro !== null && <button type="button" className="mt-2 block font-bold text-ocean underline" onClick={() => setForm((f) => ({ ...f, corrispettivoEuro: null }))}>Usa prezzo suggerito</button>}
+                  </> : preventivo.messaggio}
+                </div>
+              </div>}
             </div>
-            <input className="rounded-2xl border border-line p-3" placeholder="Note (facoltative)" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
-            <div className="flex items-center gap-3">
-              <button className="btn-primary inline-flex items-center justify-center gap-1.5" type="submit" disabled={busy}><Icona nome="piu" className="h-4 w-4" /> {busy ? "Salvo…" : "Registra la sosta"}</button>
-              {form.corrispettivoEuro && <span className="text-muted">Addebito custodia: <b>{euro(Math.round(Number(form.corrispettivoEuro.replace(",", ".")) * 100))}</b></span>}
+            <p className="text-xs text-muted">{form.inizioAt === oggi() ? "Con inizio oggi, la sosta parte dal momento del salvataggio: i posti liberati oggi sono subito riutilizzabili. " : ""}Senza una fine prevista, il posto resta assegnato a tempo indeterminato e deve essere libero anche nei giorni successivi.</p>
+            <input className="min-w-0 w-full rounded-2xl border border-line p-3" placeholder="Note (facoltative)" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
+            <div className="flex flex-wrap items-center gap-3">
+              <button className="btn-primary inline-flex items-center justify-center gap-1.5" type="submit" disabled={busy || (vedeImporti && form.corrispettivoEuro === null && !!form.finePrevistaAt && (catalogo.caricamento || !!catalogo.errore || preventivo.importoCent === null))}><Icona nome="piu" className="h-4 w-4" /> {busy ? "Salvo…" : "Registra la sosta"}</button>
+              {vedeImporti && corrispettivoEuro.trim() && /^\d+(?:[.,]\d{1,2})?$/.test(corrispettivoEuro.trim()) && <span className="text-muted">Addebito custodia: <b>{euro(Math.round(Number(corrispettivoEuro.replace(",", ".")) * 100))}</b></span>}
             </div>
           </form>
         </Dialogo>
