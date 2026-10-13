@@ -1,4 +1,6 @@
 "use client";
+import { richiestaOrmeggio } from "@/modules/ormeggio/richiesta";
+
 import Link from "next/link";
 import { Dialogo } from "@/components/ui/Dialogo";
 import { IntestazioneOrmeggio } from "@/modules/ormeggio/components/IntestazioneOrmeggio";
@@ -12,6 +14,7 @@ import { useAggiornamenti, segnalaCambiamento } from "@/lib/aggiorna";
 
 type Proprietario = {
   id: string;
+  revisione: number;
   nome: string;
   telefono: string | null;
   email: string | null;
@@ -36,7 +39,7 @@ export default function ProprietariPage() {
   const carica = async (ricerca = "") => {
     setErr("");
     try {
-    const r = await fetch(`/api/v1/ormeggio/proprietari${ricerca ? `?q=${encodeURIComponent(ricerca)}` : ""}`);
+    const r = await richiestaOrmeggio(`/api/v1/ormeggio/proprietari${ricerca ? `?q=${encodeURIComponent(ricerca)}` : ""}`);
     const j = await r.json().catch(() => null);
     if (!r.ok || !Array.isArray(j)) {
       setErr(j?.error ?? "Non riesco a leggere l'elenco dei proprietari.");
@@ -58,7 +61,7 @@ export default function ProprietariPage() {
     setBusy(true);
     setErr("");
     try {
-    const r = await fetch("/api/v1/ormeggio/proprietari", {
+    const r = await richiestaOrmeggio("/api/v1/ormeggio/proprietari", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -87,7 +90,7 @@ export default function ProprietariPage() {
     if (!selezionato || busy) return;
     setBusy(true); setErroreScheda("");
     try {
-      const r = await fetch(`/api/v1/ormeggio/proprietari/${selezionato.id}`, { method, headers: { "Content-Type": "application/json" }, body: method === "PATCH" ? JSON.stringify({ nome: modifica.nome.trim(), telefono: modifica.telefono.trim() || null, email: modifica.email.trim() || null, note: modifica.note.trim() || null }) : undefined });
+      const r = await richiestaOrmeggio(`/api/v1/ormeggio/proprietari/${selezionato.id}`, { method, headers: { "Content-Type": "application/json", "If-Match": String(selezionato.revisione) }, body: method === "PATCH" ? JSON.stringify({ nome: modifica.nome.trim(), telefono: modifica.telefono.trim() || null, email: modifica.email.trim() || null, note: modifica.note.trim() || null }) : undefined });
       const j = await r.json();
       if (!r.ok) { setErroreScheda(j.error ?? "Operazione non riuscita"); return; }
       setMsg(method === "DELETE" ? `Proprietario e ${j.barcheRimosse} barche rimossi. Posti attuali e futuri liberati.` : "Proprietario aggiornato.");

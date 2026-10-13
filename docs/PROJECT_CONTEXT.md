@@ -5,7 +5,7 @@ comandi**: vedi [`AGENTS.md`](../AGENTS.md). Qui c'è lo stato del progetto:
 architettura, cosa è fatto, cosa manca, problemi noti, decisioni prese, servizi
 esterni, variabili d'ambiente (solo nomi), test e prossimi passi.
 
-Ultimo aggiornamento: 10 ottobre 2026.
+Ultimo aggiornamento: 12 ottobre 2026.
 
 ---
 
@@ -76,6 +76,9 @@ reindirizza. Regole in `src/lib/sito.ts` (non importa il DB: lo usa il middlewar
 **Identità e accesso**
 - Registrazione azienda, approvazione NaBoat, verifica email, inviti collaboratori.
 - Ruoli: `owner`, `operatore`, `skipper` (solo lettura GET), `cliente`, `superadmin`.
+  Ormeggio usa appartenenze aziendali con profili Responsabile e Addetto,
+  accesso ai prodotti e permesso economico per appartenenza. Il precedente profilo
+  Visualizzazione è ritirato; il titolare deve riassegnare gli eventuali accessi.
 - 2FA TOTP, reset password, permesso `vedeImporti`.
 
 **Noleggio**
@@ -104,7 +107,12 @@ reindirizza. Regole in `src/lib/sito.ts` (non importa il DB: lo usa il middlewar
 - Aree/posti (griglia «battaglia navale»), permanenze, movimenti, attività, addebiti.
 - Doppie assegnazioni impedite a DB (`EXCLUDE USING gist`); spostamenti con storia.
 - Documento/contratto ormeggio, check-in/out con foto, catalogo servizi, conti.
-- **Ultimo lavoro (non committato)**: Ormeggio interno, griglia uniforme con anteprima/trascinamento, proprietari modificabili ed eliminabili, economia collegata, 58 servizi modificabili; solo nome/tipo barca nei flussi Ormeggio (vedi §10).
+- Conto: «Segna pagato» registra un incasso collegato alla voce, al netto degli
+  acconti già presenti; saldo condiviso con Economia, PDF, contratto e Statistiche.
+- **Ultimo lavoro (non committato)**: statistiche con dati reali, appartenenze
+  multi-azienda, collaboratori e inviti, profili operativi/TV, revisioni e
+  idempotenza. Restano inclusi i precedenti interventi su griglia, catalogo e
+  attività Lista/Kanban/archivio (vedi §10 e aggiornamenti in fondo).
 
 **Piattaforma/infrastruttura**
 - Backup governati dal pannello (`/admin/backup` → orchestratore), verifica con prova
@@ -788,3 +796,488 @@ e 0 FAIL, incluso lo spostamento storico; database e codice temporanei rimossi.
 Typecheck, lint (0 errori, 244 warning storici) e confini superati. Conversioni
 di prova controllate anche con `Europe/Rome` e `America/New_York`, inclusi i
 giorni di cambio dell'ora legale e solare.
+
+### Contatori interattivi del Quadro posti (10 ottobre 2026)
+
+Rimossa la casella «Barche non disponibili» dal riepilogo, che ora contiene
+cinque voci. Occupati, Liberi e Non utilizzabili evidenziano i
+posti corrispondenti: rilievo leggero al passaggio del mouse o al focus da
+tastiera, bordo/ombra più marcati dopo il clic. Un secondo clic annulla la
+selezione; il passaggio su un'altra voce conserva la selezione già attiva.
+I posti restano visibili e le coordinate fisse. La selezione segue i dati
+della data/area corrente, vale anche nell'Elenco e viene sospesa visivamente
+durante il trascinamento. «Da sistemare» mantiene il dialogo esistente.
+
+Barra con data, area e filtri uniformata nei colori, bordi e arrotondamenti.
+Dimensioni prima/dopo misurate nel browser locale: 1157 × 58 px con viewport
+1440 px, 358 × 147 px con viewport 390 px, senza overflow orizzontale.
+Nessuna modifica a database, API, permessi o dati operativi. Aggiunte prove
+browser per hover, clic, annullamento, selezione/anteprima contemporanee,
+Elenco, tastiera, movimento ridotto e telefono.
+
+Collaudo finale: **881 PASS, 0 FAIL** (633 API/regressioni e 248 Chrome),
+build di produzione riuscita. Typecheck e lint senza errori (244 warning
+storici), confini rispettati. Corrette simulazione di Invio e attesa del
+rendering nel nuovo test da tastiera. Schermate desktop/telefono controllate;
+le quattro interazioni verificate anche su localhost in sola lettura.
+Database e codice temporanei rimossi.
+
+Estensione successiva: lo stesso rilievo leggero si applica alla singola
+barca sotto il cursore nella griglia, riutilizzando l'anteprima già esistente
+anche per il focus. I posti vuoti, compresi quelli bloccati, non acquisiscono
+rilievo al passaggio. La selezione più marcata dei contatori ha la precedenza;
+durante il trascinamento resta sospeso il rilievo. Typecheck, lint (244 warning
+storici, nessun errore) e confini superati. Quattro controlli browser locali
+in sola lettura riusciti: barca, posto vuoto, posto vuoto bloccato e precedenza
+della selezione; anteprima conservata e dimensioni della barra invariate.
+
+Su richiesta successiva, «Posti totali» torna solo informativo: nessun
+comando, focus, ombra o evidenziazione dei posti al passaggio/clic. Le tre
+categorie utili restano interattive. Aggiornati i controlli browser esistenti
+alla casella statica. Typecheck, lint (244 warning storici, nessun errore) e
+confini superati; verificati in sola lettura hover/clic sul totale e selezione
+di Occupati. Dimensioni della barra confermate invariate desktop/telefono.
+
+### Servizi personalizzati in cima al catalogo (10 ottobre 2026)
+
+`ServizioCatalogo.predefinito` distingue l'origine della voce, conservata anche
+dopo una rinomina. Le creazioni manuali restano `false`; l'inizializzazione
+dei servizi pronti scrive `true`. Il GET condiviso ordina prima i servizi
+personalizzati dal più recente, poi i predefiniti alfabeticamente. Catalogo
+in Configurazione, tendina Attività e suggerimenti nella scheda barca usano
+lo stesso ordine, anche dopo modifiche e aggiornamenti automatici.
+
+Migrazione `20261010120000_ormeggio_servizi_personalizzati` applicata in locale;
+client Prisma rigenerato e server riavviato. Recupera l'origine dei lotti
+storici tramite tenant/data di creazione e audit di inizializzazione, senza
+dedurla dai nomi. Riconosce il lotto ancora presente anche con voci rinominate
+o eliminate; in assenza di un lotto identificabile di almeno due voci lascia
+l'origine personalizzata. Sul catalogo locale completo: 2 voci personalizzate
+prima di 57 predefinite, verificate in sola lettura su tutte e tre le schermate.
+
+La scelta automatica delle tariffe di sosta resta alfabetica, indipendente
+dall'ordine di visualizzazione. Nessuna variazione agli importi salvati, alle
+attività già registrate o ai permessi. Nuove regressioni su ordine di creazione,
+rinomina, omonimi, inizializzazione idempotente, isolamento, addetti senza
+importi, recupero storico e disponibilità delle stesse voci nelle schermate.
+
+Collaudo finale: **897 PASS, 0 FAIL** (647 API/regressioni e 250 Chrome), build
+di produzione riuscita. Typecheck e lint senza errori (244 warning storici),
+confini rispettati. Database e codice temporanei rimossi; localhost pronto
+con DB e Redis raggiungibili. Test esistenti del riepilogo adeguati al totale
+solo informativo richiesto durante la stessa sessione.
+
+### Servizi NaBoat per Ormeggio (10 ottobre 2026)
+
+La pagina comune `/gestionale/impostazioni/piano` segue il modulo attivo:
+in Ormeggio mostra soltanto lo stato dell’abbonamento alla piattaforma, la
+scadenza e i giorni residui restituiti da `/api/v1/subscription`. Nessuna voce
+marketplace, commissione, attivazione, acquisto o storico nella vista Ormeggio.
+La voce di navigazione resta disponibile anche senza abbonamento attivo; la
+richiesta «fin quando» è stata interpretata come visualizzazione della scadenza.
+Quando il canone non è obbligatorio, il messaggio chiarisce che l’accesso resta
+consentito; quando è obbligatorio invita a contattare NaBoat. Nessuna modifica
+a prezzi, pagamenti, requisiti di accesso o API. La vista Noleggio conserva i
+servizi esistenti, anche per le aziende che abilitano entrambi i moduli.
+
+Verifiche locali in sola lettura su account Ormeggio e misto, desktop/telefono.
+Aggiunti sei controlli browser su validità reale, contenuto, telefono, scadenza
+e separazione delle viste. Typecheck e lint senza errori (244 warning storici),
+confini rispettati. Build e collaudo isolato: **903 PASS, 0 FAIL**, inclusi
+256 Chrome, con database e codice temporanei rimossi.
+
+### Attività: lavori prioritari e vista Kanban (10 ottobre 2026)
+
+La pagina `/gestionale/ormeggio/da-fare` apre sull’elenco dei lavori. Catalogo
+«Servizi e attività offerte» e selettore «Apri le attività di una barca» sono
+sezioni indipendenti, espandibili e inizialmente chiuse sotto i lavori. Le
+compilazioni restano conservate quando si richiude una sezione.
+
+Selettore Lista/Kanban con ricerca, filtro stato e «Assegnate a me» condivisi.
+La lista mantiene i lavori aperti prima dei completati; la bacheca ha le
+colonne Da fare, In corso e Completato. Pulsanti e trascinamento permettono
+avvio/completamento tramite le operazioni esistenti. I completati sono solo
+consultabili dalla bacheca: rettifiche e storni restano nella scheda barca.
+Il completamento con addebito mantiene il permesso importi anche trascinando.
+Sul telefono le colonne scorrono all’interno della bacheca; i pulsanti
+consentono le stesse operazioni senza trascinamento.
+
+GET attività accetta il filtro `stato` validato. La pagina carica in parallelo
+fino a 200 lavori aperti e gli ultimi 200 completati: lo storico non sottrae
+spazio ai lavori da fare. Eventuali limiti raggiunti sono indicati. I lavori
+completati non sono conteggiati in ritardo. Nessuna migrazione né modifica
+alle regole economiche o ai permessi. Aggiunte regressioni API su filtri,
+isolamento e storico ampio, e browser su pannelli, viste, filtri, tastiera,
+trascinamento, contabilizzazione e telefono.
+
+Verifica locale in sola lettura: 11 attività reali identiche nelle due viste,
+pannelli chiusi/apertura da tastiera e telefono senza overflow. Typecheck e
+lint senza errori (244 warning storici), confini rispettati. Collaudo isolato
+completo e build riusciti: **927 PASS, 0 FAIL**, inclusi 272 Chrome. Database
+e codice temporanei rimossi. Il controllo dei pannelli chiusi usa la visibilità
+effettiva del browser: Chrome può calcolarne comunque la geometria interna.
+
+### Attività: priorità, card compatte e ritorni nel Kanban (10 ottobre 2026)
+
+Estensione della bacheca descritta sopra: trascinamento consentito fra tutti
+i tre stati, anche all’indietro. Il selettore di stato su ogni card permette
+le stesse operazioni da tastiera e telefono. Riaprire un lavoro gratuito
+azzera `completatoAt`; riaprire un lavoro contabilizzato chiede conferma e
+usa lo storno esplicito esistente, rimuovendo l’addebito collegato. Annullare
+la conferma conserva stato e conto. Addebiti pagati e permessi importi
+mantengono i blocchi esistenti; ricompletare non duplica la voce di conto.
+
+Migrazione `20261010150000_ormeggio_attivita_priorita`: campo SmallInt con
+valore predefinito 2 e vincolo CHECK 1–3. API POST/PATCH validano la scala;
+le attività esistenti ricevono priorità Normale. Il modulo di registrazione
+propone Bassa/Normale/Alta (1/2/3 stelle) e note facoltative. Stelle visibili
+in lista, bacheca e scheda della permanenza; priorità modificabile espandendo
+la card Kanban. I lavori aperti sono ordinati prima per priorità, poi per data;
+lo storico completati mantiene l’ordine dal più recente.
+
+Card Kanban alte circa 114 px nella verifica desktop locale, con lavoro,
+barca, cliente, posto, addetto, data, stato e stelle. «Note e priorità» espande
+il dettaglio senza ingombrare la bacheca. Colonne interamente colorate con
+tonalità leggere corallo, oro e verde. Il selettore Kanban usa tre linee
+verticali, nome accessibile e tooltip. La scelta Lista/Kanban è conservata
+nel browser per azienda e utente e ripristinata al ritorno o ricaricamento.
+Migrazione applicata al database locale, client rigenerato e dev riavviato.
+
+Verifiche finali: typecheck e lint senza errori (244 warning storici), confini
+rispettati; build di produzione e collaudo isolato completi: **961 PASS,
+0 FAIL** (675 API/regressioni, 286 Chrome). Coperti priorità non valide,
+vincolo database, isolamento, modifica senza permesso importi, ritorni di
+stato, data di completamento, conferma/annullamento dello storno, addebiti
+pagati, creazione con note e stelle, compattezza, colonne colorate e memoria
+della vista distinta per account. Per la selezione nativa da tastiera Chrome
+headless usa la ricerca per iniziale («i» → In corso); le frecce non pilotano
+il popup nativo in questa modalità. Verifica locale in sola lettura su tre
+attività reali, desktop e telefono; nessun errore JavaScript. Tutte le 59
+migrazioni applicate, dev pronto con DB e Redis; ambiente temporaneo rimosso.
+
+### Kanban: note modificabili e card più basse (10 ottobre 2026)
+
+«Note e priorità» contiene un editor note con Salva note e Annulla. Permette
+aggiunta, modifica e cancellazione del testo; usa il PATCH attività esistente,
+con limite 1000 caratteri e permessi invariati. Salva soltanto le note, senza
+cambiare stato o conto. La bozza resta locale durante gli aggiornamenti in
+background e dopo un errore; Annulla ripristina il valore salvato. L’editor
+resta nella parte espandibile della card. Ridotti padding verticale e altezza
+del riepilogo chiuso, conservando le informazioni principali e le stelle.
+Nessuna modifica a schema o API. Aggiunte prove browser su modifica, aggiunta,
+cancellazione, persistenza, annullamento, errore, aggiornamenti in background,
+altezza chiusa e uso da telefono con addetto senza permesso importi.
+
+Verifica locale Chrome in sola lettura: card chiuse alte circa 104 px (prima
+114 px), editor accessibile nella parte espandibile, telefono senza overflow.
+Typecheck e lint senza errori (244 warning storici), confini rispettati.
+Build di produzione e collaudo isolato riusciti: **969 PASS, 0 FAIL**
+(675 API/regressioni e 294 Chrome). Ambiente temporaneo rimosso.
+
+### Attività: elenco per giorni e selettore Giorno/Priorità (10 ottobre 2026)
+
+L’elenco è una sequenza di card espandibili con i giorni di scadenza sulla
+sinistra, in ordine cronologico; i lavori senza data sono in fondo. La data
+resta visibile scorrendo all’interno del relativo gruppo. Tutte le card
+mostrano lavoro, barca, cliente, posto, addetto, scadenza, stato e stelle;
+aprendole si possono leggere, aggiungere o modificare note e cambiare
+priorità/stato. L’editor usa le stesse operazioni del Kanban. I nodi delle
+card restano fratelli con chiavi stabili: cambiare gruppo per priorità non
+perde apertura o bozza delle note.
+
+Selettore compatto NaBoat «Giorno / Priorità» comune alle due viste:
+Giorno ordina per scadenza, Priorità raggruppa da tre a una stella. La scelta
+è conservata nel browser per azienda e utente insieme alla vista. Il Kanban
+mantiene le tre colonne di stato, riordinate internamente secondo la scelta.
+GET attività accetta `ordine=giorno|priorita` validato (default compatibile
+priorita); l’ordinamento precede il limite di 200 aperte. Lo storico continua
+a caricare i 200 completati più recenti, poi la vista li riordina. Richieste
+superate da un nuovo caricamento non sovrascrivono l’ultimo risultato.
+
+Nel Kanban aumentati titolo a 15 px, barca/posto a 13 px e altre informazioni
+a 12 px, con contrasto più forte. Ridotte spaziature senza ampliare le card;
+titoli su due righe quando necessario. L’icona addetto lascia più spazio al
+nome. Nessuna migrazione o modifica alle regole economiche e ai permessi.
+
+Verifica visiva locale in sola lettura su tre attività reali: elenco desktop
+e telefono con giorni sulla sinistra, editor accessibile e nessun overflow.
+Card Kanban tipiche alte circa 88 px, con titolo su due righe fino a circa
+104 px. Typecheck e lint senza errori (244 warning storici), confini rispettati.
+Build e collaudo isolato completi: **983 PASS, 0 FAIL** (681 API/regressioni,
+302 Chrome). Coperti ordinamenti e limite 200, gruppi cronologici/senza data,
+raggruppamento per stelle, note da elenco, apertura da tastiera, bozza durante
+il cambio gruppo, leggibilità/dimensioni, preferenze e filtri comuni alle
+viste. Ambiente temporaneo rimosso.
+
+### Attività: separazione dei giorni e spaziatura Kanban (10 ottobre 2026)
+
+Nell’elenco resta una distanza di 8 px fra attività dello stesso gruppo.
+Fra giorni diversi aggiunti 32 px complessivi e una linea tratteggiata
+leggera, estesa anche sotto la colonna della data. Il raggruppamento per
+priorità conserva la spaziatura precedente. Le card mantengono chiavi stabili
+anche cambiando gruppo, senza perdere apertura o bozze delle note.
+
+Kanban con informazioni distribuite su due colonne interne: barca e posto,
+cliente e data sulla sinistra; stato, addetto e apertura delle note sulla
+destra. Titolo a 16 px, barca a 14 px e altre informazioni principali a 13 px.
+Note e priorità si espandono su tutta la larghezza della card. Le colonne
+mantengono una larghezza minima anche sui tablet, scorrendo in orizzontale
+quando necessario per evitare che il testo compresso aumenti l’altezza.
+Nessuna modifica a schema, API, ordinamento o operazioni sulle attività.
+
+Verifica Chrome locale in sola lettura su 3 attività demo e 11 attività
+di un account misto: distanze effettive 8/32 px, note accessibili e assenza
+di overflow della pagina. Card standard alte 86 px (prima 88 px) alle
+larghezze 390, 768, 1024, 1280 e 1440; titoli su due righe entro 104 px
+nel collaudo isolato. Typecheck e lint senza errori (244 warning storici),
+confini rispettati. Build di produzione e collaudo isolato completi:
+**983 PASS, 0 FAIL** (681 API/regressioni, 302 Chrome). Ambiente temporaneo
+rimosso; sviluppo locale disponibile su localhost:3000.
+
+### Attività: archivio delle completate dei giorni passati (10 ottobre 2026)
+
+La pagina Attività apre sempre la sezione operativa: lista e Kanban mostrano
+tutti i lavori aperti, anche scaduti, e soltanto le completate con giorno di
+scadenza uguale o successivo a oggi. Le completate con scadenza passata sono
+consultabili nel tab «Attività completate», come elenco espandibile con
+ricerca, assegnazione, ordinamento Giorno/Priorità, note e priorità modificabili.
+Passare all’archivio conserva la preferenza Lista/Kanban della vista operativa.
+Il riepilogo in alto conta soltanto le attività della sezione operativa.
+
+Archiviazione automatica calcolata in lettura, senza eliminazioni o nuovi
+stati. Per le attività senza scadenza vale il giorno di `completatoAt` nel
+fuso Europe/Rome; per dati storici privi anche di questo valore si usa
+`createdAt`. Il cambio giorno si riflette nel consueto aggiornamento della
+pagina. Riaprire una card dell’archivio la riporta fra i lavori correnti;
+ricompletare un lavoro con scadenza passata lo riporta subito nello storico.
+Conferme di storno, addebiti pagati e permessi economici restano applicati.
+
+GET attività aggiunge il filtro opzionale validato
+`stato=completato&completate=attuali|archiviate`, applicato nel database prima
+del limite 200. Le tre liste sono caricate separatamente, così uno storico
+ampio non nasconde le attività correnti. Il limite è segnalato nella rispettiva
+sezione. Le richieste prive del nuovo filtro, comprese le schede barca,
+mantengono il comportamento precedente. Nessuna migrazione.
+
+Typecheck e lint senza errori (244 warning storici), confini rispettati.
+Build di produzione e collaudo isolato completi: **1003 PASS, 0 FAIL**
+(694 API/regressioni, 309 Chrome). Coperti oggi/futuro/passato, separazione
+senza sovrapposizioni, mezzanotte italiana, attività senza scadenza o timestamp
+storici, limiti, validazione, isolamento e permessi; nel browser note in
+archivio, riapertura, riarchiviazione, memoria della vista e uso da telefono.
+Verifica locale in sola lettura su attività demo: due correnti e una nello
+storico, con note accessibili e nessun overflow. Ambiente temporaneo rimosso.
+
+### Statistiche e multiutenza Ormeggio (10 ottobre 2026)
+
+Implementati i due brief forniti dall’utente. Definizioni, ruoli, migrazioni,
+configurazione e prova su due dispositivi in
+[`ORMEGGIO-STATISTICHE-MULTIUTENZA.md`](ORMEGGIO-STATISTICHE-MULTIUTENZA.md).
+
+Nuova pagina `/gestionale/ormeggio/statistiche`, accanto a Economia: sei
+indicatori, ciambella dei saldi attuali con dettagli paginati, andamento incassi
+meno rimborsi, valore della custodia stimato e occupazione commerciale,
+resa per area ordinabile/paginata. Filtri data inclusiva Roma, area, servizio
+nell’URL e confronti con periodo equivalente/anno precedente. Calcoli lato
+server, centesimi interi, selezioni mirate senza N+1. La pagina non modifica
+conti, contratti o pagamenti. Formula di residuo uguale al dettaglio Economia;
+crediti separati. Stima temporale della sola custodia, extra esclusi, futuro
+programmato separato e copertura dei dati dichiarata. Capacità precedente
+all’attivazione dello storico indicativa: nessun blocco attuale retroattivo.
+
+`Appartenenza` affianca la relazione legacy `User.tenantId`: identità personale
+riutilizzabile, ruolo/stato/permessi per azienda, selezione `/gestionale/aziende`.
+Il server rilegge l’appartenenza a ogni richiesta protetta. Backfill dalle
+relazioni attendibili esistenti e compatibilità dei vecchi flussi Noleggio.
+Inviti Ormeggio limitati al prodotto, SHA-256, sette giorni, monouso/revocabili,
+accettazione atomica per nuovi account o identità esistenti corrispondenti e
+verificate. SMTP assente/fallito comunicato senza fingere l’invio. Gestione
+Collaboratori riservata al titolare; protezione transazionale dell’ultimo owner.
+
+Addetto con mappa, assegnazione di barche già censite, movimenti e attività
+assegnate; Visualizzazione con mappa/essenziali, senza contatti/importi/storico
+completo o scritture. `/gestionale/ormeggio/tv` richiede account dedicato in
+sola lettura. Responsabile con permesso importi esplicito per dati economici,
+Statistiche e documenti riservati. Revoca dalla richiesta successiva e pulizia
+della vista al refresh/focus. Nessuna nuova infrastruttura realtime: focus e
+polling di dieci secondi, controllo risposte fuori ordine, errori/offline.
+
+Revisioni delle risorse condivise e `If-Match` sotto lock/ transazione; conflitti
+409 senza sovrascrittura, nome autore quando visibile e bozze conservate.
+`Idempotency-Key` su creazione permanenza e movimenti, con risposte persistite
+per utente/azienda e filtrate nuovamente secondo i permessi al retry. Audit
+coerente con la mutazione, sopravvive alla rimozione dell’appartenenza. Restano
+vincoli EXCLUDE su barca/posto e intervalli `[dal, al)`; uno spostamento fallito
+conserva l’origine, l’uscita in mare conserva la riserva commerciale.
+
+Migrazioni locali additive `20261010170000`–`20261010200000`: appartenenze,
+inviti, revisioni, indisponibilità e capacità storica, idempotenza e relazioni.
+Client Prisma generato e sviluppo riavviato. Database locale aggiornato;
+nessuna migrazione o deploy applicato in produzione. Nuovi test isolati in
+`scripts/verifica-statistiche-multiutenza.mjs`; Chrome verifica anche due
+sessioni indipendenti, riconnessione, revoca e layout 1440/768/390 px.
+
+Collaudo finale della versione completa: **1096 PASS, 0 FAIL** (768 controlli
+formule/API/regressioni e 328 Chrome), incluse due sessioni browser indipendenti,
+riconnessione, revoca live e cambio filtri con risposta precedente ritardata.
+Verificati retry senza duplicazione anche per le nuove attività; cauzioni
+riconoscibili escluse e mostrate separatamente nei dettagli. Typecheck e lint
+senza errori (255 warning); confini rispettati e build di produzione riuscita.
+Tutte le 63 migrazioni applicate anche sul database vuoto di prova, poi rimosso.
+Sviluppo locale su localhost:3000, PostgreSQL e Redis avviati; readyz conferma
+entrambi disponibili. La prova con due dispositivi fisici è documentata per
+l’utente; i test automatici usano due contesti browser distinti sullo stesso Mac.
+
+
+### Collaudi automatici separati dagli account (11 ottobre 2026)
+
+Su richiesta dell’utente, le prove automatiche devono restare esclusivamente
+nell’ambiente temporaneo: nessuna fixture negli account reali o demo persistenti,
+neppure prevedendo di pulirla dopo. Restano le prove delle persone e i dati demo
+richiesti esplicitamente. Regola aggiunta anche ad `AGENTS.md` e `README.md`.
+
+Pulizia applicata **solo al database locale**, dopo un dump privato: eliminate
+213 aziende automatiche storiche (Smoke, Parse, Webhook, Conc) e le relazioni a
+cascata, 46 clienti marketplace con patenti collegate, 93 richieste di contatto,
+100 registrazioni di backup fittizi, 891 pagine SEO, 303 notifiche, 21 eventi
+Stripe e 6150 voci di registro attribuibili alle fixture. Le 23 pagine SEO
+aggiuntive erano riferimenti orfani delle barche `SMOKE-<timestamp>-Nol` create
+nei vecchi collaudi dell’account Ormeggio Demo. Rimossi anche i gruppi di registro
+che corrispondono alla sequenza automatica di quel test e riguardano soltanto
+entità ormai eliminate. Gli eventi storici senza una firma affidabile restano:
+non si eliminano attività potenzialmente umane per nome, data o sola assenza
+dell’entità. Nessun ripristino delle impostazioni globali basato su supposizioni.
+
+Conservate MALLARDO SRL, Golfo Charter Test, Demo Charter Napoli e Ormeggio Demo,
+con account e contenuti. Confronto di impronte su 43 tabelle prima/dopo: dati
+protetti e configurazione identici. Verificate in sola lettura dieci API del
+pannello amministratore: tutte HTTP 200, senza riferimenti Smoke nelle risposte.
+Nessuna verifica, pulizia o pubblicazione effettuata online.
+
+`scripts/demo-pulisci.mjs` ora produce un’anteprima per firme combinate (nome,
+email generata, timestamp, identità/appartenenze, riferimenti); `--conferma` applica
+in transazione serializzabile dopo una seconda verifica. Non accetta più pattern
+arbitrari; il vecchio SQL che cancellava per nome è disabilitato. Pagine SEO
+modificate a mano e identità condivise con altre aziende vengono conservate.
+I contatti richiedono anche i contenuti precisi della fixture; i clienti con
+prenotazioni o recensioni in aziende conservate restano. La procedura va preceduta
+da un backup e conserva i casi dubbi. I comandi locali caricano `.env.local`
+mediante `node --env-file=.env.local scripts/demo-pulisci.mjs [--conferma]`.
+Istruzioni VPS aggiornate in `DEPLOY.md` usando il servizio `tools`.
+
+Guardia unica per tutti gli smoke, compresi browser, stabilizzazione e confini:
+PostgreSQL locale, nome casuale esatto e indicatore del runner; per i test API
+anche l’indirizzo deve corrispondere al server temporaneo avviato dal runner.
+Un tentativo di esecuzione contro localhost:3000 è stato bloccato prima delle
+scritture. Test unitari delle firme e delle guardie e regressioni della pulizia
+(anteprima, conservazione, riferimenti SEO, identità condivise, piano obsoleto,
+rollback completo e idempotenza) inclusi in `npm run test:isolated`.
+
+Verifica finale: **787 PASS, 0 FAIL** (781 controlli API/regressioni e sei test
+unitari), build di produzione riuscita, typecheck senza errori, lint senza
+errori (255 warning storici), confini rispettati. Ambiente temporaneo rimosso;
+nuova anteprima sul database locale restituisce zero residui riconosciuti in
+tutte le categorie. Ripetuto il confronto sulle 43 tabelle protette dopo il
+collaudo: impronte identiche, nessuna nuova fixture negli account persistenti.
+
+### Statistiche Ormeggio più chiare e aree attive (11 ottobre 2026)
+
+La dashboard presenta quattro caselle: Incassi netti, Da incassare, Occupazione
+posti e Contratti iniziati. Rimossi dall’interfaccia la stima temporale dei
+servizi e il valore medio contratto. Ogni casella apre una finestra con la
+composizione, riepilogo, paginazione e collegamenti alle schede barca. Restano
+le formule di Economia, le cauzioni escluse dagli incassi e i crediti separati.
+
+Filtri, confronto e occupazione includono soltanto aree non archiviate e posti
+non rimossi. Il confronto «Resa per area» appare con più aree attive e usa
+incassi netti effettivi, occupazione e posti disponibili medi. Con una sola
+area si mostra il nome di quella rimasta; senza aree compare uno stato vuoto.
+I contratti e gli incassi delle aree rimosse restano nel totale generale, senza
+cancellazioni. Un filtro di area propria rimossa viene normalizzato e rimosso
+dall’URL; un’area altrui resta 404. Aggiornamento al focus, ogni dieci secondi e
+tramite Aggiorna, anche nelle finestre già aperte.
+
+Grafici con scelta Giorno/Settimana/Mese, evidenziazione al passaggio del mouse
+o al focus e dettagli delle date selezionate al clic, tocco, Invio o Spazio.
+Segmenti e legenda della ciambella sono cliccabili. Finestre contenute sul
+telefono, Escape e ripristino del focus; protezione delle risposte fuori ordine
+e pagine riallineate quando diminuiscono i risultati. Date mostrate nel fuso
+Roma anche per le decorrenze a mezzanotte. Nessuna migrazione né deploy.
+Dettagli e definizioni in `docs/ORMEGGIO-STATISTICHE-MULTIUTENZA.md`.
+
+Verifiche finali: typecheck e lint senza errori (254 warning storici), confini
+rispettati e build di produzione riuscita. Collaudo isolato completo: **1150
+PASS, 0 FAIL** (802 API/regressioni, sei unitari e 342 Chrome). Coperti dettagli
+riconciliati, permessi, aree rimosse, filtro obsoleto, aggiornamento della finestra
+aperta, quattro caselle sul telefono, tastiera e clic sui grafici. Ispezionate
+schermate desktop/telefono. Ambiente temporaneo rimosso; sviluppo locale pronto
+su localhost:3000, readyz conferma DB e Redis disponibili.
+
+### Dimensioni uniformi dei grafici (11 ottobre 2026)
+
+I tre grafici delle statistiche sono in riquadri uguali: tre colonne su desktop,
+una su tablet/telefono, righe della stessa altezza e area grafica fissa a 192 px.
+Il grafico dell’occupazione non occupa più l’intera larghezza del desktop.
+Titoli, spaziature e legende allineati; viewBox dei grafici cartesiani adattato
+ai riquadri compatti per conservare la leggibilità. Nessuna modifica ai calcoli.
+Typecheck, lint e confini senza errori. Verifica Chrome in sola lettura sui dati
+locali a 1440/768/390 px: riquadri uguali per larghezza e altezza, grafici di 192 px
+su tutte le viste e nessuno scorrimento orizzontale. Nessun dato automatico creato.
+
+### Rimozione del profilo Visualizzazione (11 ottobre 2026)
+
+Collaboratori Ormeggio propone solo Responsabile e Addetto, oltre al Titolare.
+Tolti opzione, descrizione e indicazioni che suggerivano un account
+Visualizzazione per il monitor. La vista TV resta in sola lettura ed è accessibile
+con i profili attuali, senza modificare i loro permessi operativi o economici.
+Inviti e modifiche rifiutano il vecchio profilo; vecchi inviti non accettabili.
+Eventuali appartenenze precedenti mostrano «Ruolo da aggiornare» al titolare e
+non accedono più alle API Ormeggio, anche con una sessione già aperta. La pagina
+iniziale spiega come chiedere un nuovo ruolo. Riassegnazione esplicita, senza
+promozioni automatiche; sospensione/rimozione, identità e storico conservati.
+Il valore nell’enum DB resta per compatibilità con i dati storici. Nessuna nuova
+migrazione, nessuna modifica automatica agli account persistenti, nessun deploy.
+
+Verifiche finali: typecheck senza errori, lint senza errori (254 warning storici),
+confini rispettati e build di produzione riuscita. Collaudo isolato completo:
+**1163 PASS, 0 FAIL** (812 API/regressioni, sei unitari, 345 Chrome). Coperti
+rifiuto del ruolo via API, inviti precedenti inutilizzabili senza creare account,
+riassegnazione dal pannello, accesso con sessione esistente e vista TV Addetto.
+Schermata Collaboratori ispezionata. Ambiente temporaneo rimosso; sviluppo locale
+attivo con DB e Redis disponibili.
+
+### Conto barche: collegamento tra addebiti e incassi (12 ottobre 2026)
+
+«Segna pagato» ora chiede metodo e data, registra il solo residuo dell’addebito e
+crea un Payment pagato con relazione a permanenza e voce. Pagamento, stato e audit
+nella stessa transazione. Gli incassi generali coprono automaticamente le voci;
+eccedenze come credito della sosta, voci gratuite senza pagamenti da zero euro.
+Gli stati mostrati sono calcolati dagli incassi reali, con quote parziali visibili.
+Gli addebiti precedenti segnati pagati senza copertura mostrano «Incasso da
+verificare» e richiedono una registrazione esplicita con metodo e data reali.
+Nessun incasso inventato o riconciliazione automatica degli account persistenti.
+
+Calcolo condiviso in `src/modules/ormeggio/conto.ts`: conto barca, elenco addebiti,
+Economia, mappa, PDF, contratto pubblico e residui delle Statistiche. Rimborsi
+riusciti detratti una sola volta, cauzioni escluse. Crediti separati per sosta:
+non nascondono il debito di altre barche. I pagamenti di oggi conservano l’orario
+reale per attribuire l’incasso all’area corretta; quelli storici usano la data
+indicata. Attività con incassi protette da storni/rettifiche che cancellino lo
+storico, anche quando il pagamento era generale o parziale. Risposte di modifica
+con revisione aggiornata; lock del conto prima della risorsa, controllo del
+residuo confermato e protezioni dei salvataggi ripetuti. Conto su telefono con
+riepilogo sempre leggibile e voci/pulsanti senza tabella da scorrere lateralmente.
+
+Migrazione additiva `20261011192504_ormeggio_incassi_addebiti` applicata localmente:
+Payment.addebitoId opzionale, relazione e indici. Client generato e sviluppo
+riavviato su localhost:3000. Flussi e permessi Noleggio conservati. Nuovo collaudo
+`scripts/verifica-conto-ormeggio.mjs` incluso in `npm run test:isolated`; nessuna
+scrittura automatica su account reali/demo e nessun deploy. Guida in
+`docs/ORMEGGIO-CONTI.md`.
+
+Verifiche finali: typecheck senza errori, lint senza errori (254 warning storici),
+confini rispettati e build di produzione riuscita. Collaudo isolato completo:
+**1209 PASS, 0 FAIL** (850 API/regressioni, sei unitari, 353 Chrome), incluse 38
+verifiche specifiche del conto e otto nuove verifiche browser. Schermata telefono
+ispezionata; ambiente temporaneo rimosso. `/api/readyz` conferma database e Redis
+disponibili sul server locale riavviato.

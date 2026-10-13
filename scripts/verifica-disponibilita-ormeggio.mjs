@@ -1,3 +1,4 @@
+import { fetchConRevisioni } from "./_concorrenza-ormeggio.mjs";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -9,6 +10,7 @@ import { assicuraAmbienteSmoke } from "./_guardia-ambiente.mjs";
 const base = process.argv[2];
 assicuraAmbienteSmoke("verifica-disponibilita-ormeggio.mjs", base);
 const db = new PrismaClient();
+const fetch = fetchConRevisioni(db);
 let passed = 0;
 const recent = [];
 const check = (name, value) => { assert.ok(value, `${name}\n${JSON.stringify(recent.slice(-3))}`); passed++; console.log(`PASS  disponibilità: ${name}`); };
@@ -17,9 +19,14 @@ const moduleUrl = (source) => "data:text/javascript;base64," + Buffer.from(ts.tr
 const datesUrl = moduleUrl(await readFile("src/modules/piattaforma/date.ts", "utf8"));
 const periods = await import(moduleUrl((await readFile("src/modules/ormeggio/periodi.ts", "utf8")).replace("@/modules/piattaforma/date", datesUrl)));
 const { giornoDi } = await import(datesUrl);
-const { preventivoSosta } = await import(moduleUrl(await readFile("src/modules/ormeggio/tariffe.ts", "utf8")));
+const { preventivoSosta, tariffaSosta } = await import(moduleUrl(await readFile("src/modules/ormeggio/tariffe.ts", "utf8")));
 
 try {
+  const tariffe = [
+    { id: "prima", nome: "Ormeggio pontile A", unita: "mese", prezzoCent: 20000 },
+    { id: "recente", nome: "Sosta pontile Z", unita: "mese", prezzoCent: 30000 },
+  ];
+  check("riordino del catalogo non cambia la tariffa automatica della sosta", tariffaSosta(tariffe, "mensile")?.id === "prima" && tariffaSosta([...tariffe].reverse(), "mensile")?.id === "prima");
   for (const [nome, inizio, fine, mesi, giorni, totale] of [
     ["dal primo al decimo conta dieci giornate", "2027-01-01", "2027-01-10", 0, 10, 18750],
     ["mese di 31 giorni", "2027-01-01", "2027-01-31", 1, 0, 24000],
@@ -65,8 +72,8 @@ try {
   const tenantId = tenant.id;
   const user = await db.user.create({ data: { tenantId, role: "owner", email: `${randomUUID()}@disponibilita.test`, emailVerified: true, passwordHash: "solo-ambiente-temporaneo" } });
   const token = await new SignJWT({ sub: user.id, tenantId, role: user.role, twofa: true, ver: user.sessionVersion }).setProtectedHeader({ alg: "HS256" }).setIssuedAt().setExpirationTime("1h").sign(new TextEncoder().encode(process.env.AUTH_SECRET));
-  async function api(path, method = "GET", body) {
-    const r = await fetch(`${base}/api/v1/ormeggio${path}`, { method, headers: { Cookie: `nb_session=${token}`, "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+  async function api(path, method = "GET", body, extraHeaders = {}) {
+    const r = await fetch(`${base}/api/v1/ormeggio${path}`, { method, headers: { Cookie: `nb_session=${token}`, "Content-Type": "application/json", ...extraHeaders }, body: body === undefined ? undefined : JSON.stringify(body) });
     const data = await r.json();
     recent.push({ path, status: r.status, error: data.error });
     return { status: r.status, data };
@@ -145,13 +152,15 @@ try {
   const deletedHistory = await db.assegnazionePosto.findMany({ where: { tenantId, postoId: posti[6].id }, orderBy: { dal: "asc" } });
   check("riuso dopo eliminazione conserva la precedente assegnazione chiusa", deletedHistory.length === 2 && deletedHistory[0].permanenzaId === deletedStay.data.id && deletedHistory[0].al <= deletedHistory[1].dal);
   const pricePatch = { azione: "aggiorna", corrispettivoCent: 5000, rettifica: true };
-  const simultaneousPrices = await Promise.all([api(`/permanenze/${source.data.id}`, "PATCH", pricePatch), api(`/permanenze/${source.data.id}`, "PATCH", pricePatch)]);
+  const sameRevision = { "If-Match": String((await db.permanenza.findUnique({ where: { id: source.data.id } })).revisione) };
+  const simultaneousPrices = await Promise.all([api(`/permanenze/${source.data.id}`, "PATCH", pricePatch, sameRevision), api(`/permanenze/${source.data.id}`, "PATCH", pricePatch, sameRevision)]);
   const afterPrice = (await api(`/permanenze/${source.data.id}`)).data;
-  check("rettifiche prezzo simultanee non duplicano l'addebito", simultaneousPrices.every(r => r.status === 200) && afterPrice.corrispettivoCent === 5000 && afterPrice.conto.totaleAddebitiCent === 5000 && afterPrice.addebiti.length === 1);
+  check("rettifiche prezzo simultanee non duplicano l'addebito", JSON.stringify(simultaneousPrices.map(r => r.status).sort()) === "[200,409]" && afterPrice.corrispettivoCent === 5000 && afterPrice.conto.totaleAddebitiCent === 5000 && afterPrice.addebiti.length === 1);
   check("rettificare il prezzo conserva date e assegnazioni della sosta", afterPrice.finePrevistaAt === source.data.finePrevistaAt && afterPrice.assegnazioni.length === afterInvalidChange.data.assegnazioni.length);
-  const competingPrices = await Promise.all([api(`/permanenze/${source.data.id}`, "PATCH", { ...pricePatch, corrispettivoCent: 6500 }), api(`/permanenze/${source.data.id}`, "PATCH", { ...pricePatch, corrispettivoCent: 7000 })]);
+  const nextRevision = { "If-Match": String(afterPrice.revisione) };
+  const competingPrices = await Promise.all([api(`/permanenze/${source.data.id}`, "PATCH", { ...pricePatch, corrispettivoCent: 6500 }, nextRevision), api(`/permanenze/${source.data.id}`, "PATCH", { ...pricePatch, corrispettivoCent: 7000 }, nextRevision)]);
   const afterCompeting = (await api(`/permanenze/${source.data.id}`)).data;
-  check("prezzi diversi salvati in concorrenza mantengono conto e corrispettivo allineati", competingPrices.every(r => r.status === 200) && afterCompeting.conto.totaleAddebitiCent === afterCompeting.corrispettivoCent && [6500, 7000].includes(afterCompeting.corrispettivoCent));
+  check("prezzi diversi salvati in concorrenza mantengono conto e corrispettivo allineati", JSON.stringify(competingPrices.map(r => r.status).sort()) === "[200,409]" && afterCompeting.conto.totaleAddebitiCent === afterCompeting.corrispettivoCent && [6500, 7000].includes(afterCompeting.corrispettivoCent));
 } finally {
   await db.$disconnect();
 }

@@ -11,13 +11,14 @@
 ### Pulizia e ambiente
 - [ ] **Proteggere gli account con password nota** (mentre il portale è online con i dati demo): `npm run demo:proteggi` per vedere gli account coinvolti, `npm run demo:proteggi -- --conferma` per cambiare le password (vengono stampate una volta sola: salvarle). Copre superadmin, utenti delle aziende «Smoke» e account demo `marco@golfo.test` / `op@golfo.test`. **Da fare subito**, perché `robots.txt` e `noindex` impediscono a Google di trovarli ma non a chi conosce le guide.
 - [ ] **Indicizzazione**: già bloccata (`public/robots.txt` + `<meta name="robots" content="noindex, nofollow">` in `src/app/layout.tsx`). Verificare dopo il deploy: `https://naboat.it/robots.txt`.
-- [ ] **Cancellare i dati di prova** quando si passa ai clienti veri. In locale (Node sull'host): `npm run demo:verifica` (mostra cosa verrebbe rimosso, **non cancella**) e poi `npm run demo:pulisci`. **Sul VPS** (dove Node non è sull'host e gli script non stanno nell'immagine):
+- [ ] **Rimuovere i residui dei collaudi automatici**, preservando aziende, account demo e prove umane. Salvare prima un backup privato. In locale: `node --env-file=.env.local scripts/demo-pulisci.mjs` mostra l’anteprima; aggiungere `--conferma` applica la pulizia in transazione. Sono controllati nome, email generate, timestamp, appartenenze e riferimenti: nessuna cancellazione per il solo nome «Smoke»/«test». Inclusi contatti, clienti marketplace, patenti collegate, SEO, notifiche, backup fittizi e registri con riferimenti certi. I casi dubbi restano.
+      Sul VPS, dopo aver aggiornato gli script e il client Prisma nel checkout, usare il servizio `tools` (Node non è installato sull’host):
       ```bash
-      cd /opt/naboat
-      docker compose exec -T db psql -U $POSTGRES_USER -d $POSTGRES_DB < prisma/pulizia-dati-test.sql
+      docker compose run --rm -T -e DEMO_CONFERMA_PRODUZIONE=true tools node scripts/demo-pulisci.mjs
+      docker compose run --rm -T -e DEMO_CONFERMA_PRODUZIONE=true tools node scripts/demo-pulisci.mjs --conferma
       ```
-      Il file SQL mostra quante aziende sta per cancellare, elimina le aziende «Smoke …» **a cascata** (30 utenti, 37 barche, 24 prenotazioni, 24 incassi, 6 spese, 7 abbonamenti) più le voci di `AuditLog`, e alla fine elenca le aziende rimaste. Fare prima un backup: `docker compose exec -T db pg_dump -U $POSTGRES_USER -d $POSTGRES_DB > backup-prima-pulizia.sql`
-- [ ] **NON lanciare lo smoke test in produzione**: crea dati finti e cambia impostazioni globali (attiva per qualche secondo `abbonamentoObbligatorio`, sovrascrive il listino abbonamento con 39/129 €, attiva pagamenti con chiavi Stripe finte). Va lanciato su una **copia** oppure va reso autopulente prima.
+      Il vecchio `prisma/pulizia-dati-test.sql` è disabilitato: cancellava aziende in base al solo nome e non gestiva tutti i riferimenti.
+- [ ] **Collaudi automatici solo isolati**: usare `npm run test:isolated` sul PC o in CI. Mai creare fixture negli account reali o demo persistenti, neppure prevedendo una pulizia successiva. Database e indirizzo del server devono coincidere con quelli avviati dal runner; gli script diretti rifiutano gli altri ambienti.
 - [ ] Decidere se attivare la **RLS** (`prisma/rls.sql`): richiede i ruoli DB `naboat_app` + `naboat_admin`, `RLS_ENABLED=true` e il contesto tenant in transazione. Procedura di attivazione e rollback in **§8**; copertura verificabile con `node scripts/verifica-rls.mjs`. Finché non è fatta, l'isolamento è applicativo (coperto dai test) e `RLS_ENABLED` resta false.
 
 ### Segreti da impostare nel `.env` (mai committare)

@@ -34,10 +34,15 @@ export async function POST(req: Request) {
   const user = await prisma.user.findUnique({ where: { email }, include: { tenant: true } });
   if (!user?.passwordHash) return fail("Credenziali non valide", 401);
   if (!(await verifyPassword(p.data.password, user.passwordHash))) return fail("Credenziali non valide", 401);
-  if (user.tenant?.status === "suspended") return fail("Account sospeso, contatta NaBoat", 403);
+  const memberships = user.role === "superadmin" ? [] : await prisma.appartenenza.findMany({ where: { userId: user.id, stato: "attiva" }, include: { tenant: true }, orderBy: { createdAt: "asc" } });
+  const m = memberships.find((m) => m.tenantId === user.tenantId && m.tenant.status !== "suspended") ?? memberships.find((m) => m.tenant.status === "active") ?? memberships[0];
+  if (user.role !== "superadmin" && !m) return fail("Non hai accessi aziendali attivi", 403);
+  const tenant = m?.tenant ?? user.tenant;
+  const role = m?.role ?? user.role;
+  if (tenant?.status === "suspended") return fail("Account sospeso, contatta NaBoat", 403);
 
   // 2FA: richiesto se abilitata dall'utente, oppure obbligatoria per owner/superadmin.
-  const required = user.totpEnabled || mustTwoFa(user.role, false);
+  const required = user.totpEnabled || mustTwoFa(role, false);
   let twofaDone = true;
   if (user.totpEnabled) {
     if (!p.data.totpCode) return NextResponse.json({ error: "Codice 2FA richiesto", twoFactorRequired: true }, { status: 401 });
@@ -52,19 +57,19 @@ export async function POST(req: Request) {
 
   await createSession({
     sub: user.id,
-    tenantId: user.tenantId,
-    role: user.role,
-    tenantStatus: user.tenant?.status ?? null,
+    tenantId: m?.tenantId ?? user.tenantId,
+    role,
+    tenantStatus: tenant?.status ?? null,
     twofa: twofaDone,
     ver: user.sessionVersion,
   });
   return ok({
     userId: user.id,
-    role: user.role,
-    tenantStatus: user.tenant?.status ?? null,
-    tenantModulo: user.tenant?.tipoModulo ?? null,
-    tenantOrmeggio: user.tenant?.moduloOrmeggio ?? false,
+    role,
+    tenantStatus: tenant?.status ?? null,
+    tenantModulo: (m && m.role !== "owner" && !m.accessoNoleggio && m.accessoOrmeggio ? "ormeggio" : tenant?.tipoModulo) ?? null,
+    tenantOrmeggio: (tenant?.moduloOrmeggio && (m?.role === "owner" || (m?.accessoOrmeggio ?? true))) ?? false,
     twoFactorRequired: false,
-    twoFactorSetupRequired: isOwnerOrSuperadmin(user.role) && !user.totpEnabled && mustTwoFa(user.role, false),
+    twoFactorSetupRequired: isOwnerOrSuperadmin(role) && !user.totpEnabled && mustTwoFa(role, false),
   });
 }

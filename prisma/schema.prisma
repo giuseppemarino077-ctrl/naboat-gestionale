@@ -60,6 +60,10 @@ model Tenant {
   status    TenantStatus @default(pending)
   createdAt DateTime     @default(now())
   users     User[]
+  appartenenze Appartenenza[]
+  inviti CollaboratoreInvito[]
+  indisponibilitaPosti IndisponibilitaPosto[]
+  operazioniCondivise OperazioneCondivisa[]
   boats     Boat[]
   customers Customer[]
   bookings  Booking[]
@@ -172,6 +176,8 @@ model Payment {
   booking         Booking?     @relation(fields: [bookingId], references: [id], onDelete: SetNull)
   permanenzaId    String? // incasso collegato a una permanenza di ormeggio
   permanenza      Permanenza?  @relation(fields: [permanenzaId], references: [id], onDelete: SetNull)
+  addebitoId      String?
+  addebito        Addebito?    @relation(fields: [addebitoId], references: [id], onDelete: SetNull)
   provider        String       @default("stripe")
   tipo            PaymentTipo  @default(acconto)
   importoCent     Int // importo del noleggio, in centesimi
@@ -195,6 +201,8 @@ model Payment {
 
   @@index([tenantId, createdAt])
   @@index([bookingId])
+  @@index([tenantId, permanenzaId])
+  @@index([addebitoId])
 }
 
 // Rimborso del SOLO capitale di un incasso (mai fee NaBoat né commissione fornitore).
@@ -301,11 +309,13 @@ model User {
   // Se questo utente è anche uno skipper in anagrafica, da qui si sa quale.
   skipper      Skipper?
   attivita     Attivita[] // attività di ormeggio assegnate a questo utente
+  appartenenze Appartenenza[]
 
   @@index([tenantId])
 }
 
 model Boat {
+  revisione Int @default(1)
   id               String     @id @default(uuid())
   tenantId         String
   tenant           Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -385,6 +395,7 @@ model Boat {
 
 // Proprietario della barca in custodia (anagrafica dell'ormeggio, distinta dai clienti del noleggio).
 model Proprietario {
+  revisione Int @default(1)
   archiviato Boolean @default(false)
   id        String   @id @default(uuid())
   tenantId  String
@@ -1082,6 +1093,7 @@ enum ContrattoOrmeggioTipo {
 
 // Area della struttura (es. «Area ormeggio», «Piazzale»): righe × colonne.
 model Area {
+  revisione Int @default(1)
   id        String    @id @default(uuid())
   tenantId  String
   tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -1098,6 +1110,9 @@ model Area {
 
 // Singolo posto della griglia. Il codice (es. «B3») è quello mostrato in mappa.
 model Posto {
+  rimossoAt DateTime?
+  indisponibilita IndisponibilitaPosto[]
+  revisione Int @default(1)
   id             String       @id @default(uuid())
   tenantId       String
   tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -1120,6 +1135,7 @@ model Posto {
 // Periodo di presenza di una barca in un posto: ormeggio o rimessaggio.
 // Si chiude, non si cancella: lo storico serve al conto e alle ricerche.
 model Permanenza {
+  revisione Int @default(1)
   id                String               @id @default(uuid())
   tenantId          String
   tenant            Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -1193,12 +1209,14 @@ model Movimento {
 // Servizio o attività sulla barca: lavaggio, carburante, motore, rimessaggio…
 // «incluso» = compreso nella custodia, quindi non genera addebito.
 model Attivita {
+  revisione Int @default(1)
   id           String        @id @default(uuid())
   tenantId     String
   tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   permanenzaId String
   permanenza   Permanenza    @relation(fields: [permanenzaId], references: [id], onDelete: Cascade)
   tipo         String // nome del servizio (anche libero)
+  priorita     Int           @default(2) @db.SmallInt
   dataPrevista DateTime?
   stato        AttivitaStato @default(da_fare)
   quantita     Float?
@@ -1218,14 +1236,16 @@ model Attivita {
 
 // Catalogo dei servizi proposto dall'azienda (modificabile dal titolare).
 model ServizioCatalogo {
-  id         String   @id @default(uuid())
-  tenantId   String
-  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  nome       String
-  prezzoCent Int?
-  unita      String?
-  attivo     Boolean  @default(true)
-  createdAt  DateTime @default(now())
+  revisione Int @default(1)
+  id          String   @id @default(uuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  nome        String
+  prezzoCent  Int?
+  unita       String?
+  attivo      Boolean  @default(true)
+  predefinito Boolean  @default(false)
+  createdAt   DateTime @default(now())
 
   @@index([tenantId])
 }
@@ -1233,6 +1253,7 @@ model ServizioCatalogo {
 // Voce del conto del proprietario: custodia, servizio, carburante, altro.
 // È distinta dall'incasso (Payment): prima si addebita, poi si incassa.
 model Addebito {
+  revisione Int @default(1)
   id           String          @id @default(uuid())
   tenantId     String
   tenant       Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -1245,6 +1266,7 @@ model Addebito {
   stato        AddebitoStato   @default(da_pagare)
   attivitaId   String? @unique // se nasce da un servizio completato (uno solo per attività)
   attivita     Attivita? @relation(fields: [attivitaId], references: [id], onDelete: SetNull)
+  payments     Payment[]
   createdAt    DateTime        @default(now())
 
   @@index([tenantId, data])
@@ -1254,6 +1276,7 @@ model Addebito {
 // Contratto di ormeggio/rimessaggio: stesso motore di firma del noleggio
 // (gettone riservato, firma con nome + data/ora + IP).
 model ContrattoOrmeggio {
+  revisione Int @default(1)
   id             String               @id @default(uuid())
   tenantId       String
   tenant         Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -1388,4 +1411,83 @@ model PatenteNautica {
   updatedAt     DateTime       @updatedAt
 
   @@index([stato])
+}
+
+
+enum RuoloOrmeggio {
+  responsabile
+  addetto
+  visualizzazione
+}
+
+enum StatoAppartenenza {
+  attiva
+  sospesa
+  rimossa
+}
+
+model Appartenenza {
+  id String @id @default(uuid())
+  tenantId String
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role UserRole @default(operatore)
+  ruoloOrmeggio RuoloOrmeggio @default(responsabile)
+  vedeImporti Boolean @default(false)
+  accessoNoleggio Boolean @default(false)
+  accessoOrmeggio Boolean @default(true)
+  stato StatoAppartenenza @default(attiva)
+  revisione Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, userId])
+  @@index([userId, stato])
+}
+
+model CollaboratoreInvito {
+  id String @id @default(uuid())
+  tenantId String
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  email String
+  nome String
+  ruoloOrmeggio RuoloOrmeggio
+  vedeImporti Boolean @default(false)
+  tokenHash String @unique
+  scadeAt DateTime
+  accettatoAt DateTime?
+  revocatoAt DateTime?
+  creatoDa String
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, email])
+}
+
+model IndisponibilitaPosto {
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  posto Posto @relation(fields: [postoId], references: [id], onDelete: Cascade)
+  motivo String @default("blocco")
+  id String @id @default(uuid())
+  tenantId String
+  postoId String
+  dal DateTime
+  al DateTime?
+
+  @@index([tenantId, postoId, dal])
+}
+
+model OperazioneCondivisa {
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id String @id @default(uuid())
+  tenantId String
+  userId String
+  chiave String
+  impronta String
+  risposta Json
+  status Int
+  createdAt DateTime @default(now())
+
+  @@unique([tenantId, userId, chiave])
+  @@index([createdAt])
 }

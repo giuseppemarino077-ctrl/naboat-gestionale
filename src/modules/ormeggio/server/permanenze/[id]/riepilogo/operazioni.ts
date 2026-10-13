@@ -1,3 +1,4 @@
+import { riepilogoConto, nettoIncasso } from "@/modules/ormeggio/conto";
 import { etichettaTipo } from "@/modules/piattaforma/barche";
 import { fail } from "@/lib/api";
 import { prisma } from "@/lib/db";
@@ -16,7 +17,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       posto: { include: { area: true } },
       tenant: true,
       addebiti: { orderBy: { data: "asc" } },
-      payments: { orderBy: { createdAt: "asc" } },
+      payments: { where: { tenantId: t.tenantId }, orderBy: { createdAt: "asc" }, include: { refunds: { where: { tenantId: t.tenantId } } } },
     },
   });
   if (!p) return fail("Permanenza non trovata", 404);
@@ -41,11 +42,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   rows.push({ testo: "" });
   rows.push({ testo: "INCASSI", grassetto: true, spazioPrima: 6 });
   if (p.payments.length === 0) rows.push({ testo: "Nessun incasso registrato." });
-  for (const x of p.payments) rows.push({ testo: `${d(x.paidAt ?? x.createdAt)}   ${x.metodo ?? x.provider}   —   ${euro(x.totaleCent)}${x.stato !== "pagato" ? ` (${x.stato})` : ""}` });
-  const incassato = p.payments.filter((x) => x.stato === "pagato").reduce((s, x) => s + x.totaleCent, 0);
+  for (const x of p.payments) rows.push({ testo: `${d(x.paidAt ?? x.createdAt)}   ${x.metodo ?? x.provider}${x.descrizione ? ` · ${x.descrizione}` : ""}   —   ${euro(x.totaleCent)}${x.stato !== "pagato" ? ` (${x.stato})` : ""}` });
+  const conto = riepilogoConto(p.addebiti, p.payments);
+  const incassato = conto.incassatoCent;
+  for (const x of p.payments) if (nettoIncasso(x) < x.totaleCent && ["pagato", "rimborsato", "rimborsato_parziale"].includes(x.stato)) rows.push({ testo: `Rimborsato o escluso dal saldo: ${euro(x.totaleCent - nettoIncasso(x))}` });
   rows.push({ testo: `Totale incassato: ${euro(incassato)}`, grassetto: true });
   rows.push({ testo: "" });
   rows.push({ testo: `RESIDUO DA PAGARE: ${euro(Math.max(0, totaleAddebiti - incassato))}`, grassetto: true, spazioPrima: 6 });
+  if (conto.creditoCent > 0) rows.push({ testo: `CREDITO SUL CONTO: ${euro(conto.creditoCent)}`, grassetto: true });
   rows.push({ testo: "" });
   rows.push({ testo: `Documento generato il ${new Date().toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" })}` });
 

@@ -1,13 +1,13 @@
+import { fetchConRevisioni } from "./_concorrenza-ormeggio.mjs";
 import assert from "node:assert/strict";
 import { PrismaClient } from "@prisma/client";
 import { SignJWT } from "jose";
+import { assicuraAmbienteSmoke } from "./_guardia-ambiente.mjs";
 
 const base = process.argv[2];
-const url = new URL(process.env.DATABASE_URL);
-if (!url.pathname.startsWith("/naboat_verifica_") || !["127.0.0.1", "localhost"].includes(new URL(base).hostname)) {
-  throw new Error("Eseguire tramite npm run test:isolated.");
-}
+assicuraAmbienteSmoke("verifica-stabilizzazione.mjs", base);
 const db = new PrismaClient();
+const fetch = fetchConRevisioni(db);
 let passed = 0;
 async function token(user) {
   return new SignJWT({ sub: user.id, role: user.role, tenantId: user.tenantId, twofa: true, ver: user.sessionVersion })

@@ -1,5 +1,6 @@
 import { ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
+import { riepilogoConto } from "@/modules/ormeggio/conto";
 import { requireImporti } from "@/modules/ormeggio/accesso";
 
 // Conti per proprietario: somma di addebiti e incassi di tutte le sue barche.
@@ -9,11 +10,13 @@ export async function GET(req: Request) {
   const proprietari = await prisma.proprietario.findMany({
     where: { tenantId: t.tenantId },
     orderBy: { nome: "asc" },
-    include: { boats: { where: { tenantId: t.tenantId, uso: "custodia" }, include: { permanenze: { where: { tenantId: t.tenantId }, include: { addebiti: { where: { tenantId: t.tenantId } }, payments: { where: { tenantId: t.tenantId } } } } } } },
+    include: { boats: { where: { tenantId: t.tenantId, uso: "custodia" }, include: { permanenze: { where: { tenantId: t.tenantId }, include: { addebiti: { where: { tenantId: t.tenantId } }, payments: { where: { tenantId: t.tenantId }, include: { refunds: { where: { tenantId: t.tenantId } } } } } } } } },
   });
   const conti = proprietari.map((pr) => {
     let addebitiCent = 0;
     let incassatoCent = 0;
+    let residuoCent = 0;
+    let creditoCent = 0;
     let permanenze = 0;
     let aperte = 0;
     const dettaglio: any[] = [];
@@ -21,8 +24,11 @@ export async function GET(req: Request) {
       for (const p of b.permanenze) {
         permanenze += 1;
         if (p.stato === "attiva") aperte += 1;
-        const ad = p.addebiti.reduce((s, a) => s + a.importoCent, 0);
-        const inc = p.payments.filter((x) => x.stato === "pagato").reduce((s, x) => s + x.totaleCent, 0);
+        const conto = riepilogoConto(p.addebiti, p.payments);
+        const ad = conto.totaleAddebitiCent;
+        const inc = conto.incassatoCent;
+        residuoCent += conto.residuoCent;
+        creditoCent += conto.creditoCent;
         addebitiCent += ad;
         incassatoCent += inc;
         dettaglio.push({
@@ -34,7 +40,8 @@ export async function GET(req: Request) {
           inizioAt: p.inizioAt,
           addebitiCent: ad,
           incassatoCent: inc,
-          residuoCent: Math.max(0, ad - inc),
+          residuoCent: conto.residuoCent,
+          creditoCent: conto.creditoCent,
         });
       }
     }
@@ -49,7 +56,8 @@ export async function GET(req: Request) {
       aperte,
       addebitiCent,
       incassatoCent,
-      residuoCent: Math.max(0, addebitiCent - incassatoCent),
+      residuoCent,
+      creditoCent,
       dettaglio,
     };
   });

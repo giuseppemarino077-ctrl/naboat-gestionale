@@ -1,4 +1,6 @@
 "use client";
+import { richiestaOrmeggio } from "@/modules/ormeggio/richiesta";
+
 import { useRef, useState } from "react";
 import { Icona } from "@/components/ui/Icona";
 import { segnalaCambiamento } from "@/lib/aggiorna";
@@ -11,6 +13,7 @@ function BarraTariffa({ periodo, servizio, catalogo }: { periodo: PeriodoTariffa
   const [errore, setErrore] = useState("");
   const [salvato, setSalvato] = useState(false);
   const inCorso = useRef(false);
+  const revisioneBozza = useRef(servizio?.revisione);
   const valore = bozza ?? euroCampo(servizio?.prezzoCent ?? null);
   const mensile = periodo === "mensile";
   const etichetta = mensile ? "TARIFFA MENSILE" : "TARIFFA GIORNALIERA";
@@ -25,8 +28,8 @@ function BarraTariffa({ periodo, servizio, catalogo }: { periodo: PeriodoTariffa
     if (prezzoCent === (servizio?.prezzoCent ?? null)) { setBozza(null); return; }
     inCorso.current = true; setBusy(true);
     try {
-      const r = await fetch(`/api/v1/ormeggio/servizi${servizio ? `/${servizio.id}` : ""}`, {
-        method: servizio ? "PATCH" : "POST", headers: { "Content-Type": "application/json" },
+      const r = await richiestaOrmeggio(`/api/v1/ormeggio/servizi${servizio ? `/${servizio.id}` : ""}`, {
+        method: servizio ? "PATCH" : "POST", headers: { "Content-Type": "application/json", ...(revisioneBozza.current ? { "If-Match": String(revisioneBozza.current) } : {}) },
         body: JSON.stringify(servizio ? { prezzoCent } : { nome: mensile ? "Ormeggio mensile" : "Ormeggio giornaliero", unita: mensile ? "mese" : "giorno", prezzoCent }),
       });
       const j = await r.json();
@@ -43,7 +46,7 @@ function BarraTariffa({ periodo, servizio, catalogo }: { periodo: PeriodoTariffa
       <label htmlFor={campoId} className="text-xs font-bold uppercase tracking-widest text-ocean">{etichetta}</label>
       <div className="flex w-full min-w-0 items-center gap-2 rounded-2xl border border-ocean/20 bg-white px-3 focus-within:ring-2 focus-within:ring-ocean/30 sm:w-64">
         <span aria-hidden="true" className="text-muted">€</span>
-        <input id={campoId} aria-label={etichetta} aria-describedby={`${campoId}-stato`} aria-invalid={!!errore} title="Salva uscendo dal campo o premendo Invio" className="min-w-0 w-full bg-transparent py-3 text-lg font-bold text-deep outline-none" inputMode="decimal" maxLength={16} placeholder="Da definire" readOnly={!catalogo.puoModificare || busy || catalogo.caricamento || !!catalogo.errore} value={valore} onChange={(e) => { setBozza(e.target.value); setErrore(""); setSalvato(false); }} onBlur={() => void salva()} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void salva(); } }} />
+        <input id={campoId} aria-label={etichetta} aria-describedby={`${campoId}-stato`} aria-invalid={!!errore} title="Salva uscendo dal campo o premendo Invio" className="min-w-0 w-full bg-transparent py-3 text-lg font-bold text-deep outline-none" inputMode="decimal" maxLength={16} placeholder="Da definire" readOnly={!catalogo.puoModificare || busy || catalogo.caricamento || !!catalogo.errore} value={valore} onChange={(e) => { if (bozza === null) revisioneBozza.current = servizio?.revisione; setBozza(e.target.value); setErrore(""); setSalvato(false); }} onBlur={() => void salva()} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void salva(); } }} />
         <span className="flex h-5 w-5 shrink-0 items-center justify-center text-ocean" aria-hidden="true">{busy ? <Icona nome="caricamento" className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : salvato ? <Icona nome="check" className="h-4 w-4" /> : null}</span>
       </div>
     </div>

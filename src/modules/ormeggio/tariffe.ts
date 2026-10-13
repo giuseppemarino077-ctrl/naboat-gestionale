@@ -5,7 +5,7 @@ export type PeriodoTariffa = "giornaliera" | "mensile";
 export function tariffaSosta(servizi: ServizioOrmeggio[], periodo: PeriodoTariffa) {
   const unita = periodo === "mensile" ? "mese" : "giorno";
   const nome = periodo === "mensile" ? "ormeggio mensile" : "ormeggio giornaliero";
-  const candidate = servizi.filter((s) => s.unita?.trim().toLocaleLowerCase("it-IT") === unita);
+  const candidate = servizi.filter((s) => s.unita?.trim().toLocaleLowerCase("it-IT") === unita).sort((a, b) => a.nome.localeCompare(b.nome, "it-IT") || a.id.localeCompare(b.id));
   return candidate.find((s) => s.nome.trim().toLocaleLowerCase("it-IT") === nome)
     ?? candidate.find((s) => /ormeggio|sosta/i.test(s.nome))
     ?? (periodo === "mensile" && candidate.length === 1 ? candidate[0] : undefined);

@@ -31,6 +31,6 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   if (!posto) return fail("Posto non trovato", 404);
   const usi = await prisma.permanenza.count({ where: { tenantId: t.tenantId, postoId: posto.id } });
   if (usi > 0) return fail("Posto con permanenze registrate: non eliminabile", 409);
-  await prisma.posto.delete({ where: { id: posto.id } });
+  await prisma.posto.update({ where: { id: posto.id }, data: { rimossoAt: new Date() } });
   return ok({ ok: true });
 }

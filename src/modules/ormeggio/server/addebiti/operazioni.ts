@@ -3,6 +3,7 @@ import { registraAzione } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import { requireImporti } from "@/modules/ormeggio/accesso";
 import { z } from "zod";
+import { vociConto } from "@/modules/ormeggio/server/conto";
 
 export async function GET(req: Request) {
   const t = await requireImporti(req);
@@ -13,7 +14,8 @@ export async function GET(req: Request) {
     orderBy: { data: "desc" },
     take: 300,
   });
-  return ok(addebiti);
+  const voci = await vociConto(t.tenantId, addebiti.map((a) => a.permanenzaId));
+  return ok(addebiti.map((a) => voci.get(a.id) ?? a));
 }
 
 const Schema = z.object({

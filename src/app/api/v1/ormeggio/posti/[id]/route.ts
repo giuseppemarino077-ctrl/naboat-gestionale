@@ -1,1 +1,4 @@
-export { PATCH, DELETE } from "@/modules/ormeggio/server/posti/[id]/operazioni";
+import { operazioneCondivisa } from "@/modules/ormeggio/server/condivisione";
+import { PATCH as eseguiPATCH, DELETE as eseguiDELETE } from "@/modules/ormeggio/server/posti/[id]/operazioni";
+export const PATCH = operazioneCondivisa(eseguiPATCH);
+export const DELETE = operazioneCondivisa(eseguiDELETE);

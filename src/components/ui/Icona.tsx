@@ -5,6 +5,7 @@ export type NomeIcona =
   | "casa"
   | "calendario"
   | "lista"
+  | "kanban"
   | "barca"
   | "clienti"
   | "euro"
@@ -56,6 +57,7 @@ const DISEGNI: Record<NomeIcona, ReactNode> = {
   casa: <><path d="M3 10.5 12 3l9 7.5" /><path d="M5.5 9.5V21h13V9.5" /></>,
   calendario: <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M8 3v4M16 3v4M3 10h18" /></>,
   lista: <><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01" /></>,
+  kanban: <path d="M5 5v14M12 5v14M19 5v14" />,
   barca: <><path d="M22 18H2a4 4 0 0 0 4 4h12a4 4 0 0 0 4-4Z" /><path d="M21 14 10 2 3 14h18Z" /><path d="M10 2v16" /></>,
   clienti: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /></>,
   euro: <><path d="M4 10h12M4 14h9" /><path d="M19 5a8 8 0 1 0 0 14" /></>,

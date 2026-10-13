@@ -1,9 +1,13 @@
 "use client";
+import { richiestaOrmeggio } from "@/modules/ormeggio/richiesta";
+
 import { useCallback, useEffect, useRef, useState } from "react";
+import { OperazioniAddetto } from "@/modules/ormeggio/components/OperazioniAddetto";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useUtente } from "@/components/Utente";
-import { IntestazioneOrmeggio, RiepilogoOrmeggio } from "@/modules/ormeggio/components/IntestazioneOrmeggio";
+import { SceltaPriorita, StellePriorita } from "@/modules/ormeggio/components/PrioritaAttivita";
+import { IntestazioneOrmeggio } from "@/modules/ormeggio/components/IntestazioneOrmeggio";
 import { useAggiornamenti, segnalaCambiamento } from "@/lib/aggiorna";
 import { Avviso } from "@/components/ui/Avviso";
 import { Combo } from "@/components/ui/Combo";
@@ -14,11 +18,12 @@ import { codiceDaTesto } from "@/modules/piattaforma/barche";
 import { useCatalogoServizi } from "@/modules/ormeggio/use-catalogo-servizi";
 import { CorrispettivoSosta } from "@/modules/ormeggio/components/CorrispettivoSosta";
 import { telefonoWhatsApp } from "@/lib/telefono";
+import { oggi } from "@/modules/piattaforma/date";
 
 const euro = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
 const dataIt = (d?: string | null) => (d ? new Date(d).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }) : "—");
 
-export default function SchedaPermanenzaPage() {
+function SchedaCompleta() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const [dati, setDati] = useState<any>(null);
@@ -29,13 +34,14 @@ export default function SchedaPermanenzaPage() {
   const [nuovaAttivitaAperta, setNuovaAttivitaAperta] = useState(false);
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
-  const [nuovaAtt, setNuovaAtt] = useState({ tipo: "", dataPrevista: "", quantita: "", unita: "", prezzoEuro: "", incluso: false, addettoId: "" });
+  const [nuovaAtt, setNuovaAtt] = useState({ tipo: "", priorita: 2, note: "", dataPrevista: "", quantita: "", unita: "", prezzoEuro: "", incluso: false, addettoId: "" });
   const [nuovoIncasso, setNuovoIncasso] = useState({ importoEuro: "", metodo: "contanti", descrizione: "" });
   const [nuovoAddebito, setNuovoAddebito] = useState({ descrizione: "", importoEuro: "", origine: "altro" });
   const utente = useUtente();
   const vedeImporti = utente?.vedeImporti === true;
   const [documentiAperti, setDocumentiAperti] = useState(false);
   const [busy, setBusy] = useState(false);
+  const salvataggio = useRef(false);
   const richiesta = useRef(0);
   const [bnome, setBnome] = useState("");
   const [btipo, setBtipo] = useState("");
@@ -48,7 +54,7 @@ export default function SchedaPermanenzaPage() {
   const carica = useCallback(async () => {
     const seq = ++richiesta.current;
     try {
-      const r = await fetch(`/api/v1/ormeggio/permanenze/${id}`);
+      const r = await richiestaOrmeggio(`/api/v1/ormeggio/permanenze/${id}`);
       const j = await r.json();
       if (seq !== richiesta.current) return;
       if (r.ok && j?.id) setDati(j); else setErr(j?.error ?? "Permanenza non trovata.");
@@ -79,26 +85,27 @@ export default function SchedaPermanenzaPage() {
   useAggiornamenti(() => { if (!busy && !document.activeElement?.matches("input, select, textarea")) return carica(); }, ["ormeggio"]);
   useEffect(() => { if (utente && !vedeImporti && tab === "conto") setTab("scheda"); }, [utente, vedeImporti, tab]);
   useEffect(() => {
-    fetch("/api/v1/ormeggio/aree").then((r) => r.json()).then((j) => Array.isArray(j) && setPosti(j.flatMap((a: any) => a.posti.map((p: any) => ({ ...p, areaNome: a.nome }))))).catch(() => {});
+    richiestaOrmeggio("/api/v1/ormeggio/aree").then((r) => r.json()).then((j) => Array.isArray(j) && setPosti(j.flatMap((a: any) => a.posti.map((p: any) => ({ ...p, areaNome: a.nome }))))).catch(() => {});
 
   }, []);
 
   useEffect(() => {
-    if (utente?.role === "owner") fetch("/api/v1/users").then((r) => r.json()).then((j) => Array.isArray(j) && setAddetti(j)).catch(() => {});
+    if (utente?.role === "owner" || utente?.ruoloOrmeggio === "responsabile") richiestaOrmeggio("/api/v1/collaboratori").then((r) => r.json()).then((j) => Array.isArray(j.membri) && setAddetti(j.membri.filter((m: any) => m.stato === "attiva" && m.ruoloOrmeggio !== "visualizzazione").map((m: any) => ({ id: m.userId, nome: m.user.nome })))).catch(() => {});
   }, [utente?.role]);
 
   const api = async (url: string, method: string, body?: any) => {
-    if (busy) return null;
+    if (salvataggio.current) return null;
+    salvataggio.current = true;
     setBusy(true); setErr(""); setMsg("");
     try {
-    const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+    const r = await richiestaOrmeggio(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) { setErr(j.error ?? "Errore"); return null; }
+    if (!r.ok) { setErr(j.error ?? "Errore"); if (r.status === 409) await carica(); return null; }
     await carica();
     segnalaCambiamento("ormeggio");
     return j;
     } catch { setErr("Connessione interrotta: aggiorna la scheda prima di riprovare."); return null; }
-    finally { setBusy(false); }
+    finally { salvataggio.current = false; setBusy(false); }
   };
 
   const salvaBarca = (patch: Record<string, unknown>) => (dati?.id === id && dati?.boat?.id ? api(`/api/v1/ormeggio/barche/${dati.boat.id}`, "PATCH", patch) : null);
@@ -157,6 +164,8 @@ export default function SchedaPermanenzaPage() {
     const j = await api("/api/v1/ormeggio/attivita", "POST", {
       permanenzaId: id,
       tipo: nuovaAtt.tipo,
+      priorita: nuovaAtt.priorita,
+      note: nuovaAtt.note.trim() || null,
       dataPrevista: nuovaAtt.dataPrevista || null,
       quantita: nuovaAtt.quantita ? Number(nuovaAtt.quantita) : null,
       unita: nuovaAtt.unita || null,
@@ -164,7 +173,7 @@ export default function SchedaPermanenzaPage() {
       incluso: nuovaAtt.incluso,
       addettoId: nuovaAtt.addettoId || null,
     });
-    if (j) { setMsg("Attività aggiunta."); setNuovaAtt({ tipo: "", dataPrevista: "", quantita: "", unita: "", prezzoEuro: "", incluso: false, addettoId: "" }); }
+    if (j) { setMsg("Attività aggiunta."); setNuovaAtt({ tipo: "", priorita: 2, note: "", dataPrevista: "", quantita: "", unita: "", prezzoEuro: "", incluso: false, addettoId: "" }); }
   };
 
   const stornaAttivita = async (a: any) => {
@@ -173,22 +182,36 @@ export default function SchedaPermanenzaPage() {
   };
   const cambiaStatoAtt = (a: any, stato: string) => api(`/api/v1/ormeggio/attivita/${a.id}`, "PATCH", { stato });
 
+  const pagaAddebito = async (a: { id: string; descrizione: string; residuoCent: number; incassatoCent: number; incassoDaVerificare: boolean }) => {
+    if (busy) return;
+    const v = await modulo.apri("Registra il pagamento", [
+      { nome: "metodo", etichetta: "Metodo di pagamento", valore: "contanti", opzioni: [{ valore: "contanti", label: "Contanti" }, { valore: "pos", label: "POS" }, { valore: "bonifico", label: "Bonifico" }] },
+      { nome: "dataIncasso", etichetta: "Data dell'incasso", tipo: "date", valore: oggi() },
+    ], { confermaLabel: "Conferma pagamento", descrizione: `${a.descrizione}: registreremo il pagamento di ${euro(a.residuoCent)} e la voce passerà in «Pagato».${a.incassatoCent > 0 ? ` Già coperti ${euro(a.incassatoCent)} con i pagamenti presenti.` : ""}${a.incassoDaVerificare ? " La voce era segnata pagata senza un incasso corrispondente: verifica metodo e data del denaro ricevuto." : ""}` });
+    if (!v) return;
+    if (!v.dataIncasso) { setErr("Indica la data dell'incasso."); return; }
+    const j = await api(`/api/v1/ormeggio/addebiti/${a.id}`, "PATCH", { stato: "pagato", metodo: v.metodo, dataIncasso: v.dataIncasso, incassoAttesoCent: a.residuoCent });
+    if (j) setMsg(j.incassoCreatoCent > 0 ? `Pagamento di ${euro(j.incassoCreatoCent)} registrato. Voce spostata in «Pagato».` : "Voce già coperta dai pagamenti presenti. Conto aggiornato.");
+  };
+
   const aggiungiIncasso = async (e: React.FormEvent) => {
     e.preventDefault();
     const cent = Math.round(Number(nuovoIncasso.importoEuro.replace(",", ".")) * 100);
     const j = await api("/api/v1/ormeggio/incassi", "POST", { permanenzaId: id, importoCent: cent, metodo: nuovoIncasso.metodo, descrizione: nuovoIncasso.descrizione || null });
-    if (j) { setMsg("Incasso registrato."); setNuovoIncasso({ importoEuro: "", metodo: "contanti", descrizione: "" }); }
+    if (j) { setMsg("Pagamento registrato. Conto aggiornato."); setNuovoIncasso({ importoEuro: "", metodo: "contanti", descrizione: "" }); }
   };
   const aggiungiAddebito = async (e: React.FormEvent) => {
     e.preventDefault();
     const cent = Math.round(Number(nuovoAddebito.importoEuro.replace(",", ".")) * 100);
     const j = await api("/api/v1/ormeggio/addebiti", "POST", { permanenzaId: id, descrizione: nuovoAddebito.descrizione, importoCent: cent, origine: nuovoAddebito.origine });
-    if (j) { setMsg("Addebito aggiunto."); setNuovoAddebito({ descrizione: "", importoEuro: "", origine: "altro" }); }
+    if (j) { setMsg("Voce aggiunta al conto."); setNuovoAddebito({ descrizione: "", importoEuro: "", origine: "altro" }); }
   };
 
   if (!dati || dati.id !== id) return <div className="grid gap-3"><a className="text-sm font-bold text-ocean" href="/gestionale/ormeggio">← Griglia</a>{err && <p className="card p-3 text-sm font-semibold text-coral">{err}</p>}{!err && <p className="text-sm text-muted">Carico la scheda…</p>}</div>;
 
   const c = dati.conto ?? { totaleAddebitiCent: 0, incassatoCent: 0, residuoCent: 0 };
+  const daPagare = dati.addebiti.filter((a: { residuoCent: number }) => a.residuoCent > 0);
+  const pagati = dati.addebiti.filter((a: { residuoCent: number }) => a.residuoCent === 0);
 
   return (
     <div className="grid gap-4">
@@ -294,6 +317,8 @@ export default function SchedaPermanenzaPage() {
             </label>}
             <label className="flex items-center gap-2 pb-2"><input type="checkbox" checked={nuovaAtt.incluso} onChange={(e) => setNuovaAtt({ ...nuovaAtt, incluso: e.target.checked })} /> incluso nella custodia</label>
             {addetti.length > 0 && <label className="grid gap-1"><span className="text-xs font-semibold text-muted">Addetto</span><select className="campo" value={nuovaAtt.addettoId} onChange={(e) => setNuovaAtt({ ...nuovaAtt, addettoId: e.target.value })}><option value="">Non assegnata</option>{addetti.filter((a) => a.role === "owner" || a.role === "operatore").map((a) => <option key={a.id} value={a.id}>{a.nome ?? a.email}</option>)}</select></label>}
+            <div className="sm:col-span-2"><SceltaPriorita valore={nuovaAtt.priorita} onChange={(priorita) => setNuovaAtt({ ...nuovaAtt, priorita })} disabled={busy} /></div>
+            <label className="grid gap-1 sm:col-span-2"><span className="text-xs font-semibold text-muted">Note attività</span><textarea aria-label="Note attività" className="campo" rows={2} maxLength={1000} value={nuovaAtt.note} onChange={(e) => setNuovaAtt({ ...nuovaAtt, note: e.target.value })} placeholder="Indicazioni per chi esegue il lavoro…" /></label>
             <div><button className="btn-primary w-full" type="submit" disabled={busy}>＋ Aggiungi attività</button></div>
           </form>
           </details>}
@@ -304,7 +329,7 @@ export default function SchedaPermanenzaPage() {
               <tbody>
                 {dati.attivita.map((a: any) => (
                   <tr key={a.id} id={`attivita-${a.id}`} className={`border-t border-line ${attivitaEvidenziata === `attivita-${a.id}` ? "!bg-[#fff0cc]" : ""}`}>
-                    <td className="p-2 font-semibold">{a.tipo}</td>
+                    <td className="p-2 font-semibold"><p>{a.tipo}</p><StellePriorita valore={a.priorita} />{a.note && <details className="mt-1 font-normal"><summary className="cursor-pointer text-xs text-ocean">Note</summary><p className="max-w-sm whitespace-pre-wrap break-words text-xs text-muted">{a.note}</p></details>}</td>
                     <td className="p-2">{a.dataPrevista ? new Date(a.dataPrevista).toLocaleDateString("it-IT") : "—"}</td>
                     <td className="p-2">{a.quantita ?? "—"}{a.unita ? ` ${a.unita}` : ""}</td>
                     {vedeImporti && <td className="p-2">{a.prezzoCent != null ? euro(a.prezzoCent) : "—"}</td>}
@@ -317,7 +342,7 @@ export default function SchedaPermanenzaPage() {
                         {!dati.boat?.archiviato && a.stato === "da_fare" && <button className="text-ocean" disabled={busy} onClick={() => cambiaStatoAtt(a, "in_corso")}>Avvia</button>}
                         {!dati.boat?.archiviato && a.stato === "in_corso" && (vedeImporti || !a.completamentoRiservato) && <button className="text-[#177469]" disabled={busy} onClick={() => cambiaStatoAtt(a, "completato")}>Completa</button>}
                         {!dati.boat?.archiviato && a.stato === "completato" && !a.addebito && !a.contabilizzata && <button className="text-muted" disabled={busy} onClick={() => cambiaStatoAtt(a, "in_corso")}>Riapri</button>}
-                        {a.addebito && vedeImporti && <button className="text-coral" disabled={busy} onClick={() => stornaAttivita(a)}>Storna e riapri</button>}
+                        {a.addebito && vedeImporti && (a.addebito.pagamentoPresente ? <span className="text-xs text-muted">Addebito già incassato</span> : <button className="text-coral" disabled={busy} onClick={() => stornaAttivita(a)}>Storna e riapri</button>)}
                         {!vedeImporti && a.completamentoRiservato && a.stato !== "completato" && <span className="text-xs text-muted">Completamento con addebito: personale autorizzato</span>}
                       </div>
                     </td>
@@ -332,67 +357,98 @@ export default function SchedaPermanenzaPage() {
 
       {tab === "conto" && (
         <div className="grid gap-4">
-          <RiepilogoOrmeggio voci={[{ nome: "Addebitato", valore: euro(c.totaleAddebitiCent) }, { nome: "Incassato", valore: euro(c.incassatoCent) }, { nome: "Residuo", valore: euro(c.residuoCent) }]} />
+          <dl className="card grid grid-cols-3 gap-2 p-3 text-sm">{[{ nome: "Totale", cent: c.totaleAddebitiCent }, { nome: "Pagato", cent: c.incassatoCent }, { nome: "Da pagare", cent: c.residuoCent }].map((v) => <div key={v.nome} className="min-w-0"><dt className="text-muted">{v.nome}</dt><dd className="mt-1 break-words font-bold">{euro(v.cent)}</dd></div>)}</dl>
+          {c.creditoCent > 0 && <Avviso tono="info">Credito sul conto: {euro(c.creditoCent)}. Verrà usato per coprire le prossime voci da pagare di questa sosta.</Avviso>}
+          {dati.addebiti.some((a: { incassoDaVerificare?: boolean }) => a.incassoDaVerificare) && <Avviso tono="attenzione">Alcune voci erano segnate pagate senza un incasso sufficiente. Verifica il denaro ricevuto e usa «Registra incasso» indicando metodo e data corretti.</Avviso>}
 
-          <details className="card p-3"><summary>＋ Nuovo addebito</summary>
+          <details className="card p-3"><summary>＋ Nuova voce da pagare</summary>
           <form className="mt-3 grid gap-2 text-sm md:grid-cols-4" onSubmit={aggiungiAddebito}>
-            <input className="rounded-md border border-line p-2 md:col-span-2" placeholder="Descrizione addebito (es. Lavaggio)" value={nuovoAddebito.descrizione} onChange={(e) => setNuovoAddebito({ ...nuovoAddebito, descrizione: e.target.value })} required />
+            <input className="rounded-md border border-line p-2 md:col-span-2" placeholder="Descrizione (es. Lavaggio)" value={nuovoAddebito.descrizione} onChange={(e) => setNuovoAddebito({ ...nuovoAddebito, descrizione: e.target.value })} required />
             <input className="rounded-md border border-line p-2" placeholder="Importo €" value={nuovoAddebito.importoEuro} onChange={(e) => setNuovoAddebito({ ...nuovoAddebito, importoEuro: e.target.value })} required />
-            <button className="btn-primary" type="submit" disabled={busy}>＋ Addebito</button>
+            <button className="btn-primary" type="submit" disabled={busy}>＋ Da pagare</button>
           </form>
           </details>
 
-          <div className="card overflow-x-auto">
-            <div className="border-b border-line p-3 text-sm font-bold">Addebiti</div>
-            <table className="w-full text-sm">
-              <tbody>
-                {dati.addebiti.map((a: any) => (
-                  <tr key={a.id} className="border-t border-line">
-                    <td className="p-2">{a.descrizione}</td>
-                    <td className="p-2 text-muted">{a.origine}</td>
-                    <td className="p-2">{new Date(a.data).toLocaleDateString("it-IT")}</td>
-                    <td className="p-2 font-bold">{euro(a.importoCent)}</td>
-                    <td className="p-2"><span className={a.stato === "pagato" ? "badge-ready" : "badge-pending"}>{a.stato.replace("_", " ")}</span></td>
-                    <td className="p-2">{a.stato !== "pagato" && <button className="font-bold text-ocean" onClick={() => api(`/api/v1/ormeggio/addebiti/${a.id}`, "PATCH", { stato: "pagato" })}>Segna pagato</button>}</td>
+          <div className="card overflow-x-auto" data-conto-sezione="da-pagare">
+            <div className="border-b border-line p-3 text-sm font-bold">Da pagare</div>
+            <table className="block w-full text-sm md:table">
+              <thead className="hidden md:table-header-group"><tr className="text-left text-muted"><th className="p-2">Voce</th><th className="p-2">Origine</th><th className="p-2">Data</th><th className="p-2">Importo</th><th className="p-2">Stato</th><th className="p-2">Pagamento</th></tr></thead>
+              <tbody className="block md:table-row-group">
+                {daPagare.map((a: any) => (
+                  <tr key={a.id} id={`addebito-${a.id}`} data-addebito-id={a.id} className="grid grid-cols-2 items-center gap-1 border-t border-line p-3 md:table-row md:p-0">
+                    <td className="col-span-2 min-w-0 break-words font-semibold md:p-2 md:font-normal">{a.descrizione}</td>
+                    <td className="text-xs text-muted md:p-2 md:text-sm">{a.origine}</td>
+                    <td className="text-right text-xs text-muted md:p-2 md:text-left md:text-sm">{new Date(a.data).toLocaleDateString("it-IT")}</td>
+                    <td className="min-w-0 py-2 md:p-2"><b>{euro(a.importoCent)}</b>{a.incassatoCent > 0 && a.residuoCent > 0 && <span className="block text-xs text-muted">Coperto {euro(a.incassatoCent)} · Rimane {euro(a.residuoCent)}</span>}</td>
+                    <td className="min-w-0 text-right md:p-2 md:text-left"><span className={a.stato === "pagato" ? "badge-ready" : "badge-pending"}>{a.incassoDaVerificare ? "Incasso da verificare" : a.importoCent <= 0 ? "Non dovuto" : a.stato === "pagato" ? "Pagato" : a.incassatoCent > 0 ? "Parziale" : "Da pagare"}</span></td>
+                    <td className="col-span-2 md:p-2">{a.residuoCent > 0 && <button disabled={busy} className="min-h-11 font-bold text-ocean md:min-h-0" onClick={() => pagaAddebito(a)}>{a.incassoDaVerificare ? "Registra incasso" : "Segna pagato"}</button>}</td>
                   </tr>
                 ))}
-                {dati.addebiti.length === 0 && <tr><td className="p-3 text-muted">Nessun addebito.</td></tr>}
+                {daPagare.length === 0 && <tr><td colSpan={6} className="p-3 text-muted">Nessuna voce da pagare.</td></tr>}
               </tbody>
             </table>
           </div>
 
-          <details className="card p-3"><summary>＋ Registra incasso esterno</summary>
+          <details className="card p-3"><summary>＋ Registra pagamento esterno</summary>
           <form className="mt-3 grid gap-2 text-sm md:grid-cols-4" onSubmit={aggiungiIncasso}>
-            <input className="rounded-md border border-line p-2" placeholder="Importo incassato €" value={nuovoIncasso.importoEuro} onChange={(e) => setNuovoIncasso({ ...nuovoIncasso, importoEuro: e.target.value })} required />
+            <input className="rounded-md border border-line p-2" placeholder="Importo pagato €" value={nuovoIncasso.importoEuro} onChange={(e) => setNuovoIncasso({ ...nuovoIncasso, importoEuro: e.target.value })} required />
             <select className="rounded-md border border-line p-2" value={nuovoIncasso.metodo} onChange={(e) => setNuovoIncasso({ ...nuovoIncasso, metodo: e.target.value })}>
               <option value="contanti">Contanti</option><option value="pos">POS</option><option value="bonifico">Bonifico</option>
             </select>
             <input className="rounded-md border border-line p-2" placeholder="Nota" value={nuovoIncasso.descrizione} onChange={(e) => setNuovoIncasso({ ...nuovoIncasso, descrizione: e.target.value })} />
-            <button className="btn-primary" type="submit" disabled={busy}>＋ Incasso esterno</button>
+            <button className="btn-primary" type="submit" disabled={busy}>＋ Pagamento esterno</button>
           </form>
           </details>
 
-          <div className="card overflow-x-auto">
-            <div className="border-b border-line p-3 text-sm font-bold">Incassi</div>
-            <table className="w-full text-sm">
-              <tbody>
-                {dati.payments.map((p: any) => (
-                  <tr key={p.id} className="border-t border-line">
-                    <td className="p-2">{new Date(p.createdAt).toLocaleDateString("it-IT")}</td>
-                    <td className="p-2 text-muted">{p.provider} · {p.metodo}</td>
-                    <td className="p-2 font-bold">{euro(p.totaleCent)}</td>
-                    <td className="p-2"><span className={p.stato === "pagato" ? "badge-ready" : "badge-pending"}>{p.stato}</span></td>
+          <div className="card overflow-x-auto" data-conto-sezione="pagato">
+            <div className="border-b border-line p-3 text-sm font-bold">Pagato</div>
+            <table className="block w-full text-sm md:table">
+              <thead className="hidden md:table-header-group"><tr className="text-left text-muted"><th className="p-2">Voce</th><th className="p-2">Origine</th><th className="p-2">Data</th><th className="p-2">Importo</th><th className="p-2">Stato</th></tr></thead>
+              <tbody className="block md:table-row-group">
+                {pagati.map((a: any) => (
+                  <tr key={a.id} id={`addebito-${a.id}`} data-addebito-id={a.id} className="grid grid-cols-2 items-center gap-1 border-t border-line p-3 md:table-row md:p-0">
+                    <td className="col-span-2 min-w-0 break-words font-semibold md:p-2 md:font-normal">{a.descrizione}</td>
+                    <td className="text-xs text-muted md:p-2 md:text-sm">{a.origine}</td>
+                    <td className="text-right text-xs text-muted md:p-2 md:text-left md:text-sm">{new Date(a.data).toLocaleDateString("it-IT")}</td>
+                    <td className="min-w-0 py-2 md:p-2"><b>{euro(a.importoCent)}</b></td>
+                    <td className="text-right md:p-2 md:text-left"><span className="badge-ready">{a.importoCent <= 0 ? "Non dovuto" : "Pagato"}</span></td>
                   </tr>
                 ))}
-                {dati.payments.length === 0 && <tr><td className="p-3 text-muted">Nessun incasso registrato.</td></tr>}
+                {pagati.length === 0 && <tr><td colSpan={5} className="p-3 text-muted">Nessuna voce saldata.</td></tr>}
               </tbody>
             </table>
+            <details className="border-t border-line" open={pagati.length === 0}>
+            <summary className="p-3 text-sm font-semibold">Dettaglio pagamenti</summary>
+            <table className="block w-full text-sm md:table">
+              <thead className="hidden md:table-header-group"><tr className="text-left text-muted"><th className="p-2">Data e riferimento</th><th className="p-2">Metodo</th><th className="p-2">Importo</th><th className="p-2">Stato</th></tr></thead>
+              <tbody className="block md:table-row-group">
+                {dati.payments.map((p: any) => (
+                  <tr key={p.id} className="grid grid-cols-2 items-center gap-2 border-t border-line p-3 md:table-row md:p-0">
+                    <td className="col-span-2 min-w-0 break-words md:p-2">{new Date(p.paidAt ?? p.createdAt).toLocaleDateString("it-IT")}{p.descrizione && <span className="block text-xs text-muted">{p.addebitoId ? <a className="text-ocean underline" href={`#addebito-${p.addebitoId}`}>{p.descrizione}</a> : p.descrizione}</span>}</td>
+                    <td className="min-w-0 text-muted md:p-2">{p.provider} · {p.metodo}</td>
+                    <td className="text-right font-bold md:p-2 md:text-left">{euro(p.totaleCent)}</td>
+                    <td className="col-span-2 md:p-2"><span className={p.stato === "pagato" ? "badge-ready" : "badge-pending"}>{p.stato}</span></td>
+                  </tr>
+                ))}
+                {dati.payments.length === 0 && <tr><td colSpan={4} className="p-3 text-muted">Nessun pagamento registrato.</td></tr>}
+              </tbody>
+            </table>
+            </details>
           </div>
-          <p className="text-xs text-muted">L'addebito è la voce da pagare; l'incasso è il denaro ricevuto. Un pagamento online (fase O4) aggiornerà il conto automaticamente.</p>
+          <p className="text-xs text-muted">Le voci saldate passano da «Da pagare» a «Pagato», anche quando registri un pagamento esterno o online. Le voci pagate in parte restano in «Da pagare» con il residuo. «Segna pagato» registra solo quanto manca; non serve un secondo pagamento.</p>
         </div>
       )}
       {conferma.dialogo}
       {modulo.dialogo}
     </div>
   );
+}
+
+export default function SchedaPermanenzaPage() {
+  const u = useUtente();
+  const { id } = useParams<{ id: string }>();
+  if (!u) return <p className="text-sm text-muted">Caricamento…</p>;
+  if (u.role !== "owner" && u.role !== "superadmin" && u.ruoloOrmeggio === "visualizzazione") return <Avviso tono="attenzione">Questo profilo non è più disponibile. Chiedi al titolare di assegnarti il ruolo Responsabile o Addetto.</Avviso>;
+  if (u.role !== "owner" && u.ruoloOrmeggio === "addetto") return <OperazioniAddetto permanenzaId={id} />;
+  return <SchedaCompleta />;
 }

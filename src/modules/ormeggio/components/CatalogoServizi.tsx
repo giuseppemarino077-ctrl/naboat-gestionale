@@ -1,4 +1,6 @@
 "use client";
+import { richiestaOrmeggio } from "@/modules/ormeggio/richiesta";
+
 import { useRef, useState } from "react";
 import { Avviso } from "@/components/ui/Avviso";
 import { Dialogo, useConferma } from "@/components/ui/Dialogo";
@@ -17,7 +19,7 @@ function CampiServizio({ form, onChange, vedeImporti }: { form: FormServizio; on
   </>;
 }
 
-export function CatalogoServizi({ catalogo, tendina = false }: { catalogo: ReturnType<typeof useCatalogoServizi>; tendina?: boolean }) {
+export function CatalogoServizi({ catalogo, tendina = false, mostraTitolo = true }: { catalogo: ReturnType<typeof useCatalogoServizi>; tendina?: boolean; mostraTitolo?: boolean }) {
   const { servizi, caricamento, errore, carica, prepara, vedeImporti, puoModificare } = catalogo;
   const [selezionatoId, setSelezionatoId] = useState("");
   const [ricerca, setRicerca] = useState("");
@@ -26,7 +28,7 @@ export function CatalogoServizi({ catalogo, tendina = false }: { catalogo: Retur
   const [eliminandoId, setEliminandoId] = useState<string | null>(null);
   const [nuovo, setNuovo] = useState(vuoto);
   const [modifica, setModifica] = useState(vuoto);
-  const [dialogo, setDialogo] = useState<{ id: string | null } | null>(null);
+  const [dialogo, setDialogo] = useState<{ id: string | null; revisione?: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [erroreDialogo, setErroreDialogo] = useState("");
@@ -40,7 +42,7 @@ export function CatalogoServizi({ catalogo, tendina = false }: { catalogo: Retur
   const apri = (servizio?: ServizioOrmeggio) => {
     setElencoAperto(false);
     setModifica(servizio ? { nome: servizio.nome, prezzoEuro: servizio.prezzoCent == null ? "" : String(servizio.prezzoCent / 100), unita: servizio.unita ?? "" } : vuoto());
-    setErroreDialogo(""); setDialogo({ id: servizio?.id ?? null });
+    setErroreDialogo(""); setDialogo({ id: servizio?.id ?? null, revisione: servizio?.revisione });
   };
 
   const salva = async (form: FormServizio, id: string | null, nelDialogo: boolean) => {
@@ -53,8 +55,8 @@ export function CatalogoServizi({ catalogo, tendina = false }: { catalogo: Retur
     if (vedeImporti && prezzoCent !== null && (!Number.isSafeInteger(prezzoCent) || prezzoCent > 100000000)) { segnalaErrore("Il prezzo supera il limite consentito."); return; }
     setBusy(true);
     try {
-      const r = await fetch(`/api/v1/ormeggio/servizi${id ? `/${id}` : ""}`, {
-        method: id ? "PATCH" : "POST", headers: { "Content-Type": "application/json" },
+      const r = await richiestaOrmeggio(`/api/v1/ormeggio/servizi${id ? `/${id}` : ""}`, {
+        method: id ? "PATCH" : "POST", headers: { "Content-Type": "application/json", ...(dialogo?.revisione ? { "If-Match": String(dialogo.revisione) } : {}) },
         body: JSON.stringify({ nome: form.nome.trim(), unita: form.unita.trim() || null, ...(vedeImporti ? { prezzoCent } : {}) }),
       });
       const j = await r.json();
@@ -74,7 +76,7 @@ export function CatalogoServizi({ catalogo, tendina = false }: { catalogo: Retur
     if (busy || !puoModificare) return;
     setBusy(true); setEliminandoId(servizio.id); setErr(""); setMsg("");
     try {
-      const r = await fetch(`/api/v1/ormeggio/servizi/${servizio.id}`, { method: "DELETE" });
+      const r = await richiestaOrmeggio(`/api/v1/ormeggio/servizi/${servizio.id}`, { method: "DELETE", headers: { "If-Match": String(servizio.revisione) } });
       const j = await r.json();
       if (!r.ok && r.status !== 404) { setErr(j.error ?? "Non riesco a eliminare il servizio."); return; }
       if (selezionatoId === servizio.id) setSelezionatoId("");
@@ -93,7 +95,7 @@ export function CatalogoServizi({ catalogo, tendina = false }: { catalogo: Retur
   </ul>;
 
   return <section aria-label="Catalogo servizi" className="card grid min-w-0 gap-3 p-4">
-    <div><h2 className="text-lg">{tendina ? "Servizi e attività offerte" : "Catalogo servizi"}</h2><p className="text-sm text-muted">{tendina ? "Cerca, modifica o elimina i servizi. Il catalogo è condiviso con le schede barca e Configurazione." : "Servizi pronti per l’ormeggio, tutti modificabili. Le modifiche valgono per le nuove attività; nessun addebito viene creato dal catalogo."}</p></div>
+    <div>{mostraTitolo && <h2 className="text-lg">{tendina ? "Servizi e attività offerte" : "Catalogo servizi"}</h2>}<p className="text-sm text-muted">{tendina ? "Cerca, modifica o elimina i servizi. Il catalogo è condiviso con le schede barca e Configurazione." : "Servizi pronti per l’ormeggio, tutti modificabili. Le modifiche valgono per le nuove attività; nessun addebito viene creato dal catalogo."}</p></div>
     {(errore || err) && <Avviso tono="errore" azione={errore ? <button className="btn-soft" onClick={() => prepara()}>Riprova</button> : undefined}>{errore || err}</Avviso>}
     {msg && <Avviso tono="ok">{msg}</Avviso>}
     {tendina ? <>

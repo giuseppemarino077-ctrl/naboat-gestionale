@@ -1,9 +1,10 @@
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireImportiOrmeggio, requireOrmeggio } from "@/modules/ormeggio/accesso";
+import { profiloOperativoLimitato, requireImportiOrmeggio, requireOrmeggio } from "@/modules/ormeggio/accesso";
 import { postoNelQuadro, conflittoPermanenza } from "@/modules/ormeggio/regole";
 import { dataSosta, periodoOccupato, sovrapposizioneAssegnazioni } from "@/modules/ormeggio/periodi";
 import { z } from "zod";
+import { calcolaConto } from "@/modules/ormeggio/conto";
 
 function conflittoAssegnazione(e: unknown): boolean {
   const msg = e instanceof Error ? e.message : String(e);
@@ -25,14 +26,24 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       addebiti: { orderBy: { data: "asc" } },
       movimenti: { orderBy: [{ effettivoAt: "desc" }, { createdAt: "desc" }] },
       assegnazioni: { orderBy: { dal: "asc" } },
-      payments: { orderBy: { createdAt: "desc" } },
+      payments: { where: { tenantId: t.tenantId }, orderBy: { createdAt: "desc" }, include: { refunds: { where: { tenantId: t.tenantId } } } },
       contratto: true,
     },
   });
   if (!permanenza) return fail("Permanenza non trovata", 404);
+  if (profiloOperativoLimitato(t)) {
+    if (permanenza.stato !== "attiva" || (permanenza.assegnazioni.length > 0 && !permanenza.assegnazioni.some((a) => !a.al || a.al > new Date()))) return fail("Storico non disponibile per il tuo profilo", 403);
+    return ok({
+      id: permanenza.id, revisione: permanenza.revisione, boatId: permanenza.boatId, postoId: permanenza.postoId,
+      tipo: permanenza.tipo, inizioAt: permanenza.inizioAt, finePrevistaAt: permanenza.finePrevistaAt, stato: permanenza.stato, pronta: permanenza.pronta,
+      boat: { id: permanenza.boat.id, revisione: permanenza.boat.revisione, nome: permanenza.boat.nome, tipo: permanenza.boat.tipo, tipoCodice: permanenza.boat.tipoCodice, stato: permanenza.boat.stato },
+      posto: permanenza.posto,
+      attivita: t.ruoloOrmeggio === "addetto" ? permanenza.attivita.filter((a) => a.addettoId === t.userId).map(({ addebito: _a, prezzoCent: _p, ...a }) => ({ ...a, prezzoCent: null, addebito: null, contabilizzata: !!_a, completamentoRiservato: false })) : [],
+      addebiti: [], payments: [], movimenti: [], assegnazioni: [], contratto: null, conto: null, corrispettivoCent: null,
+      postoFuoriGriglia: !postoNelQuadro(permanenza.posto),
+    });
+  }
   const postoFuoriGriglia = !postoNelQuadro(permanenza.posto);
-  const totaleAddebitiCent = permanenza.addebiti.reduce((s, a) => s + a.importoCent, 0);
-  const incassatoCent = permanenza.payments.filter((p) => p.stato === "pagato").reduce((s, p) => s + p.totaleCent, 0);
   // Senza il permesso sugli importi la scheda resta consultabile, ma senza cifre.
   // Il contratto porta snapshot con importi, quindi non va restituito.
   if (t.vedeImporti === false) {
@@ -47,7 +58,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       conto: null,
     });
   }
-  return ok({ ...permanenza, postoFuoriGriglia, conto: { totaleAddebitiCent, incassatoCent, residuoCent: Math.max(0, totaleAddebitiCent - incassatoCent) } });
+  const { addebiti, ...conto } = calcolaConto(permanenza.addebiti, permanenza.payments);
+  const voci = new Map(addebiti.map((a) => [a.id, a]));
+  const attivita = permanenza.attivita.map((a) => ({ ...a, addebito: a.addebito ? { ...a.addebito, stato: voci.get(a.addebito.id)?.stato, pagamentoPresente: (voci.get(a.addebito.id)?.incassatoCent ?? 0) > 0 || permanenza.addebiti.some((d) => d.id === a.addebito!.id && d.stato === "pagato") } : null }));
+  return ok({ ...permanenza, addebiti, attivita, postoFuoriGriglia, conto });
 }
 
 const Patch = z.object({
@@ -69,6 +83,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const { id } = await params;
   const p = Patch.safeParse(await req.json().catch(() => null));
   if (!p.success) return fail("Dati non validi", 422);
+  if (profiloOperativoLimitato(t) && (p.data.azione === "chiudi" || p.data.note !== undefined || p.data.finePrevistaAt !== undefined || p.data.corrispettivoCent !== undefined || p.data.rettifica !== undefined)) return fail("L'addetto può spostare la barca o confermarla pronta", 403);
   const cur = await prisma.permanenza.findFirst({ where: { id, tenantId: t.tenantId }, include: { posto: true, boat: { select: { proprietarioId: true } } } });
   if (!cur) return fail("Permanenza non trovata", 404);
 

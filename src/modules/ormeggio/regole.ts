@@ -23,6 +23,6 @@ export function conflittoPermanenza(e: unknown): boolean {
   return /23P01/.test(msg) || /permanenza_(posto|barca)_senza_sovrapposizioni/.test(msg) || /exclusion constraint/i.test(msg);
 }
 
-export function postoNelQuadro(posto: { riga: number; colonna: number; area: { righe: number; colonne: number; archiviata: boolean } }) {
-  return !posto.area.archiviata && posto.riga <= posto.area.righe && posto.colonna <= posto.area.colonne;
+export function postoNelQuadro(posto: { rimossoAt?: Date | string | null; riga: number; colonna: number; area: { righe: number; colonne: number; archiviata: boolean } }) {
+  return !posto.rimossoAt && !posto.area.archiviata && posto.riga <= posto.area.righe && posto.colonna <= posto.area.colonne;
 }

@@ -1,6 +1,9 @@
 "use client";
+import { richiestaOrmeggio } from "@/modules/ormeggio/richiesta";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { OperazioniAddetto } from "@/modules/ormeggio/components/OperazioniAddetto";
 import { useUtente } from "@/components/Utente";
 import { IntestazioneOrmeggio } from "@/modules/ormeggio/components/IntestazioneOrmeggio";
 import { RiepilogoPosti } from "@/modules/ormeggio/components/RiepilogoPosti";
@@ -18,6 +21,7 @@ import { OPZIONI_TIPI } from "@/modules/piattaforma/tipi-barche";
 import { aggiungiGiorni, fineGiorno, inizioGiorno, oggi } from "@/modules/piattaforma/date";
 import { useCatalogoServizi } from "@/modules/ormeggio/use-catalogo-servizi";
 import { centDaEuro, euroCampo, preventivoSosta, tariffaSosta } from "@/modules/ormeggio/tariffe";
+import { evidenzaPosto, type CategoriaPosti } from "@/modules/ormeggio/evidenza-posti";
 
 type Griglia = {
   aree: Area[];
@@ -52,7 +56,7 @@ const NOME_STATO: Record<Stato, string> = {
   bloccata: "Non disponibile",
 };
 
-export default function OrmeggioPage() {
+function QuadroOperativo() {
   const [griglia, setGriglia] = useState<Griglia | null>(null);
   const [data, setData] = useState(oggi());
   const [ricerca, setRicerca] = useState("");
@@ -75,6 +79,8 @@ export default function OrmeggioPage() {
   const vedeImporti = utente?.vedeImporti === true;
   const catalogo = useCatalogoServizi();
   const [stato, setStato] = useState("tutti");
+  const [categoriaPosti, setCategoriaPosti] = useState<CategoriaPosti | null>(null);
+  const [anteprimaPosti, setAnteprimaPosti] = useState<CategoriaPosti | null>(null);
   const [busy, setBusy] = useState(false);
   const [trascinamento, setTrascinamento] = useState(false);
   const [mostraDaSistemare, setMostraDaSistemare] = useState(false);
@@ -113,7 +119,7 @@ export default function OrmeggioPage() {
   const carica = useCallback(async () => {
     const seq = ++richiesta.current;
     try {
-      const r = await fetch(`/api/v1/ormeggio/griglia?data=${data}`);
+      const r = await richiestaOrmeggio(`/api/v1/ormeggio/griglia?data=${data}`);
       const j = await r.json().catch(() => ({}));
       if (seq !== richiesta.current) return;
       if (!r.ok) { setErroreCaricamento(j.error ?? "Non riesco a caricare i posti."); return; }
@@ -125,8 +131,8 @@ export default function OrmeggioPage() {
   useEffect(() => { setCaricamento(true); setSelId(null); carica(); }, [carica]);
   useAggiornamenti(() => { if (postoScelto || move.aperto || busy || trascinamento || configura) return; return carica(); }, ["ormeggio"]);
   const caricaElenchi = () => {
-    fetch("/api/v1/ormeggio/proprietari").then((r) => r.json()).then((j) => Array.isArray(j) && setProprietari(j)).catch(() => {});
-    fetch("/api/v1/ormeggio/barche").then((r) => r.json()).then((j) => Array.isArray(j) && setBarche(j)).catch(() => {});
+    richiestaOrmeggio("/api/v1/ormeggio/proprietari").then((r) => r.json()).then((j) => Array.isArray(j) && setProprietari(j)).catch(() => {});
+    richiestaOrmeggio("/api/v1/ormeggio/barche").then((r) => r.json()).then((j) => Array.isArray(j) && setBarche(j)).catch(() => {});
   };
   useEffect(() => {
     caricaElenchi();
@@ -138,7 +144,7 @@ export default function OrmeggioPage() {
     if (busy) return null;
     setBusy(true); setErr(""); setMsg("");
     try {
-      const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+      const r = await richiestaOrmeggio(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) { setErr(j.error ?? "Operazione non riuscita."); if (r.status === 409) await carica(); return null; }
       await carica();
@@ -182,7 +188,7 @@ export default function OrmeggioPage() {
     setErroreDettaglio("");
     if (!selId) { setDettaglio(null); return; }
     const controller = new AbortController();
-    fetch(`/api/v1/ormeggio/permanenze/${selId}`, { signal: controller.signal }).then(async (r) => {
+    richiestaOrmeggio(`/api/v1/ormeggio/permanenze/${selId}`, { signal: controller.signal }).then(async (r) => {
       const j = await r.json();
       if (controller.signal.aborted) return;
       if (!r.ok) { setDettaglio(null); setErroreDettaglio(j.error ?? "Scheda non disponibile."); return; }
@@ -192,6 +198,7 @@ export default function OrmeggioPage() {
   }, [selId, griglia, tentativoDettaglio]);
 
   const q = ricerca.trim().toLowerCase();
+  const evidenza = (posto: Posto) => evidenzaPosto(posto, categoriaPosti, anteprimaPosti);
   const corrisponde = (posto: Posto) =>
     (stato === "tutti" || (stato === "libero" ? !posto.bloccato && !posto.permanenza : stato === "non_usabile" ? posto.bloccato : posto.permanenza?.statoGriglia === stato)) &&
     (!q || posto.codice.toLowerCase().includes(q) || (posto.permanenza?.boatNome ?? "").toLowerCase().includes(q) || (posto.permanenza?.proprietario ?? "").toLowerCase().includes(q));
@@ -276,10 +283,11 @@ export default function OrmeggioPage() {
       {msg && <Avviso tono="ok">{msg}</Avviso>}
 
       <IntestazioneOrmeggio titolo="Quadro posti" indietro={false} azioni={<>
-        <button type="button" className={configura ? "btn-primary" : "btn-soft"} aria-label={configura ? "Fine configurazione" : "Configura posti"} aria-pressed={configura} disabled={busy || caricamento} onClick={() => { if (!configura) { if (areaSelezionata) configuraArea(areaSelezionata); setSelId(null); setVista("griglia"); setRicerca(""); setStato("tutti"); } else carica(); setConfigura(!configura); }}><Icona nome="ingranaggio" className="h-4 w-4 sm:mr-1.5" /><span className="hidden sm:inline">{configura ? "Fine configurazione" : "Configura posti"}</span></button>
+        {utente?.role === "owner" && <button type="button" className={configura ? "btn-primary" : "btn-soft"} aria-label={configura ? "Fine configurazione" : "Configura posti"} aria-pressed={configura} disabled={busy || caricamento} onClick={() => { if (!configura) { if (areaSelezionata) configuraArea(areaSelezionata); setSelId(null); setVista("griglia"); setRicerca(""); setStato("tutti"); } else carica(); setConfigura(!configura); }}><Icona nome="ingranaggio" className="h-4 w-4 sm:mr-1.5" /><span className="hidden sm:inline">{configura ? "Fine configurazione" : "Configura posti"}</span></button>}
         <button className="btn-soft px-3 sm:hidden" aria-label="Legenda stati" aria-expanded={legenda} onClick={() => setLegenda(!legenda)}>?</button>
       </>} />
-      <RiepilogoPosti dati={r} aperto={mostraDaSistemare} onDaSistemare={() => { setSelId(null); setMostraDaSistemare(true); }} />
+      <RiepilogoPosti dati={r} aperto={mostraDaSistemare} onDaSistemare={() => { setSelId(null); setMostraDaSistemare(true); }}
+        selezione={categoriaPosti} onSelezione={(categoria) => setCategoriaPosti((attuale) => attuale === categoria ? null : categoria)} onAnteprima={setAnteprimaPosti} />
       {mostraDaSistemare && <Dialogo aperto onChiudi={chiudiDaSistemare} titolo="Da sistemare" larghezza="max-w-3xl">
         <div className="max-h-[70dvh] overflow-y-auto pr-1">
           <p className="mb-3 text-sm text-muted">Posti che richiedono attenzione in tutte le aree, per il {new Date(`${data}T12:00:00`).toLocaleDateString("it-IT")}. Apri la voce per occupartene.</p>
@@ -301,27 +309,27 @@ export default function OrmeggioPage() {
               </article>;
             }))}
           </div>}
-          <p className="mt-3 text-xs text-muted">Il conteggio riguarda i posti, non il numero di problemi. Le barche non disponibili sono conteggiate separatamente. Le segnalazioni economiche rispettano i tuoi permessi.</p>
+          <p className="mt-3 text-xs text-muted">Il conteggio riguarda i posti, non il numero di problemi. Le segnalazioni economiche rispettano i tuoi permessi.</p>
         </div>
       </Dialogo>}
 
-      <div className="grid grid-cols-2 items-center gap-2 rounded-xl border border-line bg-white p-2 sm:flex sm:flex-wrap">
+      <div aria-label="Comandi del quadro posti" className="grid grid-cols-2 items-center gap-2 rounded-[20px] border border-ocean/15 bg-foam/40 p-2 shadow-[0_5px_16px_-10px_rgba(5,47,63,0.3)] sm:flex sm:flex-wrap">
         <div className="flex min-w-0 items-center gap-0 sm:gap-1">
           <button className="btn-ghost px-1 sm:px-2" aria-label="Giorno precedente" onClick={() => setData(aggiungiGiorni(data, -1))}>‹</button>
-          <input aria-label="Data del quadro" type="date" className="min-w-0 flex-1 rounded-lg border border-line px-1 py-2 text-xs sm:text-sm" value={data} onChange={(e) => e.target.value && setData(e.target.value)} />
+          <input aria-label="Data del quadro" type="date" className="min-w-0 flex-1 rounded-xl border border-ocean/15 bg-white px-1 py-2 text-xs text-deep sm:text-sm" value={data} onChange={(e) => e.target.value && setData(e.target.value)} />
           <button className="btn-ghost px-1 sm:px-2" aria-label="Giorno successivo" onClick={() => setData(aggiungiGiorni(data, 1))}>›</button>
           {data !== oggi() && <button className="btn-ghost px-2" onClick={() => setData(oggi())}>Oggi</button>}
         </div>
-        {aree.length > 0 && <select aria-label="Area" className="min-w-0 max-w-full rounded-lg border border-line p-2 text-sm" value={areaSelezionata?.id ?? ""} disabled={busy} onChange={(e) => { setAreaId(e.target.value); setSelId(null); const a = aree.find((a) => a.id === e.target.value); if (configura && a) configuraArea(a); }}>
+        {aree.length > 0 && <select aria-label="Area" className="min-w-0 max-w-full rounded-xl border border-ocean/15 bg-white p-2 text-sm text-deep" value={areaSelezionata?.id ?? ""} disabled={busy} onChange={(e) => { setAreaId(e.target.value); setSelId(null); const a = aree.find((a) => a.id === e.target.value); if (configura && a) configuraArea(a); }}>
           {aree.map((a) => <option key={a.id} value={a.id}>{a.nome} · {a.posti.filter((p) => !p.bloccato && !p.permanenza).length} liberi</option>)}
         </select>}
-        <input aria-label="Cerca nei posti" className="col-span-2 min-w-0 flex-1 rounded-lg border border-line p-2 text-sm" placeholder="Barca, proprietario, posto…" value={ricerca} onChange={(e) => setRicerca(e.target.value)} />
-        <select aria-label="Stato del posto o della barca" className="min-w-0 rounded-lg border border-line p-2 text-sm" value={stato} onChange={(e) => setStato(e.target.value)}>
+        <input aria-label="Cerca nei posti" className="col-span-2 min-w-0 flex-1 rounded-xl border border-ocean/15 bg-white p-2 text-sm text-deep" placeholder="Barca, proprietario, posto…" value={ricerca} onChange={(e) => setRicerca(e.target.value)} />
+        <select aria-label="Stato del posto o della barca" className="min-w-0 rounded-xl border border-ocean/15 bg-white p-2 text-sm text-deep" value={stato} onChange={(e) => setStato(e.target.value)}>
           <option value="tutti">Tutti gli stati</option><option value="libero">Posti liberi</option><option value="in_sosta">Al posto</option><option value="da_fare">Attività da fare</option><option value="in_mare">In mare</option><option value="bloccata">Barche non disponibili</option><option value="non_usabile">Posti non utilizzabili</option>
         </select>
         {(ricerca || stato !== "tutti") && <button className="btn-ghost px-2" onClick={() => { setRicerca(""); setStato("tutti"); }}>Azzera filtri</button>}
-        <div className="inline-flex justify-center rounded-lg border border-line p-0.5">
-          {(["griglia", "elenco"] as const).map((v) => <button key={v} aria-pressed={vista === v} className={"rounded-md px-3 py-1.5 text-sm font-bold " + (vista === v ? "bg-signature text-deep" : "text-ocean")} onClick={() => setVista(v)}>{v === "griglia" ? "Griglia" : "Elenco"}</button>)}
+        <div className="inline-flex justify-center rounded-full border border-ocean/15 bg-white p-0.5">
+          {(["griglia", "elenco"] as const).map((v) => <button key={v} aria-pressed={vista === v} className={"rounded-full px-3 py-1.5 text-sm font-bold " + (vista === v ? "bg-signature text-deep shadow-sm" : "text-ocean hover:bg-foam")} onClick={() => setVista(v)}>{v === "griglia" ? "Griglia" : "Elenco"}</button>)}
         </div>
       </div>
       {caricamento && <p role="status" className="text-sm text-muted">Aggiorno i posti…</p>}
@@ -378,7 +386,7 @@ export default function OrmeggioPage() {
                 </thead>
                 <tbody>
                   {areaSelezionata.posti.filter(corrisponde).map((p) => (
-                    <tr key={p.id} className="border-t border-line">
+                    <tr key={p.id} data-posto-elenco={p.id} data-evidenza-posto={evidenza(p)} className="border-t border-line transition-[background-color,box-shadow] motion-reduce:transition-none">
                       <td className="p-2 font-semibold">{p.codice}</td>
                       <td className="p-2">{p.permanenza?.boatNome ?? <span className="text-muted">libero</span>}</td>
                       <td className="p-2 text-muted">{p.permanenza?.proprietario ?? "—"}</td>
@@ -403,13 +411,13 @@ export default function OrmeggioPage() {
               <span className="text-xs text-muted">{areaSelezionata.colonne} colonne × {areaSelezionata.righe} righe</span>
               {configura && <button className="text-sm font-bold text-danger" onClick={() => eliminaArea(areaSelezionata)}>Elimina area</button>}
             </div>
-            <GrigliaPosti area={areaSelezionata} configura={configura} busy={busy || caricamento} trascinabile={data === oggi()} corrisponde={corrisponde}
+            <GrigliaPosti area={areaSelezionata} configura={configura} busy={busy || caricamento} trascinabile={data === oggi()} corrisponde={corrisponde} evidenza={evidenza}
               onTrascinamento={setTrascinamento} onErrore={setErr}
               onSeleziona={(p) => { setSelId(p.id); setTab("scheda"); setMove({ aperto: false, postoId: "", decorrenza: "" }); }}
               onAssegna={(posto) => { setForm({ ...formAssegnazione(), inizioAt: data }); setPostoScelto(posto); setErr(""); setMsg(""); }}
               onToggleBlocco={toggleBlocco}
               onSposta={async (permanenza, posto) => {
-                const j = await chiama(`/api/v1/ormeggio/permanenze/${permanenza.id}`, "PATCH", { azione: "sposta", postoId: posto.id });
+                const j = await chiama(`/api/v1/ormeggio/permanenze/${permanenza.id}`, "PATCH", { azione: "sposta", postoId: posto.id, revisione: permanenza.revisione });
                 if (!j) return false;
                 setMsg(`${permanenza.boatNome} spostata al posto ${posto.codice}.`);
                 setMove({ aperto: false, postoId: "", decorrenza: "" });
@@ -522,4 +530,11 @@ export default function OrmeggioPage() {
       {conferma.dialogo}
     </div>
   );
+}
+
+export default function OrmeggioPage() {
+  const u = useUtente();
+  if (!u) return <p className="text-sm text-muted">Caricamento…</p>;
+  if (u.role !== "owner" && u.role !== "superadmin" && u.ruoloOrmeggio === "visualizzazione") return <Avviso tono="attenzione">Questo profilo non è più disponibile. Chiedi al titolare di assegnarti il ruolo Responsabile o Addetto.</Avviso>;
+  return u.role !== "owner" && u.ruoloOrmeggio === "addetto" ? <OperazioniAddetto /> : <QuadroOperativo />;
 }

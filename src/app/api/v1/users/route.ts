@@ -12,11 +12,11 @@ export async function GET(req: Request) {
   const t = await requireTenant(req);
   if ("error" in t) return t.error;
   if (!isOwnerOrSuperadmin(t.role)) return fail("Riservato al proprietario", 403);
-  const users = await prisma.user.findMany({
-    where: { tenantId: t.tenantId },
-    orderBy: { createdAt: "asc" },
-    select: { id: true, email: true, nome: true, role: true, vedeImporti: true, createdAt: true },
+  const membri = await prisma.appartenenza.findMany({
+    where: { tenantId: t.tenantId, stato: "attiva" }, orderBy: { createdAt: "asc" },
+    select: { role: true, vedeImporti: true, user: { select: { id: true, email: true, nome: true, createdAt: true } } },
   });
+  const users = membri.map((m) => ({ ...m.user, role: m.role, vedeImporti: m.vedeImporti }));
   return ok(users);
 }
 

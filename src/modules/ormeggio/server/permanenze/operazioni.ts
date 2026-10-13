@@ -87,6 +87,11 @@ export async function POST(req: Request) {
   if (!p.success) return fail("Dati permanenza non validi", 422);
   if (p.data.nuovaBarca?.tipoCodice && !nomeTipo(p.data.nuovaBarca.tipoCodice)) return fail("Tipo di barca non valido", 422);
   const d = p.data;
+  if (t.role !== "owner" && t.ruoloOrmeggio === "addetto") {
+    if (!d.boatId || !d.proprietarioId || d.nuovaBarca || d.nuovoProprietario || d.confermaConversioneCustodia || d.corrispettivoCent != null || d.note) return fail("Puoi assegnare solo barche già registrate, senza modificare anagrafiche o importi", 403);
+    const esistente = await prisma.boat.findFirst({ where: { id: d.boatId, tenantId: t.tenantId, uso: "custodia", proprietarioId: d.proprietarioId, archiviato: false }, select: { id: true } });
+    if (!esistente) return fail("Barca non disponibile", 404);
+  }
   // Scrivere un corrispettivo è un'operazione economica: serve il permesso importi.
   if (d.corrispettivoCent != null && t.vedeImporti === false) return fail("Permesso negato: non hai l'accesso agli importi", 403);
   if (!d.proprietarioId && !d.nuovoProprietario) return fail("Indicare il proprietario", 422);

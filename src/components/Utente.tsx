@@ -14,6 +14,10 @@ export type Utente = {
   tenantModulo: string | null;
   tenantOrmeggio: boolean;
   vedeImporti: boolean;
+  ruoloOrmeggio?: "responsabile" | "addetto" | "visualizzazione";
+  accessoNoleggio?: boolean;
+  accessoOrmeggio?: boolean;
+  appartenenzaRevisione?: number;
   emailVerified: boolean;
   twoFactorEnabled: boolean;
   twoFactorRequired: boolean;
@@ -55,6 +59,7 @@ export function useUtente(opts: { redirect?: boolean } = {}) {
       const u = await carica(forza);
       if (!vivo) return;
       if (!u) {
+        setUtente(null);
         if (opts.redirect) window.location.href = "/gestionale/accesso";
         return;
       }

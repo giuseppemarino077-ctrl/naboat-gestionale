@@ -44,6 +44,11 @@ export async function identitaCorrente(): Promise<EsitoIdentita> {
   });
   if (!u) return { ok: false, motivo: "no-user" };
   if ((s.ver ?? 0) !== u.sessionVersion) return { ok: false, motivo: "stale" };
+  if (u.role !== "superadmin" && s.tenantId) {
+    const membership = await prisma.appartenenza.findUnique({ where: { tenantId_userId: { tenantId: s.tenantId, userId: u.id } }, include: { tenant: { select: { status: true } } } });
+    if (!membership || membership.stato !== "attiva") return { ok: false, motivo: "stale" };
+    return { ok: true, session: s, user: { ...u, tenantId: membership.tenantId, role: membership.role, vedeImporti: membership.vedeImporti, tenantStatus: membership.tenant.status } };
+  }
   const { tenant, ...resto } = u;
   return { ok: true, session: s, user: { ...resto, tenantStatus: tenant?.status ?? null } };
 }

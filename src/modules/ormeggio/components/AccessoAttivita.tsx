@@ -1,4 +1,6 @@
 "use client";
+import { richiestaOrmeggio } from "@/modules/ormeggio/richiesta";
+
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Avviso } from "@/components/ui/Avviso";
@@ -26,7 +28,7 @@ function etichettaSosta(sosta: Sosta) {
   return `${data(sosta.inizioAt)} → ${fine ? data(fine) : "senza scadenza"} · ${sosta.stato === "chiusa" ? "chiusa" : "attiva"} · ${sosta.posto ? `${sosta.posto.area.nome}, ${sosta.posto.codice}${sosta.posto.area.archiviata ? " (area rimossa)" : ""}` : "senza posto"}`;
 }
 
-export function AccessoAttivita() {
+export function AccessoAttivita({ mostraTitolo = true }: { mostraTitolo?: boolean }) {
   const [ricerca, setRicerca] = useState("");
   const [contatti, setContatti] = useState<Contatto[]>([]);
   const [clienteId, setClienteId] = useState("");
@@ -46,7 +48,7 @@ export function AccessoAttivita() {
     setCaricamento(true); setErrore(""); setContatti([]);
     const timer = setTimeout(async () => {
       try {
-        const r = await fetch(`/api/v1/ormeggio/proprietari?q=${encodeURIComponent(ricerca.trim())}`, { signal: controller.signal });
+        const r = await richiestaOrmeggio(`/api/v1/ormeggio/proprietari?q=${encodeURIComponent(ricerca.trim())}`, { signal: controller.signal });
         const j = await r.json();
         if (controller.signal.aborted) return;
         if (!r.ok || !Array.isArray(j)) { setErrore(j.error ?? "Non riesco a leggere i clienti."); return; }
@@ -63,7 +65,7 @@ export function AccessoAttivita() {
     setCaricamentoBarche(true); setErrore("");
     const carica = async () => {
       try {
-        const r = await fetch(`/api/v1/ormeggio/proprietari/${clienteId}`, { signal: controller.signal });
+        const r = await richiestaOrmeggio(`/api/v1/ormeggio/proprietari/${clienteId}`, { signal: controller.signal });
         const j = await r.json();
         if (controller.signal.aborted) return;
         if (!r.ok || !Array.isArray(j.boats)) { setCliente(null); setBarcaId(""); setSostaId(""); setErrore(j.error ?? "Non riesco a leggere le barche del cliente."); return; }
@@ -81,7 +83,7 @@ export function AccessoAttivita() {
 
   return (
     <section aria-labelledby="accesso-attivita" className="rounded-2xl border border-ocean/20 bg-gradient-to-br from-foam to-white p-4 sm:p-5">
-      <h2 id="accesso-attivita" className="text-lg font-bold text-deep">Apri le attività di una barca</h2>
+      {mostraTitolo && <h2 id="accesso-attivita" className="text-lg font-bold text-deep">Apri le attività di una barca</h2>}
       <p className="mt-1 text-sm text-muted">Scegli il cliente, poi la sua barca. Servizi, lavori e addebiti restano collegati alla stessa sosta del quadro posti.</p>
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         <div className="grid content-start gap-1 text-sm">

@@ -1,7 +1,6 @@
 // Smoke test end-to-end delle API. Uso:
 //   node scripts/smoke-test.mjs [baseUrl]
-// Richiede un DB con dati demo (npm run db:seed). Non tocca i dati esistenti
-// se non per creare/eliminare tenant di test (li lascia, sono pending/active isolati).
+// Eseguire con npm run test:isolated: database, server e file temporanei.
 import { readFileSync } from "fs";
 import { assicuraAmbienteSmoke } from "./_guardia-ambiente.mjs";
 

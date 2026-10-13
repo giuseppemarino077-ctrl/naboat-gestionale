@@ -31,6 +31,9 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     const owners = await prisma.user.count({ where: { tenantId: t.tenantId, role: "owner" } });
     if (owners <= 1) return fail("Deve restare almeno un proprietario", 422);
   }
-  await prisma.user.delete({ where: { id: target.id } });
+  await prisma.$transaction(async (tx) => {
+    await tx.appartenenza.updateMany({ where: { tenantId: t.tenantId, userId: target.id }, data: { stato: "rimossa", revisione: { increment: 1 } } });
+    await tx.auditLog.create({ data: { tenantId: t.tenantId, actorId: t.userId, azione: "collaboratore.rimosso", entita: "User", entitaId: target.id } });
+  });
   return ok({ ok: true });
 }

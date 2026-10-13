@@ -1,3 +1,4 @@
+import { operazioneCondivisa } from "@/modules/ormeggio/server/condivisione";
 import { fail } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { requireAzienda } from "@/modules/piattaforma/accesso-azienda";
@@ -14,7 +15,10 @@ async function instrada(req: Request, context: Context) {
   if (!barca) return fail("Barca non trovata", 404);
   if (barca.uso === "custodia") {
     if (req.method === "GET") return dettaglioCustodia(req, context);
-    if (req.method === "PATCH") return modificaCustodia(req, context);
+    if (req.method === "PATCH") {
+      const url = new URL(req.url); url.pathname = `/api/v1/ormeggio/barche/${id}`;
+      return operazioneCondivisa(modificaCustodia)(new Request(url, req), context);
+    }
     return fail("Per rimuovere una barca in custodia usa la gestione del proprietario, preservando soste e conti", 409);
   }
   if (req.method === "GET") return dettaglioNoleggio(req, context);

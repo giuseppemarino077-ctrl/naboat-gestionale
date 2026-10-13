@@ -5,6 +5,7 @@ import { requireOrmeggio } from "@/modules/ormeggio/accesso";
 import { addettoDelTenant } from "@/modules/piattaforma/riferimenti";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
+import { contoPermanenza } from "@/modules/ormeggio/server/conto";
 
 function isP2002(e: unknown): boolean {
   return e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002";
@@ -16,6 +17,7 @@ function origineDaTipo(tipo: string): "carburante" | "servizio" {
 
 const Schema = z.object({
   stato: z.enum(["da_fare", "in_corso", "completato"]).optional(),
+  priorita: z.number().int().min(1).max(3).optional(),
   addettoId: z.string().uuid().optional().nullable(),
   quantita: z.number().min(0).max(100000).optional().nullable(),
   prezzoCent: z.number().int().min(0).max(100000000).optional().nullable(),
@@ -34,6 +36,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!p.success) return fail("Dati attività non validi", 422);
   const att = await prisma.attivita.findFirst({ where: { id, tenantId: t.tenantId }, include: { addebito: true, permanenza: { select: { boat: { select: { archiviato: true } } } } } });
   if (!att) return fail("Attività non trovata", 404);
+  const addetto = t.role !== "owner" && t.ruoloOrmeggio === "addetto";
+  if (addetto && (att.addettoId !== t.userId || Object.keys(p.data).some((k) => !["stato", "priorita", "note"].includes(k)))) return fail("Puoi aggiornare solo le attività assegnate a te", 403);
   if (att.permanenza.boat.archiviato && !p.data.storno && !p.data.rettifica) return fail("Barca rimossa: le attività operative sono sospese. Restano disponibili rettifiche e storni del conto.", 409);
   if (p.data.addettoId && !(await addettoDelTenant(t.tenantId, p.data.addettoId))) return fail("Addetto non valido per questa azienda", 422);
 
@@ -44,13 +48,17 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (att.addebito?.stato === "pagato" && (p.data.storno || p.data.rettifica)) {
     return fail("Addebito già pagato: prima va stornato l'incasso", 409);
   }
+  if (att.addebito && (p.data.storno || p.data.rettifica)) {
+    const conto = await contoPermanenza(t.tenantId, att.permanenzaId);
+    if (conto.addebiti.find((a) => a.id === att.addebito!.id)!.incassatoCent > 0 || await prisma.payment.count({ where: { tenantId: t.tenantId, addebitoId: att.addebito.id } })) return fail("Addebito coperto da incassi: conserva lo storico e registra una rettifica separata", 409);
+  }
 
   // Senza il permesso importi non si scrivono prezzi né si generano/stornano addebiti.
   if (t.vedeImporti === false) {
     if (p.data.prezzoCent !== undefined || p.data.rettifica || p.data.storno) return fail("Permesso negato: non hai l'accesso agli importi", 403);
     const prezzoFinale = att.prezzoCent;
     const inclusoFinale = p.data.incluso !== undefined ? p.data.incluso : att.incluso;
-    if (p.data.stato === "completato" && !inclusoFinale && prezzoFinale) return fail("Permesso negato: non hai l'accesso agli importi", 403);
+    if (!addetto && p.data.stato === "completato" && !inclusoFinale && prezzoFinale) return fail("Permesso negato: non hai l'accesso agli importi", 403);
     if (contabilizzata && cambiaEconomia) return fail("Permesso negato: non hai l'accesso agli importi", 403);
   }
 
@@ -65,6 +73,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         data: {
           stato: p.data.stato ?? "da_fare",
           completatoAt: null,
+          ...(p.data.priorita !== undefined ? { priorita: p.data.priorita } : {}),
           ...(p.data.note !== undefined ? { note: p.data.note?.trim() || null } : {}),
         },
       });
@@ -92,6 +101,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         where: { id: att.id },
         data: {
           ...(p.data.stato !== undefined ? { stato: p.data.stato } : {}),
+          ...(p.data.stato !== undefined ? { completatoAt: p.data.stato === "completato" ? att.completatoAt ?? new Date() : null } : {}),
+          ...(p.data.priorita !== undefined ? { priorita: p.data.priorita } : {}),
           ...(p.data.quantita !== undefined ? { quantita: p.data.quantita } : {}),
           ...(p.data.prezzoCent !== undefined ? { prezzoCent: p.data.prezzoCent } : {}),
           ...(p.data.incluso !== undefined ? { incluso: p.data.incluso } : {}),
@@ -111,12 +122,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         where: { id: att.id },
         data: {
           ...(p.data.stato ? { stato: p.data.stato } : {}),
+          ...(p.data.priorita !== undefined ? { priorita: p.data.priorita } : {}),
           ...(p.data.addettoId !== undefined ? { addettoId: p.data.addettoId } : {}),
           ...(p.data.quantita !== undefined ? { quantita: p.data.quantita } : {}),
           ...(p.data.prezzoCent !== undefined ? { prezzoCent: p.data.prezzoCent } : {}),
           ...(p.data.incluso !== undefined ? { incluso: p.data.incluso } : {}),
           ...(p.data.note !== undefined ? { note: p.data.note?.trim() || null } : {}),
-          ...(completato ? { completatoAt: att.completatoAt ?? new Date() } : {}),
+          ...(p.data.stato !== undefined ? { completatoAt: completato ? att.completatoAt ?? new Date() : null } : {}),
         },
       });
       // Al completamento nasce UNA sola voce di conto (i servizi inclusi non generano extra).

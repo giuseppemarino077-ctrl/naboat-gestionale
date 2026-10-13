@@ -37,6 +37,8 @@ let serverOutput = "";
 Object.assign(env, {
   DATABASE_URL: target.href,
   DATABASE_URL_ADMIN: target.href,
+  NABOAT_TEST_DATABASE: name,
+  NABOAT_TEST_BASE_URL: "",
   AUTH_SECRET: randomBytes(32).toString("hex"),
   CRON_SECRET: randomBytes(32).toString("hex"),
   SUPERADMIN_EMAIL: "admin@verifica.test",
@@ -99,6 +101,7 @@ try {
 
   env.NODE_ENV = "production";
   await run(process.execPath, ["scripts/verifica-confini.mjs"]);
+  await run(process.execPath, ["--test", "scripts/dati-automatici.test.mjs"]);
   await run("npm", ["run", "build"]);
   server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "--hostname", "127.0.0.1", "--port", "0"], { cwd: work, env, stdio: ["ignore", "pipe", "pipe"] });
   let output = "";
@@ -122,7 +125,10 @@ try {
   }
   if (!ready) throw new Error("Il server temporaneo non è pronto (DB/Redis).");
   env.APP_URL = base;
+  env.NABOAT_TEST_BASE_URL = new URL(base).href;
   console.log(`Server isolato pronto: ${base}`);
+  await run(process.execPath, ["scripts/verifica-statistiche-multiutenza.mjs", base]);
+  await run(process.execPath, ["scripts/verifica-conto-ormeggio.mjs", base]);
   await run(process.execPath, ["scripts/smoke-test.mjs", base]);
   await run(process.execPath, ["scripts/smoke-ormeggio.mjs", base]);
   await run(process.execPath, ["scripts/verifica-oggi.mjs", base]);
@@ -130,7 +136,10 @@ try {
   await run(process.execPath, ["scripts/verifica-separazione.mjs", base]);
   await run(process.execPath, ["scripts/verifica-disponibilita-ormeggio.mjs", base]);
   await run(process.execPath, ["scripts/verifica-accesso-attivita.mjs", base]);
+  await run(process.execPath, ["scripts/verifica-catalogo-servizi.mjs", base]);
+
   if (env.ORMEGGIO_BROWSER === "1") await run(process.execPath, ["scripts/verifica-ormeggio-browser.mjs", base]);
+  await run(process.execPath, ["scripts/verifica-pulizia-automatica.mjs", base]);
 } catch (e) {
   if (serverOutput) console.error(`Ultimi eventi del server temporaneo:\n${serverOutput}`);
   throw e;

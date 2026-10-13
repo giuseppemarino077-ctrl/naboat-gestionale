@@ -1,4 +1,6 @@
 "use client";
+import { richiestaOrmeggio } from "@/modules/ormeggio/richiesta";
+
 import { IntestazioneOrmeggio } from "@/modules/ormeggio/components/IntestazioneOrmeggio";
 import { CatalogoServizi } from "@/modules/ormeggio/components/CatalogoServizi";
 import { useCatalogoServizi } from "@/modules/ormeggio/use-catalogo-servizi";
@@ -22,7 +24,7 @@ export default function ConfigurazioneOrmeggioPage() {
   const [busy, setBusy] = useState(false);
 
   const load = () =>
-    fetch("/api/v1/ormeggio/aree")
+    richiestaOrmeggio("/api/v1/ormeggio/aree")
       .then((r) => r.json())
       .then((j) => { if (Array.isArray(j)) { setAree(j); setErr(""); } else setErr(j.error ?? "Errore"); })
       .catch(() => setErr("Errore di caricamento"));
@@ -34,7 +36,7 @@ export default function ConfigurazioneOrmeggioPage() {
     if (busy) return null;
     setBusy(true); setErr(""); setMsg("");
     try {
-    const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+    const r = await richiestaOrmeggio(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { setErr(j.error ?? "Errore"); return null; }
     await load();

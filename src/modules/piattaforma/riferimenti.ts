@@ -16,7 +16,7 @@ export async function modelloValido(modelloId: string) {
 }
 
 export async function addettoDelTenant(tenantId: string, addettoId: string) {
-  return prisma.user.findFirst({ where: { id: addettoId, tenantId }, select: { id: true } });
+  return prisma.appartenenza.findFirst({ where: { userId: addettoId, tenantId, stato: "attiva", accessoOrmeggio: true, ruoloOrmeggio: { not: "visualizzazione" } }, select: { userId: true } });
 }
 
 export async function skipperDelTenant(tenantId: string, skipperId: string) {

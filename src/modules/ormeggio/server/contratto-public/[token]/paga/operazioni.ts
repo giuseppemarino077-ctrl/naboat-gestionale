@@ -1,6 +1,7 @@
+import { riepilogoConto } from "@/modules/ormeggio/conto";
 import { fail, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { calcolaResiduoPrezzo, paymentConfig, stripeClient } from "@/modules/piattaforma/pagamenti";
+import { paymentConfig, stripeClient } from "@/modules/piattaforma/pagamenti";
 
 // Pagamento online del corrispettivo di permanenza: lo paga il proprietario dal link riservato.
 // L'incasso va all'ormeggiatore; nessuna fee NaBoat sul modulo ormeggio.
@@ -8,7 +9,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
   const { token } = await params;
   const c = await prisma.contrattoOrmeggio.findUnique({
     where: { token },
-    include: { permanenza: { include: { boat: true, posto: true, addebiti: true, payments: true } } },
+    include: { permanenza: { include: { boat: true, posto: true, addebiti: true, payments: { include: { refunds: true } } } } },
   });
   if (!c) return fail("Link non valido", 404);
   const p = c.permanenza;
@@ -24,8 +25,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
   }
 
   // Il corrispettivo iniziale NON è un fallback: si incassa solo il residuo effettivo.
-  const totale = p.addebiti.reduce((s, a) => s + a.importoCent, 0);
-  const residuo = calcolaResiduoPrezzo(totale, p.payments);
+  const residuo = riepilogoConto(p.addebiti, p.payments);
   if (residuo.residuoCent <= 0) return fail("Il corrispettivo risulta già saldato", 422);
   const importoCent = residuo.residuoCent;
 

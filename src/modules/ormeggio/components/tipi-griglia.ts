@@ -7,6 +7,7 @@ export type AttivitaQuadro = {
   addetto: { nome: string | null } | null;
 };
 export type Perm = {
+  revisione?: number;
   id: string;
   boatId: string;
   boatNome: string;
@@ -25,5 +26,5 @@ export type Perm = {
   attivitaDaFare: number;
   attivitaAperte: AttivitaQuadro[];
 };
-export type Posto = { id: string; riga: number; colonna: number; codice: string; bloccato: boolean; permanenza: Perm | null };
-export type Area = { id: string; nome: string; righe: number; colonne: number; posti: Posto[] };
+export type Posto = { id: string; revisione?: number; riga: number; colonna: number; codice: string; bloccato: boolean; permanenza: Perm | null };
+export type Area = { id: string; revisione?: number; nome: string; righe: number; colonne: number; posti: Posto[] };

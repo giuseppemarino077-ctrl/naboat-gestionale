@@ -1,7 +1,7 @@
+import { fetchConRevisioni } from "./_concorrenza-ormeggio.mjs";
 // Smoke test end-to-end del modulo Ormeggio. Uso:
 //   node scripts/smoke-ormeggio.mjs [baseUrl]
-// Usa un account ormeggiatore (per default quello demo locale) e pulisce da solo
-// i dati di prova che crea. Non tocca le permanenze reali dell'azienda.
+// Eseguire con npm run test:isolated: anche gli account demo sono temporanei.
 import { PrismaClient } from "@prisma/client";
 import { readFile } from "node:fs/promises";
 import ts from "typescript";
@@ -16,6 +16,7 @@ const EMAIL = process.env.SMOKE_ORM_EMAIL || "ormeggiatore@demo.naboat.it";
 const PASSWORD = process.env.SMOKE_ORM_PASSWORD || "Demo-Ormeggio-2026!";
 const marker = `SMOKE-${Date.now()}`;
 const prisma = new PrismaClient();
+const fetch = fetchConRevisioni(prisma);
 
 let pass = 0, fail = 0;
 const issues = [];

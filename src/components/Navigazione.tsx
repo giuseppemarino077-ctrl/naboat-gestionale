@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { paginaConsentita } from "@/modules/piattaforma/permessi-pagine";
 import { useUtente, dimenticaUtente } from "@/components/Utente";
 import { aziendaNonAttiva, percorsoConsentitoInAttesa } from "@/lib/accesso";
 import { Icona } from "@/components/ui/Icona";
@@ -172,9 +173,9 @@ export function NavLaterale() {
   const path = usePathname();
   const router = useRouter();
   const utente = useUtente({ redirect: true });
-  const voci = vociVisibili(utente?.role, utente?.tenantOrmeggio ?? false, utente?.tenantModulo ?? null, utente?.tenantStatus);
-  const entrambi = !!utente?.tenantOrmeggio && utente?.tenantModulo === "entrambi";
   const attivo = useProdottoAttivo(utente);
+  const voci = vociVisibili(utente?.role, utente?.tenantOrmeggio ?? false, utente?.tenantModulo ?? null, utente?.tenantStatus).filter((v) => !utente || paginaConsentita(utente, v.href)).map((v) => v.href === "/gestionale/impostazioni/team" && attivo === "ormeggio" ? { ...v, nome: "Collaboratori" } : v);
+  const entrambi = !!utente?.tenantOrmeggio && utente?.tenantModulo === "entrambi";
 
   const cambiaModulo = (dest: "noleggio" | "ormeggio") => {
     const eq = EQUIVALENZE.find((e) => path === e.chiave || path.startsWith(`${e.chiave}/`));
@@ -208,9 +209,9 @@ export function NavOrizzontale() {
   const path = usePathname();
   const router = useRouter();
   const utente = useUtente({ redirect: true });
-  const voci = vociVisibili(utente?.role, utente?.tenantOrmeggio ?? false, utente?.tenantModulo ?? null, utente?.tenantStatus);
-  const entrambi = !!utente?.tenantOrmeggio && utente?.tenantModulo === "entrambi";
   const attivo = useProdottoAttivo(utente);
+  const voci = vociVisibili(utente?.role, utente?.tenantOrmeggio ?? false, utente?.tenantModulo ?? null, utente?.tenantStatus).filter((v) => !utente || paginaConsentita(utente, v.href)).map((v) => v.href === "/gestionale/impostazioni/team" && attivo === "ormeggio" ? { ...v, nome: "Collaboratori" } : v);
+  const entrambi = !!utente?.tenantOrmeggio && utente?.tenantModulo === "entrambi";
   const gruppiVisibili = gruppiDelModulo(attivo);
 
   const cambiaModulo = (dest: "noleggio" | "ormeggio") => {
@@ -258,6 +259,7 @@ export function StrutturaGestionale({ children }: { children: React.ReactNode })
   }, []);
 
   useEffect(() => {
+    if (utente && !paginaConsentita(utente, path)) window.location.href = utente.accessoOrmeggio ? "/gestionale/ormeggio" : "/gestionale/oggi";
     if (utente && aziendaNonAttiva(utente.tenantStatus) && !percorsoConsentitoInAttesa(path)) {
       window.location.href = "/gestionale/stato";
     }
@@ -319,6 +321,7 @@ export function StrutturaGestionale({ children }: { children: React.ReactNode })
             <span className="inline-grid h-8 w-8 place-items-center rounded-full bg-ocean text-[12px] font-bold text-white">
               {(utente?.nome ?? utente?.email ?? "?").charAt(0).toUpperCase()}
             </span>
+            <Link className="text-xs font-bold text-ocean" href="/gestionale/aziende">Cambia azienda</Link>
             <button
               onClick={esci}
               className="rounded-full border border-line px-3 py-1.5 text-xs font-bold text-ocean hover:bg-foam"
@@ -333,7 +336,7 @@ export function StrutturaGestionale({ children }: { children: React.ReactNode })
               Sei <b>NaBoat (superadmin)</b>: il gestionale mostra i dati di un'azienda solo selezionandola. Le aziende e i servizi si gestiscono da <a className="underline" href="/admin">Admin</a>. Per provare il gestionale accedi con un account aziendale (es. <b>titolare@demo.naboat.it</b>).
             </div>
           )}
-          {children}
+          {utente && paginaConsentita(utente, path) && <div key={`${utente.tenantId}:${utente.appartenenzaRevisione ?? 0}`}>{children}</div>}
         </main>
       </div>
     </div>

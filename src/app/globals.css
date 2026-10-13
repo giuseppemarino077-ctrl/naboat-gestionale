@@ -45,6 +45,22 @@ h1,h2,h3,h4 { @apply font-display; }
 .ormeggio-workspace :is(button, a, input, select, textarea):focus-visible { @apply outline-none ring-2 ring-ocean ring-offset-2; }
 .ormeggio-workspace details > summary { @apply cursor-pointer text-sm font-semibold text-ocean; }
 
+.ormeggio-workspace button[data-evidenza-posto="anteprima"] {
+  z-index: 1;
+  transform: translateY(-1px);
+  box-shadow: 0 0 0 1px rgb(8 127 140 / 35%), 0 3px 8px -3px rgb(5 47 63 / 25%);
+}
+.ormeggio-workspace button[data-evidenza-posto="selezione"] {
+  z-index: 2;
+  transform: translateY(-3px);
+  box-shadow: 0 0 0 2px #087f8c, 0 7px 14px -5px rgb(5 47 63 / 45%);
+}
+.ormeggio-workspace tr[data-evidenza-posto="anteprima"] { @apply bg-foam/50; box-shadow: inset 3px 0 0 rgb(8 127 140 / 35%); }
+.ormeggio-workspace tr[data-evidenza-posto="selezione"] { @apply bg-signature/30; box-shadow: inset 4px 0 0 #087f8c; }
+@media (prefers-reduced-motion: reduce) {
+  .ormeggio-workspace button[data-evidenza-posto] { transform: none; }
+}
+
 @keyframes posto-arrivo {
   0% { box-shadow: 0 0 0 3px #087f8c; filter: brightness(1.15); }
   100% { box-shadow: 0 0 0 0 transparent; filter: brightness(1); }

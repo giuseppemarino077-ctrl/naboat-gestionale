@@ -1,4 +1,6 @@
 "use client";
+import { richiestaOrmeggio } from "@/modules/ormeggio/richiesta";
+
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Dialogo } from "@/components/ui/Dialogo";
@@ -7,8 +9,8 @@ import { IntestazioneOrmeggio, RiepilogoOrmeggio } from "@/modules/ormeggio/comp
 import { TariffeSosta } from "@/modules/ormeggio/components/TariffeSosta";
 import { useAggiornamenti } from "@/lib/aggiorna";
 
-type DettaglioConto = { permanenzaId: string; boat: string; tipo: string; stato: string; inizioAt: string; addebitiCent: number; incassatoCent: number; residuoCent: number };
-type Conto = { id: string; nome: string; telefono: string | null; email: string | null; archiviato: boolean; barche: number; permanenze: number; aperte: number; addebitiCent: number; incassatoCent: number; residuoCent: number; dettaglio: DettaglioConto[] };
+type DettaglioConto = { permanenzaId: string; boat: string; tipo: string; stato: string; inizioAt: string; addebitiCent: number; incassatoCent: number; residuoCent: number; creditoCent: number };
+type Conto = { id: string; nome: string; telefono: string | null; email: string | null; archiviato: boolean; barche: number; permanenze: number; aperte: number; addebitiCent: number; incassatoCent: number; residuoCent: number; creditoCent: number; dettaglio: DettaglioConto[] };
 
 const euro = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
 
@@ -26,7 +28,7 @@ function FragmentRow({ c, aperto, onToggle, onApri }: { c: Conto; aperto: boolea
         <td className="p-2">{c.permanenze} <span className="text-muted">({c.aperte} attive)</span></td>
         <td className="p-2">{euro(c.addebitiCent)}</td>
         <td className="p-2 text-[#177469]">{euro(c.incassatoCent)}</td>
-        <td className={`p-2 font-bold ${c.residuoCent > 0 ? "text-coral" : "text-[#177469]"}`}>{euro(c.residuoCent)}</td>
+        <td className={`p-2 font-bold ${c.residuoCent > 0 ? "text-coral" : "text-[#177469]"}`}>{euro(c.residuoCent)}{c.creditoCent > 0 && <span className="block text-xs font-normal text-ocean">Credito {euro(c.creditoCent)}</span>}</td>
       </tr>
       {aperto && (
         <tr className="bg-[#f7faf9]">
@@ -41,7 +43,7 @@ function FragmentRow({ c, aperto, onToggle, onApri }: { c: Conto; aperto: boolea
                     <td className="p-1">{d.stato}</td>
                     <td className="p-1">{euro(d.addebitiCent)}</td>
                     <td className="p-1 text-[#177469]">{euro(d.incassatoCent)}</td>
-                    <td className="p-1 font-bold">{euro(d.residuoCent)}</td>
+                    <td className="p-1 font-bold">{euro(d.residuoCent)}{d.creditoCent > 0 && <span className="block text-ocean">Credito {euro(d.creditoCent)}</span>}</td>
                   </tr>
                 ))}
                 {(c.dettaglio ?? []).length === 0 && <tr><td className="p-1 text-muted" colSpan={6}>Nessuna sosta.</td></tr>}
@@ -68,7 +70,7 @@ export default function ContiPage() {
   const carica = useCallback(async () => {
     if (!vedeImporti) return;
     try {
-      const r = await fetch("/api/v1/ormeggio/conti");
+      const r = await richiestaOrmeggio("/api/v1/ormeggio/conti");
       const j = await r.json();
       if (!r.ok || !Array.isArray(j)) { setErr(j.error ?? "Non riesco a leggere i conti."); return; }
       setConti(j);
@@ -80,7 +82,7 @@ export default function ContiPage() {
   const visibili = conti.filter((c) => (!soloResidui || c.residuoCent > 0) && `${c.nome} ${c.telefono ?? ""} ${c.email ?? ""} ${(c.dettaglio ?? []).map((d: DettaglioConto) => d.boat).join(" ")}`.toLowerCase().includes(q.trim().toLowerCase()));
 
   const selezionato = conti.find((c) => c.id === selezionatoId);
-  const totale = (k: "addebitiCent" | "incassatoCent" | "residuoCent") => conti.reduce((s, c) => s + (c[k] ?? 0), 0);
+  const totale = (k: "addebitiCent" | "incassatoCent" | "residuoCent" | "creditoCent") => conti.reduce((s, c) => s + (c[k] ?? 0), 0);
 
   if (!utente) return <p role="status" className="text-sm text-muted">Verifico i permessi…</p>;
 
@@ -105,6 +107,7 @@ export default function ContiPage() {
       {err && <p className="card p-3 text-sm font-semibold text-coral">{err}</p>}
 
       <RiepilogoOrmeggio voci={[{ nome: "Addebitato", valore: euro(totale("addebitiCent")) }, { nome: "Incassato", valore: euro(totale("incassatoCent")) }, { nome: "Residuo", valore: euro(totale("residuoCent")) }]} />
+      {totale("creditoCent") > 0 && <p className="text-sm text-muted">Crediti sulle singole soste: {euro(totale("creditoCent"))}. Restano separati dagli importi dovuti per altre barche.</p>}
       <TariffeSosta />
       <div className="flex flex-wrap items-center gap-3">
         <input aria-label="Cerca nei conti" className="campo min-w-[180px] flex-1" placeholder="Proprietario, contatto o barca…" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -131,7 +134,7 @@ export default function ContiPage() {
           <p className="text-sm text-muted">Scegli la sosta per gestire addebiti, incassi, rettifiche, storni e riepilogo PDF.</p>
           {(selezionato.dettaglio ?? []).map((d: DettaglioConto) => <Link key={d.permanenzaId} href={`/gestionale/ormeggio/permanenza/${d.permanenzaId}?tab=conto`} className="grid gap-2 rounded-2xl border border-line p-4 hover:border-ocean hover:bg-foam sm:grid-cols-[1fr_auto]">
             <span><b className="block text-ocean">{d.boat}</b><span className="text-xs text-muted">{new Date(d.inizioAt).toLocaleDateString("it-IT")} · {d.stato === "attiva" ? "Sosta attiva" : "Sosta chiusa"}</span></span>
-            <span className="text-sm"><span className="block">Addebiti {euro(d.addebitiCent)} · Incassi {euro(d.incassatoCent)}</span><b className={d.residuoCent > 0 ? "text-coral" : "text-ocean"}>Residuo {euro(d.residuoCent)} · Gestisci conto →</b></span>
+            <span className="text-sm"><span className="block">Addebiti {euro(d.addebitiCent)} · Incassi {euro(d.incassatoCent)}</span><b className={d.residuoCent > 0 ? "text-coral" : "text-ocean"}>Residuo {euro(d.residuoCent)} · Gestisci conto →</b>{d.creditoCent > 0 && <span className="block text-ocean">Credito {euro(d.creditoCent)}</span>}</span>
           </Link>)}
           {!selezionato.dettaglio?.length && <p className="text-sm text-muted">Nessuna sosta e nessun movimento economico registrati.</p>}
         </div>}

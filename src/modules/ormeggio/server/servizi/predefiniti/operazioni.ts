@@ -13,7 +13,7 @@ export async function POST(req: Request) {
     const presenti = await tx.servizioCatalogo.findMany({ where: { tenantId: t.tenantId }, select: { nome: true } });
     const nomi = new Set(presenti.map((s) => s.nome.trim().toLocaleLowerCase("it-IT")));
     const nuovi = SERVIZI_ORMEGGIO.filter(([nome]) => !nomi.has(nome.toLocaleLowerCase("it-IT")));
-    await tx.servizioCatalogo.createMany({ data: nuovi.map(([nome, unita]) => ({ tenantId: t.tenantId, nome, unita, prezzoCent: null })) });
+    await tx.servizioCatalogo.createMany({ data: nuovi.map(([nome, unita]) => ({ tenantId: t.tenantId, nome, unita, prezzoCent: null, predefinito: true })) });
     await tx.tenant.update({ where: { id: t.tenantId }, data: { catalogoOrmeggioInizializzato: true } });
     await tx.auditLog.create({ data: { tenantId: t.tenantId, actorId: t.userId, azione: "ormeggio.servizi.predefiniti", entita: "ServizioCatalogo", dettagli: JSON.stringify({ aggiunti: nuovi.length }) } });
     return nuovi.length;

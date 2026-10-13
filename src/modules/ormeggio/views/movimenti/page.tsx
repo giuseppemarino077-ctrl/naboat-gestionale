@@ -1,4 +1,6 @@
 "use client";
+import { richiestaOrmeggio } from "@/modules/ormeggio/richiesta";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Avviso } from "@/components/ui/Avviso";
@@ -18,7 +20,7 @@ export default function MovimentiPage() {
   const carica = useCallback(async () => {
     const seq = ++richiesta.current;
     try {
-      const r = await fetch(`/api/v1/ormeggio/movimenti${data ? `?data=${data}` : ""}`);
+      const r = await richiestaOrmeggio(`/api/v1/ormeggio/movimenti${data ? `?data=${data}` : ""}`);
       const j = await r.json();
       if (seq !== richiesta.current) return;
       if (!r.ok || !Array.isArray(j)) { setErr(j.error ?? "Non riesco a leggere i movimenti."); return; }

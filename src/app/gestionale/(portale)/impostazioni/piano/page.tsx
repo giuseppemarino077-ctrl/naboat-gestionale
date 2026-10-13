@@ -1,5 +1,6 @@
 "use client";
 import { useUtente } from "@/components/Utente";
+import { useProdottoAttivo } from "@/modules/piattaforma/use-prodotto";
 import { useEffect, useState } from "react";
 
 type Stato = {
@@ -21,6 +22,8 @@ const nomeTipo = (t: string, q = 1) =>
 
 export default function AbbonamentoPage() {
   const utente = useUtente();
+  const prodotto = useProdottoAttivo(utente);
+  const utenteId = utente?.id;
   const sonoProprietario = utente?.role === "owner" || utente?.role === "superadmin";
   const [stato, setStato] = useState<Stato | null>(null);
   const [tipo, setTipo] = useState("manutenzione_mensile");
@@ -39,11 +42,12 @@ export default function AbbonamentoPage() {
 
   useEffect(() => {
     setPrev(null);
+    if (!utenteId || prodotto === "ormeggio") return;
     fetch("/api/v1/subscription", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tipo, quantita }) })
       .then((r) => r.json())
       .then((j) => { if (!j.error) setPrev(j); })
       .catch(() => {});
-  }, [tipo, quantita]);
+  }, [tipo, quantita, utenteId, prodotto]);
 
   useEffect(() => {
     const e = new URLSearchParams(window.location.search).get("esito");
@@ -67,6 +71,44 @@ export default function AbbonamentoPage() {
 
   const unitario = stato ? (tipo === "attivazione" ? stato.listino.attivazioneCent : tipo === "manutenzione_stagionale" ? stato.listino.stagionaleCent : stato.listino.mensileCent) : 0;
   const max = tipo === "manutenzione_stagionale" ? 10 : 24;
+
+  if (!utente) return <p className="card p-3 text-sm text-muted">Caricamento…</p>;
+
+  if (prodotto === "ormeggio") {
+    return (
+      <div className="mx-auto grid max-w-3xl gap-4">
+        <div>
+          <p className="text-sm text-muted">Servizi NaBoat</p>
+          <h1 className="text-2xl">Abbonamento alla piattaforma</h1>
+          <p className="mt-1 text-sm text-muted">Validità dell’accesso al gestionale Ormeggio.</p>
+        </div>
+        {err && <p role="alert" className="card p-3 text-sm font-semibold text-coral">{err}</p>}
+        {stato ? (
+          <section aria-label="Stato abbonamento" className="card grid gap-4 p-5">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-lg">Ormeggio</h2>
+              <span className={stato.manutenzione ? "badge-ready" : "badge-pending"}>
+                {stato.manutenzione ? "Abbonamento attivo" : "Abbonamento non attivo"}
+              </span>
+            </div>
+            {stato.manutenzione ? (
+              <div className="rounded-xl border border-line bg-foam p-4">
+                <p className="text-sm text-muted">Puoi usufruire della piattaforma fino al</p>
+                <p className="mt-1 text-2xl font-bold text-deep">{dataIt(stato.manutenzione.fineAt)}</p>
+                <p className="mt-1 text-sm text-muted">{stato.manutenzione.giorniResidui} {stato.manutenzione.giorniResidui === 1 ? "giorno residuo" : "giorni residui"}</p>
+              </div>
+            ) : (
+              <p className="text-sm text-muted">
+                {stato.obbligatorio
+                  ? "Non risulta un abbonamento valido. Contatta NaBoat per attivare o rinnovare l’accesso alla piattaforma."
+                  : "Al momento l’abbonamento non è obbligatorio: puoi continuare a usare la piattaforma."}
+              </p>
+            )}
+          </section>
+        ) : !err && <p className="card p-3 text-sm text-muted">Caricamento…</p>}
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto grid max-w-3xl gap-4">

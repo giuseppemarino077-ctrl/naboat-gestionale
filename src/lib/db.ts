@@ -1,8 +1,24 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { Prisma, PrismaClient } from "@prisma/client";
 
 const g = globalThis as unknown as { prisma?: PrismaClient; prismaAdmin?: PrismaClient };
-export const prisma = g.prisma ?? new PrismaClient();
-if (process.env.NODE_ENV !== "production") g.prisma = prisma;
+const principale = g.prisma ?? new PrismaClient();
+if (process.env.NODE_ENV !== "production") g.prisma = principale;
+const transazioni = new AsyncLocalStorage<Prisma.TransactionClient>();
+export const prisma = new Proxy(principale, {
+  get(target, property) {
+    const tx = transazioni.getStore();
+    if (tx && property === "$transaction") return (work: ((client: Prisma.TransactionClient) => unknown) | Promise<unknown>[]) => typeof work === "function" ? work(tx) : Promise.all(work);
+    const source = tx && property in tx ? tx : target;
+    const value = Reflect.get(source, property);
+    return typeof value === "function" ? value.bind(source) : value;
+  },
+});
+export function transazioneCondivisa<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  const existing = transazioni.getStore();
+  if (existing) return fn(existing);
+  return principale.$transaction((tx) => transazioni.run(tx, () => fn(tx)), { timeout: 15000 });
+}
 
 // RLS è difesa in profondità e resta SPENTA di default: senza RLS_ENABLED=true
 // il comportamento è identico a prima e le query non aprono transazioni.

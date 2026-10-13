@@ -14,6 +14,7 @@ export const DatiBarcaCustodia = z.object({
 }).strict();
 
 const CAMPI_BARCA = {
+  revisione: true,
   id: true, nome: true, tipo: true, tipoCodice: true, stato: true,
   uso: true, lunghezzaM: true, codiceInterno: true, proprietarioId: true, archiviato: true,
 } satisfies Prisma.BoatSelect;

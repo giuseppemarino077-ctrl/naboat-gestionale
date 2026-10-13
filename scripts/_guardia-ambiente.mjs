@@ -21,11 +21,20 @@ export function assicuraAmbienteDemo(nomeScript) {
   }
 }
 
-export function assicuraAmbienteSmoke(nomeScript, base) {
+export function assicuraDatabaseSmoke(nomeScript) {
   const hosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
-  const api = new URL(base);
   const db = new URL(process.env.DATABASE_URL);
-  if (!hosts.has(api.hostname) || !hosts.has(db.hostname) || !db.pathname.startsWith("/naboat_verifica_")) {
+  if (!hosts.has(db.hostname)
+    || !/^\/naboat_verifica_[a-f0-9]{16}$/.test(db.pathname)
+    || db.pathname !== `/${process.env.NABOAT_TEST_DATABASE}`) {
     throw new Error(`${nomeScript}: usa npm run test:isolated; gli smoke modificano dati e impostazioni globali.`);
+  }
+}
+
+export function assicuraAmbienteSmoke(nomeScript, base) {
+  assicuraDatabaseSmoke(nomeScript);
+  const api = new URL(base);
+  if (!["localhost", "127.0.0.1", "[::1]"].includes(api.hostname) || api.href !== process.env.NABOAT_TEST_BASE_URL) {
+    throw new Error(`${nomeScript}: usare soltanto il server di npm run test:isolated.`);
   }
 }

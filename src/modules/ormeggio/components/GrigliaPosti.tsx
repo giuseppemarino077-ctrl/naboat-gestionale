@@ -22,15 +22,16 @@ function BarcaNelPosto({ p, codice, font = 13, compatto = false, espanso = false
       <SagomaBarca forma={formaBarca(p.boatTipoCodice, p.boatTipo)} cor={FILL[p.statoGriglia]} className="h-full max-h-[80px] w-[94%]" />
     </span>
     <span className={compatto ? "sr-only" : "flex min-h-0 w-full flex-col justify-center overflow-hidden border-t border-current/10 bg-white/65 px-1.5 py-1 text-center [overflow-wrap:anywhere]"} data-anagrafica style={{ fontSize: font, lineHeight: 1.2 }}>
-      <span className={`block font-semibold ${espanso ? "whitespace-normal" : "truncate"}`}>{p.proprietario ?? "Proprietario non indicato"}</span>
+      {p.proprietario && <span className={`block font-semibold ${espanso ? "whitespace-normal" : "truncate"}`}>{p.proprietario}</span>}
       <span className={`mt-0.5 block font-bold ${espanso ? "whitespace-normal" : "truncate"}`}>{p.boatNome}</span>
     </span>
   </>;
 }
 
-export function GrigliaPosti({ area, configura, busy, trascinabile, corrisponde, onSeleziona, onAssegna, onToggleBlocco, onSposta, onErrore, onTrascinamento }: {
-  area: Area; configura: boolean; busy: boolean; trascinabile: boolean;
+export function GrigliaPosti({ area, configura, busy, trascinabile, solaLettura = false, corrisponde, evidenza, onSeleziona, onAssegna, onToggleBlocco, onSposta, onErrore, onTrascinamento }: {
+  area: Area; configura: boolean; busy: boolean; trascinabile: boolean; solaLettura?: boolean;
   corrisponde: (p: Posto) => boolean;
+  evidenza: (p: Posto) => "anteprima" | "selezione" | undefined;
   onSeleziona: (p: Perm) => void; onAssegna: (p: Posto) => void; onToggleBlocco: (p: Posto) => unknown;
   onSposta: (p: Perm, posto: Posto) => Promise<boolean>; onErrore: (messaggio: string) => void; onTrascinamento: (attivo: boolean) => void;
 }) {
@@ -79,7 +80,7 @@ export function GrigliaPosti({ area, configura, busy, trascinabile, corrisponde,
   const font = cellWidth < 100 ? 12 : 14;
   const altezzaBase = Math.max(4, Math.min(180, (dimensioni.height - 20 - gap * area.righe) / area.righe));
   const altezze = Array.from({ length: area.righe }, () => altezzaBase);
-  const compatto = denso || altezzaBase < 80;
+  const compatto = denso || altezzaBase < (solaLettura ? 55 : 80);
   const trova = (x: number, y: number) => {
     const element = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-posto-id]");
     if (!element || !root.current?.contains(element)) return null;
@@ -147,21 +148,21 @@ export function GrigliaPosti({ area, configura, busy, trascinabile, corrisponde,
             const boat = p.permanenza;
             const draggingSource = source?.id === p.id;
             const hovering = target?.id === p.id && source;
-            const nom = boat ? `${p.codice} · ${boat.proprietario ?? "Proprietario non indicato"} · ${boat.boatNome}` : `${p.codice} · ${p.bloccato ? "non utilizzabile" : "libero — clicca per assegnare"}`;
-            return <button key={p.id} data-posto-id={p.id} data-posto-codice={p.codice} data-permanenza-id={boat?.id} data-stato-posto={p.bloccato ? "bloccato" : boat ? "occupato" : "libero"}
-              type="button" aria-label={nom} title={configura ? `${p.codice}: clicca per ${p.bloccato ? "riabilitare" : "disattivare"}` : nom} disabled={busy}
+            const nom = boat ? `${p.codice} · ${boat.proprietario ? `${boat.proprietario} · ` : ""}${boat.boatNome}` : `${p.codice} · ${p.bloccato ? "non utilizzabile" : solaLettura ? "libero" : "libero — clicca per assegnare"}`;
+            return <button key={p.id} data-posto-id={p.id} data-posto-codice={p.codice} data-permanenza-id={boat?.id} data-stato-posto={p.bloccato ? "bloccato" : boat ? "occupato" : "libero"} data-evidenza-posto={source ? undefined : evidenza(p) ?? (boat && preview?.posto.id === p.id ? "anteprima" : undefined)}
+              type="button" aria-label={nom} title={configura ? `${p.codice}: clicca per ${p.bloccato ? "riabilitare" : "disattivare"}` : nom} disabled={busy || solaLettura && !boat}
               onPointerDown={(e) => inizia(e, p)} onPointerMove={muovi} onPointerUp={termina} onPointerCancel={() => { if (!drag.current?.pending) reset(); }}
               onPointerEnter={(e) => mostraPreview(e.currentTarget, p)} onPointerLeave={() => setPreview(null)} onFocus={(e) => mostraPreview(e.currentTarget, p)} onBlur={() => setPreview(null)}
               onClick={(e) => { if (Date.now() < clickBloccato.current) { e.preventDefault(); return; } setPreview(null); if (configura) onToggleBlocco(p); else if (boat) onSeleziona(boat); else if (!p.bloccato) onAssegna(p); }}
-              className={`relative grid min-h-0 min-w-0 overflow-hidden border text-center transition-[opacity,background-color,box-shadow] duration-150 motion-reduce:transition-none ${p.bloccato ? "border-dashed border-line bg-[#e8eeed] text-muted" : boat ? STILE[boat.statoGriglia] : "border-[#bfe6dc] bg-white text-muted hover:bg-foam"} ${!corrisponde(p) ? "opacity-25" : ""} ${draggingSource ? "opacity-25 ring-2 ring-inset ring-ocean/40" : ""} ${hovering ? valido(p) ? "ring-2 ring-inset ring-ocean bg-signature/50" : "ring-2 ring-inset ring-coral" : ""} ${arrivo === p.id ? "posto-arrivo" : ""}`}
-              style={{ borderRadius: Math.max(2, Math.min(18, cellWidth / 7)), gridTemplateRows: boat ? compatto ? "minmax(0,1fr)" : `minmax(0, 1fr) ${font * 2.4 + 12}px` : undefined, cursor: boat && trascinabile && !configura ? "grab" : "pointer", touchAction: boat && trascinabile && !configura ? "none" : "auto" }}>
-              {boat ? <BarcaNelPosto p={boat} codice={p.codice} font={font} compatto={compatto} /> : <><span className="absolute left-[4%] top-[3%] font-semibold leading-none" style={{ fontSize: Math.max(2, Math.min(10, cellWidth / 7, altezze[i] / 5)) }}>{p.codice}</span><span className="self-center leading-none" style={{ fontSize: Math.max(2, Math.min(11, cellWidth / 7, altezze[i] / 5)) }}>{p.bloccato ? "×" : "+"}</span></>}
+              className={`relative grid min-h-0 min-w-0 overflow-hidden border text-center transition-[opacity,background-color,box-shadow,transform] duration-150 motion-reduce:transition-none ${p.bloccato ? "border-dashed border-line bg-[#e8eeed] text-muted" : boat ? STILE[boat.statoGriglia] : "border-[#bfe6dc] bg-white text-muted hover:bg-foam"} ${!corrisponde(p) ? "opacity-25" : ""} ${draggingSource ? "opacity-25 ring-2 ring-inset ring-ocean/40" : ""} ${hovering ? valido(p) ? "ring-2 ring-inset ring-ocean bg-signature/50" : "ring-2 ring-inset ring-coral" : ""} ${arrivo === p.id ? "posto-arrivo" : ""}`}
+              style={{ borderRadius: Math.max(2, Math.min(18, cellWidth / 7)), gridTemplateRows: boat ? compatto ? "minmax(0,1fr)" : `minmax(0, 1fr) ${font * 2.4 + 12}px` : undefined, cursor: solaLettura && !boat ? "default" : boat && trascinabile && !configura ? "grab" : "pointer", touchAction: boat && trascinabile && !configura ? "none" : "auto" }}>
+              {boat ? <BarcaNelPosto p={boat} codice={p.codice} font={font} compatto={compatto} /> : <><span className="absolute left-[4%] top-[3%] font-semibold leading-none" style={{ fontSize: Math.max(2, Math.min(10, cellWidth / 7, altezze[i] / 5)) }}>{p.codice}</span><span className="self-center leading-none" style={{ fontSize: Math.max(2, Math.min(11, cellWidth / 7, altezze[i] / 5)) }}>{p.bloccato ? "×" : solaLettura ? "·" : "+"}</span></>}
             </button>;
           })}
         </div>)}
       </div>
     </div>
-    <p className="mt-2 text-[11px] text-muted">{configura ? "Clicca un posto per abilitarlo o bloccarlo." : trascinabile ? "Trascina una barca su un posto libero. Clicca per la scheda; Esc annulla il trascinamento." : "Vista storica: per trascinare una barca torna alla data di oggi."}{" Passa su una barca o usa il focus per ingrandire i dettagli."}</p>
+    <p className="mt-2 text-[11px] text-muted">{solaLettura ? "Mappa aggiornata automaticamente, in sola lettura." : configura ? "Clicca un posto per abilitarlo o bloccarlo." : trascinabile ? "Trascina una barca su un posto libero. Clicca per la scheda; Esc annulla il trascinamento." : "Vista storica: per trascinare una barca torna alla data di oggi."}{" Passa su una barca o usa il focus per ingrandire i dettagli."}</p>
     <span className="sr-only" role="status" aria-live="polite">{annuncio}</span>
     {source?.permanenza && createPortal(<div ref={(el) => { ghost.current = el; if (el && drag.current && !el.style.transform) posizioneGhost(drag.current.x, drag.current.y); }} data-drag-anteprima className="pointer-events-none fixed left-0 top-0 z-[80] w-[180px] rounded-2xl border border-ocean bg-white p-2 shadow-[0_24px_60px_-12px_rgba(5,47,63,0.5)]" style={{ willChange: "transform" }}>
       <div className={`grid min-h-[150px] grid-rows-[minmax(60px,1fr)_auto] overflow-hidden rounded-xl ${STILE[source.permanenza.statoGriglia]}`}><BarcaNelPosto p={source.permanenza} codice={source.codice} espanso /></div>

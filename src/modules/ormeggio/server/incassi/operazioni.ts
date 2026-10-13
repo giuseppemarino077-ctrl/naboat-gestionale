@@ -22,7 +22,7 @@ const Schema = z.object({
   importoCent: z.number().int().min(1).max(100000000),
   metodo: z.string().max(40).optional().nullable(),
   descrizione: z.string().max(200).optional().nullable(),
-});
+}).strict();
 
 export async function POST(req: Request) {
   const t = await requireImporti(req);
@@ -46,7 +46,7 @@ export async function POST(req: Request) {
     },
   });
   await prisma.auditLog.create({
-    data: { tenantId: t.tenantId, actorId: t.userId, azione: "ormeggio.incasso.manuale", entita: "Permanenza", entitaId: perm.id },
+    data: { tenantId: t.tenantId, actorId: t.userId, azione: "ormeggio.incasso.manuale", entita: "Permanenza", entitaId: perm.id, dettagli: JSON.stringify({ paymentId: incasso.id, importoCent: incasso.totaleCent, metodo: incasso.metodo, paidAt: incasso.paidAt }) },
   });
   return ok(incasso, 201);
 }

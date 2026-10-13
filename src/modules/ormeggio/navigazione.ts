@@ -6,5 +6,6 @@ export const VOCI_ORMEGGIO: Voce[] = [
   { href: "/gestionale/ormeggio/movimenti", icona: "movimenti", nome: "Movimenti", ruoli: AZIENDA, modulo: "ormeggio", gruppo: "ormeggio", primaria: true },
   { href: "/gestionale/ormeggio/proprietari", icona: "utente", nome: "Proprietari", ruoli: AZIENDA, modulo: "ormeggio", gruppo: "ormeggio", primaria: true },
   { href: "/gestionale/ormeggio/conti", icona: "portafoglio", nome: "Economia", ruoli: AZIENDA, modulo: "ormeggio", gruppo: "ormeggio", primaria: true },
+  { href: "/gestionale/ormeggio/statistiche", icona: "portafoglio", nome: "Statistiche", ruoli: AZIENDA, modulo: "ormeggio", gruppo: "ormeggio", primaria: true },
   { href: "/gestionale/ormeggio/configurazione", icona: "ingranaggio", nome: "Configurazione", ruoli: AZIENDA, modulo: "ormeggio", gruppo: "ormeggio", primaria: false },
 ];

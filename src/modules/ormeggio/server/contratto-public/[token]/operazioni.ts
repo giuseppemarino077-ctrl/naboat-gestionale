@@ -1,3 +1,4 @@
+import { riepilogoConto } from "@/modules/ormeggio/conto";
 import { fail } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { paymentConfig } from "@/modules/piattaforma/pagamenti";
@@ -41,7 +42,7 @@ async function daToken(token: string) {
           tenant: true,
           attivita: { where: { incluso: false } },
           addebiti: true,
-          payments: true,
+          payments: { include: { refunds: true } },
         },
       },
     },
@@ -62,9 +63,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
   if (tokenScaduto(c)) return fail("Link scaduto", 404);
   const p = c.permanenza;
   const cfg = await paymentConfig(p.tenantId);
-  const totaleAddebitiCent = p.addebiti.reduce((s, a) => s + a.importoCent, 0);
-  const incassatoCent = p.payments.filter((x) => x.stato === "pagato").reduce((s, x) => s + x.totaleCent, 0);
-  const residuoCent = Math.max(0, totaleAddebitiCent - incassatoCent);
+  const { totaleAddebitiCent, incassatoCent, residuoCent } = riepilogoConto(p.addebiti, p.payments);
 
   const s = isSnapshot(c.testoSnapshot) ? c.testoSnapshot : null;
   const legacy = !s;

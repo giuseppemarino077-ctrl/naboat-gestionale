@@ -33,26 +33,41 @@ export async function requireTenant(req: Request, opts: { ignoraAbbonamento?: bo
     if (mustTwoFa(u.role, s.twofa)) return { error: fail("2FA obbligatoria: abilitala da /gestionale/impostazioni/sicurezza", 403) };
     const tid = new URL(req.url).searchParams.get("tenantId");
     if (!tid) return { error: fail("Superadmin: specificare ?tenantId=", 400) };
-    return { userId: u.id, tenantId: tid, role: u.role, vedeImporti: true };
+    return { userId: u.id, tenantId: tid, role: u.role, vedeImporti: true, ruoloOrmeggio: "responsabile" as const, accessoNoleggio: true, accessoOrmeggio: true };
   }
 
-  const tenantStatus = u.tenant?.status ?? null;
-  if (!u.tenantId || !tenantStatus) return { error: fail("Nessuna azienda associata", 403) };
+  const appartenenza = s.tenantId ? await prisma.appartenenza.findUnique({
+    where: { tenantId_userId: { tenantId: s.tenantId, userId: u.id } },
+    include: { tenant: { select: { status: true, tipoModulo: true, moduloOrmeggio: true } } },
+  }) : null;
+  if (!appartenenza || appartenenza.stato !== "attiva") return { error: fail("Accesso all'azienda revocato o sospeso", 403) };
+  const tenantStatus = appartenenza.tenant.status;
   if (tenantStatus !== "active") return { error: fail("Azienda non attiva (in attesa/sospesa)", 403) };
-  if (u.role !== "owner" && u.role !== "operatore" && u.role !== "skipper") return { error: fail("Permesso negato", 403) };
+  const role = appartenenza.role;
+  const profiloLimitato = role !== "owner" && appartenenza.accessoOrmeggio && appartenenza.ruoloOrmeggio !== "responsabile";
+  const percorso = new URL(req.url).pathname;
+  if (profiloLimitato && !percorso.startsWith("/api/v1/ormeggio/") && !percorso.startsWith("/api/v1/auth/")) {
+    return { error: fail("Sezione non disponibile per il tuo ruolo", 403) };
+  }
+  if (role !== "owner" && appartenenza.accessoOrmeggio && /\/api\/v1\/(subscription|tenant|users)(\/|$)/.test(percorso)) {
+    return { error: fail("Riservato al titolare", 403) };
+  }
+  if (role !== "owner" && appartenenza.accessoOrmeggio && !appartenenza.vedeImporti && percorso.startsWith("/api/v1/audit")) return { error: fail("Registro riservato", 403) };
+
+  if (role !== "owner" && role !== "operatore" && role !== "skipper") return { error: fail("Permesso negato", 403) };
   // Lo skipper consulta (uscite, calendario, turni) ma non modifica nulla.
-  if (u.role === "skipper" && req.method !== "GET" && req.method !== "HEAD") {
+  if (role === "skipper" && req.method !== "GET" && req.method !== "HEAD") {
     return { error: fail("Ruolo skipper: sola consultazione", 403) };
   }
-  if (mustTwoFa(u.role, s.twofa)) return { error: fail("2FA obbligatoria: abilitala da /gestionale/impostazioni/sicurezza", 403) };
+  if (mustTwoFa(role, s.twofa)) return { error: fail("2FA obbligatoria: abilitala da /gestionale/impostazioni/sicurezza", 403) };
   if (process.env.REQUIRE_EMAIL_VERIFY === "true" && !u.emailVerified) {
     return { error: fail("Email non confermata: controlla la posta", 403) };
   }
   if (!opts.ignoraAbbonamento && (await abbonamentoRichiesto())) {
-    const attivo = await abbonamentoAttivo(u.tenantId);
+    const attivo = await abbonamentoAttivo(appartenenza.tenantId);
     if (!attivo) return { error: fail("Abbonamento non attivo: attivalo dalla pagina Abbonamento", 402) };
   }
-  return { userId: u.id, tenantId: u.tenantId, role: u.role, vedeImporti: u.vedeImporti };
+  return { userId: u.id, tenantId: appartenenza.tenantId, role, vedeImporti: role === "owner" || appartenenza.vedeImporti, ruoloOrmeggio: appartenenza.ruoloOrmeggio, accessoNoleggio: role === "owner" ? !appartenenza.tenant.moduloOrmeggio || appartenenza.tenant.tipoModulo === "entrambi" : appartenenza.accessoNoleggio, accessoOrmeggio: role === "owner" ? appartenenza.tenant.moduloOrmeggio : appartenenza.accessoOrmeggio };
 }
 
 export function isOwnerOrSuperadmin(role: string) {

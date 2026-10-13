@@ -3,6 +3,20 @@
 Monolite Next.js 15 + Postgres + Redis + Caddy su singolo VPS. Vedi `PERIMETRO.md` (D1) e `DEPLOY.md` (deploy/backup/DNS/sicurezza).
 
 ## Avvio locale
+
+Per riprendere il lavoro su Mac, fai doppio clic su **`Avvia NaBoat.command`**
+nella cartella del progetto, oppure esegui `npm run avvia`.
+Il collegamento apre Docker Desktop se necessario, avvia PostgreSQL e Redis,
+controlla le migrazioni, genera il client Prisma e avvia il server su
+http://localhost:3000 aprendo la pagina di accesso nel browser. Se il server
+di questo progetto è già acceso lo riutilizza. Lascia aperto il terminale;
+`Ctrl+C` ferma il server, mentre database e cache rimangono disponibili.
+Richiede Node.js, Docker Desktop, dipendenze installate (`npm ci`) e i file
+`.env` / `.env.local` configurati. Non applica migrazioni né esegue seed:
+se il database non è aggiornato, si ferma mostrando il problema.
+
+Per la prima configurazione o per intervenire manualmente:
+
 1. `docker compose up -d db redis` (porte 5434/6380 via override)
 2. `npx prisma migrate dev` · `npm run db:seed` (crea superadmin)
 3. `npm run dev` → http://localhost:3000 (login `admin@naboat.it` / password in `.env.local`)
@@ -59,3 +73,11 @@ vuoto con nome casuale, applica tutte le migrazioni, prepara account temporanei 
 esegue build e smoke su una copia del codice. Database, server e upload temporanei
 vengono rimossi alla fine. Non usa credenziali Stripe/SMTP reali e non svuota Redis.
 Vedi `docs/STABILIZZAZIONE.md` per limiti e risultati.
+
+Gli script rifiutano database persistenti e indirizzi diversi dal server del
+collaudo, compreso localhost:3000. Non creare prove automatiche negli account
+reali o demo: solo le prove inserite dalle persone devono rimanere visibili.
+Per residui storici: `node --env-file=.env.local scripts/demo-pulisci.mjs`
+mostra l’anteprima; aggiungere `--conferma` applica la pulizia in transazione.
+Fare prima un backup. Le firme combinano nome, identità e timestamp: i nomi
+«test» o «Smoke» da soli non bastano; identità condivise e casi dubbi restano.

@@ -5,9 +5,10 @@ import { Icona } from "@/components/ui/Icona";
 import { useConferma } from "@/components/ui/Dialogo";
 import { useUtente } from "@/components/Utente";
 import { useProdottoAttivo } from "@/modules/piattaforma/use-prodotto";
+import { Collaboratori } from "@/modules/piattaforma/collaboratori/Collaboratori";
 import { useModulo } from "@/components/ui/ModuloDialogo";
 
-export default function TeamPage() {
+function TeamNoleggio() {
   const [users, setUsers] = useState<any[]>([]);
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
@@ -177,4 +178,11 @@ export default function TeamPage() {
       {modulo.dialogo}
     </div>
   );
+}
+
+export default function TeamPage() {
+  const u = useUtente();
+  const prodotto = useProdottoAttivo(u);
+  if (!u) return <p className="text-sm text-muted">Caricamento…</p>;
+  return prodotto === "ormeggio" ? <Collaboratori /> : <TeamNoleggio />;
 }

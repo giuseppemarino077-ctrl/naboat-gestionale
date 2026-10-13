@@ -1,11 +1,14 @@
+import { fetchConRevisioni } from "./_concorrenza-ormeggio.mjs";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { SignJWT } from "jose";
+import { assicuraAmbienteSmoke } from "./_guardia-ambiente.mjs";
 
 const base = process.argv[2];
-if (!new URL(process.env.DATABASE_URL).pathname.startsWith("/naboat_verifica_") || !["localhost", "127.0.0.1"].includes(new URL(base).hostname)) throw new Error("Usare npm run test:isolated.");
+assicuraAmbienteSmoke("verifica-separazione.mjs", base);
 const db = new PrismaClient();
+const fetch = fetchConRevisioni(db);
 let passed = 0;
 const recent = [];
 const check = (name, value) => { assert.ok(value, value ? name : `${name}\n${JSON.stringify(recent.slice(-5))}`); passed++; console.log(`PASS  separazione: ${name}`); };

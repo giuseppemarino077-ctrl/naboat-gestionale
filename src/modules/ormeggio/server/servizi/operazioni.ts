@@ -6,7 +6,8 @@ import { z } from "zod";
 export async function GET(req: Request) {
   const t = await requireOrmeggio(req);
   if ("error" in t) return t.error;
-  const servizi = await prisma.servizioCatalogo.findMany({ where: { tenantId: t.tenantId }, orderBy: { nome: "asc" } });
+  const servizi = await prisma.servizioCatalogo.findMany({ where: { tenantId: t.tenantId }, orderBy: [{ nome: "asc" }, { id: "asc" }] });
+  servizi.sort((a, b) => Number(a.predefinito) - Number(b.predefinito) || (a.predefinito ? 0 : b.createdAt.getTime() - a.createdAt.getTime()));
   if (t.vedeImporti === false) return ok(servizi.map((s) => ({ ...s, prezzoCent: null })));
   return ok(servizi);
 }

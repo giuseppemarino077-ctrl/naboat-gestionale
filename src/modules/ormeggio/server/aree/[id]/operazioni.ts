@@ -23,11 +23,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (!area) return null;
     const righe = p.data.righe ?? area.righe;
     const colonne = p.data.colonne ?? area.colonne;
-    await tx.posto.deleteMany({ where: {
-      tenantId: t.tenantId, areaId: area.id,
-      OR: [{ riga: { gt: righe } }, { colonna: { gt: colonne } }],
-      permanenze: { none: {} }, assegnazioni: { none: {} },
-    } });
     const aggiornata = await tx.area.update({ where: { id: area.id, tenantId: t.tenantId }, data: { ...p.data, ...(p.data.nome ? { nome: p.data.nome.trim() } : {}) } });
     const posti = [];
     for (let r = 1; r <= righe; r++) for (let c = 1; c <= colonne; c++) posti.push({ tenantId: t.tenantId, areaId: area.id, riga: r, colonna: c, codice: codicePosto(r, c) });

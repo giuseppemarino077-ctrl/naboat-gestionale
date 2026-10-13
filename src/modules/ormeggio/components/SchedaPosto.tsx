@@ -15,7 +15,7 @@ export type DettaglioPosto = {
   note: string | null;
   contratto: { firmatoAt: string | null } | null;
   attivita: (AttivitaQuadro & { quantita: number | null; unita: string | null })[];
-  addebiti: { id: string; descrizione: string; importoCent: number }[];
+  addebiti: { id: string; descrizione: string; importoCent: number; incassatoCent: number; residuoCent: number }[];
   payments: { id: string; stato: string; totaleCent: number }[];
   conto: { totaleAddebitiCent: number; incassatoCent: number; residuoCent: number } | null;
 };
@@ -103,10 +103,19 @@ export function SchedaPosto({ permanenza, posto, dettaglio, errore, onRiprova, t
     </div>}
 
     {dettaglio && tabVisibile === "conto" && vedeImporti && <div className="grid gap-3 text-sm">
-      {dettaglio.conto && <dl className="grid grid-cols-3 gap-1.5 text-center text-xs">{[["Addebitato", dettaglio.conto.totaleAddebitiCent], ["Pagato", dettaglio.conto.incassatoCent], ["Residuo", dettaglio.conto.residuoCent]].map(([nome, cent]) => <div key={nome} className="min-w-0 rounded-xl bg-foam/70 p-2"><dt className="text-muted">{nome}</dt><dd className="mt-1 break-words font-bold text-deep">{euro(Number(cent))}</dd></div>)}</dl>}
-      {!dettaglio.addebiti.length && !dettaglio.payments.length && <p className="text-muted">Nessun addebito o incasso registrato.</p>}
-      {dettaglio.addebiti.map((a) => <div key={a.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line p-3"><span className="min-w-0 flex-[1_1_120px] break-words">{a.descrizione}</span><span className="font-semibold">{euro(a.importoCent)}</span></div>)}
-      {dettaglio.payments.map((p) => <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-dashed border-line p-3 text-muted"><span>Incasso {p.stato === "pagato" ? "" : "(in attesa)"}</span><span className="font-semibold">{euro(p.totaleCent)}</span></div>)}
+      {dettaglio.conto && <dl className="grid grid-cols-3 gap-1.5 text-center text-xs">{[["Totale", dettaglio.conto.totaleAddebitiCent], ["Pagato", dettaglio.conto.incassatoCent], ["Da pagare", dettaglio.conto.residuoCent]].map(([nome, cent]) => <div key={nome} className="min-w-0 rounded-xl bg-foam/70 p-2"><dt className="text-muted">{nome}</dt><dd className="mt-1 break-words font-bold text-deep">{euro(Number(cent))}</dd></div>)}</dl>}
+      <section aria-label="Da pagare" className="grid gap-2"><h3 className="font-bold">Da pagare</h3>
+        {dettaglio.addebiti.filter((a) => a.residuoCent > 0).map((a) => <div key={a.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line p-3"><span className="min-w-0 flex-[1_1_120px] break-words">{a.descrizione}{a.incassatoCent > 0 && <span className="block text-xs text-muted">Pagato {euro(a.incassatoCent)} · Rimane {euro(a.residuoCent)}</span>}</span><span className="font-semibold">{euro(a.importoCent)}</span></div>)}
+        {!dettaglio.addebiti.some((a) => a.residuoCent > 0) && <p className="text-muted">Nessuna voce da pagare.</p>}
+      </section>
+      <section aria-label="Pagato" className="grid gap-2"><h3 className="font-bold">Pagato</h3>
+        {dettaglio.addebiti.filter((a) => a.residuoCent === 0).map((a) => <div key={a.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line p-3"><span className="min-w-0 flex-[1_1_120px] break-words">{a.descrizione}{a.importoCent <= 0 && <span className="block text-xs text-muted">Non dovuto</span>}</span><span className="font-semibold">{euro(a.importoCent)}</span></div>)}
+        {!dettaglio.addebiti.some((a) => a.residuoCent === 0) && <p className="text-muted">Nessuna voce saldata.</p>}
+        <details open={!dettaglio.addebiti.some((a) => a.residuoCent === 0)}><summary className="cursor-pointer text-xs font-semibold">Dettaglio pagamenti</summary><div className="mt-2 grid gap-2">
+          {dettaglio.payments.map((p) => <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-dashed border-line p-3 text-muted"><span>Pagamento · {p.stato.replaceAll("_", " ")}</span><span className="font-semibold">{euro(p.totaleCent)}</span></div>)}
+          {!dettaglio.payments.length && <p className="text-muted">Nessun pagamento registrato.</p>}
+        </div></details>
+      </section>
       <Link className="btn-soft text-center" href={`${base}?tab=conto`}>Gestisci il conto →</Link>
     </div>}
 

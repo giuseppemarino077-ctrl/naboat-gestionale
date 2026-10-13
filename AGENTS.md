@@ -30,6 +30,8 @@ npm run check:boundaries          # confini dei prodotti e guardie delle operazi
 Nota: il DB locale è esposto sulla porta **5434** (la 5432 è spesso occupata). Vedi `.env.local.example`.
 
 ## Controlli obbligatori dopo ogni modifica
+I collaudi automatici che scrivono dati devono usare esclusivamente `npm run test:isolated`: mai account reali o demo persistenti, neppure con una pulizia successiva. Gli account devono mostrare solo dati e prove inseriti dalle persone o demo richieste esplicitamente. I residui storici si verificano con `demo:verifica` e si rimuovono con `demo:pulisci`, che riconosce firme precise e conserva i casi dubbi; non cancellare mai in base alla sola parola «test» o «Smoke».
+
 Da eseguire sempre, nell'ordine, prima di considerare finito un intervento:
 1. `npm run typecheck` → **0 errori**.
 2. `npm run lint` → **0 errori** (i warning storici sono ammessi), poi `npm run check:boundaries` → nessuna violazione.
